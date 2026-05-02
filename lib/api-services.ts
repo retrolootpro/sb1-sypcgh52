@@ -29,12 +29,44 @@ export async function lookupUPC(barcode: string, userId: string, titleHint?: str
     throw new Error('Invalid barcode');
   }
 
+  const cleanBarcode = barcode.trim();
+  const requestBody = { barcode: cleanBarcode, titleHint: titleHint?.trim() || undefined };
+  let routeErrorMessage = '';
+
+  try {
+    const response = await fetch('/api/local-upc-lookup', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const routeData = await response.json().catch(() => null);
+    if (response.ok && routeData?.success !== false) {
+      return {
+        barcode: cleanBarcode,
+        title: routeData.title,
+        description: routeData.description,
+        brand: routeData.brand,
+        category: routeData.category,
+        imageUrl: routeData.imageUrl,
+        thumbnailUrl: routeData.thumbnailUrl,
+      };
+    }
+
+    routeErrorMessage = routeData?.message || routeData?.error || `UPC lookup route failed (${response.status})`;
+  } catch (routeError) {
+    routeErrorMessage = routeError instanceof Error ? routeError.message : 'UPC lookup route failed';
+  }
+
   const { data, error } = await supabase.functions.invoke('lookup-upc', {
-    body: { barcode: barcode.trim(), titleHint: titleHint?.trim() || undefined },
+    body: requestBody,
   });
 
   if (error) {
-    let errorMessage = 'UPC lookup failed';
+    let errorMessage = routeErrorMessage || 'UPC lookup failed';
 
     if (data && typeof data === 'object' && 'error' in data) {
       errorMessage = data.error;
@@ -48,6 +80,10 @@ export async function lookupUPC(barcode: string, userId: string, titleHint?: str
 
     if (errorMessage.includes('not found')) {
       throw new Error(`Product not found for barcode ${barcode}. This barcode may not exist in the lookup databases.`);
+    }
+
+    if (errorMessage.includes('Failed to send a request to the Edge Function')) {
+      throw new Error(routeErrorMessage || 'UPC lookup is not available. Confirm your PriceCharting API key is active in Settings.');
     }
 
     if (errorMessage.includes('Authentication failed')) {
