@@ -11,6 +11,9 @@ export type ScannerOptions = {
   cooldownMs?: number;
 };
 
+const NATIVE_FORMATS = ['upc_a', 'upc_e', 'ean_13', 'ean_8', 'code_128'];
+const ZXING_FORMATS = ['UPC_A', 'UPC_E', 'EAN_13', 'EAN_8', 'CODE_128'];
+
 export class BarcodeScanner {
   private videoElement: HTMLVideoElement | null = null;
   private stream: MediaStream | null = null;
@@ -20,17 +23,12 @@ export class BarcodeScanner {
   private options: ScannerOptions;
   private barcodeDetector: any = null;
   private zxingReader: any = null;
+  private zxingControls: any = null;
   private destroyed = false;
 
   constructor(options: ScannerOptions) {
     this.options = {
-      formats: [
-        'upc_a',
-        'upc_e',
-        'ean_13',
-        'ean_8',
-        'code_128',
-      ],
+      formats: NATIVE_FORMATS,
       cooldownMs: 2000,
       ...options,
     };
@@ -57,13 +55,8 @@ export class BarcodeScanner {
       this.videoElement.srcObject = this.stream;
       await this.videoElement.play();
 
-      if ('BarcodeDetector' in window) {
-        this.barcodeDetector = new (window as any).BarcodeDetector({
-          formats: this.options.formats,
-        });
-      } else {
-        await this.initializeZXing();
-      }
+      await this.initializeZXing();
+      await this.initializeBarcodeDetector();
     } catch (error) {
       if (!this.destroyed) {
         this.options.onError(error as Error);
@@ -72,10 +65,40 @@ export class BarcodeScanner {
     }
   }
 
+  private async initializeBarcodeDetector(): Promise<void> {
+    const BarcodeDetector = (window as any).BarcodeDetector;
+    if (!BarcodeDetector) return;
+
+    try {
+      const supportedFormats = typeof BarcodeDetector.getSupportedFormats === 'function'
+        ? await BarcodeDetector.getSupportedFormats()
+        : this.options.formats;
+      const requestedFormats = this.options.formats ?? NATIVE_FORMATS;
+      const usableFormats = requestedFormats.filter((format) => supportedFormats.includes(format));
+
+      if (usableFormats.length === 0) return;
+
+      this.barcodeDetector = new BarcodeDetector({ formats: usableFormats });
+    } catch {
+      this.barcodeDetector = null;
+    }
+  }
+
   private async initializeZXing(): Promise<void> {
     try {
       const { BrowserMultiFormatReader } = await import('@zxing/browser');
-      this.zxingReader = new BrowserMultiFormatReader();
+      const { BarcodeFormat, DecodeHintType } = await import('@zxing/library');
+      const possibleFormats = ZXING_FORMATS
+        .map((format) => (BarcodeFormat as any)[format])
+        .filter((format) => typeof format === 'number');
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, possibleFormats);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+
+      this.zxingReader = new BrowserMultiFormatReader(hints, {
+        delayBetweenScanAttempts: 120,
+        delayBetweenScanSuccess: this.options.cooldownMs,
+      });
     } catch (error) {
       throw new Error('Failed to initialize barcode scanner');
     }
@@ -85,7 +108,35 @@ export class BarcodeScanner {
     if (!this.videoElement) {
       throw new Error('Scanner not initialized');
     }
+    if (this.zxingReader) {
+      this.startZXingContinuousScan();
+      return;
+    }
     this.scan();
+  }
+
+  private async startZXingContinuousScan(): Promise<void> {
+    if (!this.videoElement || !this.stream || !this.zxingReader || this.destroyed) return;
+
+    try {
+      this.zxingControls = await this.zxingReader.decodeFromStream(
+        this.stream,
+        this.videoElement,
+        (result: any, error: unknown) => {
+          if (this.destroyed || !result) return;
+          this.handleScanResult(result.getText(), result.getBarcodeFormat().toString());
+        }
+      );
+    } catch (error) {
+      if (this.barcodeDetector && !this.destroyed) {
+        this.scan();
+        return;
+      }
+
+      if (!this.destroyed) {
+        this.options.onError(error as Error);
+      }
+    }
   }
 
   private async scan(): Promise<void> {
@@ -96,11 +147,7 @@ export class BarcodeScanner {
     }
 
     try {
-      if (this.barcodeDetector) {
-        await this.scanWithBarcodeDetector();
-      } else if (this.zxingReader) {
-        await this.scanWithZXing();
-      }
+      if (this.barcodeDetector) await this.scanWithBarcodeDetector();
     } catch (error) {
     }
 
@@ -115,27 +162,6 @@ export class BarcodeScanner {
     if (!this.destroyed && barcodes.length > 0) {
       const barcode = barcodes[0];
       this.handleScanResult(barcode.rawValue, barcode.format);
-    }
-  }
-
-  private async scanWithZXing(): Promise<void> {
-    if (this.destroyed) return;
-    try {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx || !this.videoElement) return;
-
-      canvas.width = this.videoElement.videoWidth;
-      canvas.height = this.videoElement.videoHeight;
-      ctx.drawImage(this.videoElement, 0, 0, canvas.width, canvas.height);
-
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const result = await this.zxingReader.decodeFromImageData(imageData);
-
-      if (!this.destroyed && result) {
-        this.handleScanResult(result.getText(), result.getBarcodeFormat().toString());
-      }
-    } catch (error) {
     }
   }
 
@@ -166,6 +192,11 @@ export class BarcodeScanner {
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
       this.animationFrame = null;
+    }
+
+    if (this.zxingControls) {
+      this.zxingControls.stop();
+      this.zxingControls = null;
     }
 
     if (this.videoElement) {
