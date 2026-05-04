@@ -372,7 +372,6 @@ function fallbackMarketValue(item: AssistantInventoryItem) {
 }
 
 function buildInventorySearchAnswer(message: string, inventory: AssistantInventoryItem[], app: AssistantAppContext) {
-  const lower = message.toLowerCase();
   const words = queryWords(message);
   const isSearchy = /\b(do i have|find|search|show me|which|what.*inventory|list.*games|games.*have)\b/i.test(message);
   const isCleanQuestion = /\bclean|cleaned|cleaning\b/i.test(message);
@@ -492,9 +491,7 @@ export async function POST(req: NextRequest) {
 
     const inventoryRes = await supabase
       .from('inventory_items')
-      .select(
-        'id, product_name, console, condition, purchase_price, selected_market_value, price_loose, price_cib, price_new, price_graded, estimated_profit, estimated_margin_percent, deal_score, deal_score_label, status, quantity, created_at, sold_at, sell_price, sold_via, image_url, category, genre, notes, sorted_at, cleaned_at, tested_at, notes_added_at, on_rack_at, listed_ebay_at, listed_amazon_at, listed_whatnot_at, lot_id'
-      )
+      .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(1500);

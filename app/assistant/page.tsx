@@ -137,10 +137,14 @@ export default function AssistantPage() {
       setOpenAIConfigured(Boolean(result.openAIConfigured));
       setMessages((prev) => [...prev, { role: 'assistant', content: result.answer }]);
     } catch (error: any) {
-      toast.error(error.message || 'Assistant failed');
+      const message = error.message || 'Assistant request failed';
+      toast.error(message);
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: 'I could not read the inventory data for that request. Try again after refreshing the page.' },
+        {
+          role: 'assistant',
+          content: `I could not read the inventory data for that request. Backend detail: ${message}`,
+        },
       ]);
     } finally {
       setLoading(false);
