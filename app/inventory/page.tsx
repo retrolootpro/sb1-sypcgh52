@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -67,6 +67,7 @@ export default function InventoryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [consoleFilter, setConsoleFilter] = useState('all');
   const [conditionFilter, setConditionFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('name_asc');
   const [backfilling, setBackfilling] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
 
@@ -82,7 +83,7 @@ export default function InventoryPage() {
         .from('inventory_items')
         .select(`*, pricing_data (*)`)
         .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+        .order('product_name', { ascending: true });
 
       if (error) throw error;
       setItems(data as InventoryItem[]);
@@ -294,9 +295,20 @@ export default function InventoryPage() {
     }
   };
 
+  const getItemMarketValue = useCallback((item: InventoryItem) => {
+    const pricing = item.pricing_data?.[0];
+    const loosePrice = Number(item.price_loose) || Number(pricing?.loose_price) || 0;
+    const cibPrice = Number(item.price_cib) || Number(pricing?.cib_price) || 0;
+    const newPrice = Number(item.price_new) || Number(pricing?.new_price) || 0;
+    const gradedPrice = Number(item.price_graded) || 0;
+    const savedMarketValue = Number(item.selected_market_value) || 0;
+    const conditionMarketValue = getMarketValueByCondition(item.condition, loosePrice, cibPrice, newPrice, gradedPrice);
+    return savedMarketValue > 0 ? savedMarketValue : conditionMarketValue;
+  }, []);
+
   const filteredItems = useMemo(() => {
     const query = searchQuery.toLowerCase();
-    return items.filter((item) => {
+    const filtered = items.filter((item) => {
       const matchesSearch = !query || item.product_name.toLowerCase().includes(query) || item.console.toLowerCase().includes(query);
       const matchesConsole = consoleFilter === 'all' || item.console === consoleFilter;
       const matchesCondition = conditionFilter === 'all' || item.condition === conditionFilter;
@@ -305,7 +317,48 @@ export default function InventoryPage() {
         : item.collection_id === selectedCollectionId;
       return matchesSearch && matchesConsole && matchesCondition && matchesCollection;
     });
-  }, [items, searchQuery, consoleFilter, conditionFilter, selectedCollectionId]);
+
+    return [...filtered].sort((a, b) => {
+      const nameCompare = a.product_name.localeCompare(b.product_name, undefined, { sensitivity: 'base', numeric: true });
+      const consoleCompare = a.console.localeCompare(b.console, undefined, { sensitivity: 'base', numeric: true });
+      const dateA = new Date(a.created_at).getTime() || 0;
+      const dateB = new Date(b.created_at).getTime() || 0;
+      const marketA = getItemMarketValue(a);
+      const marketB = getItemMarketValue(b);
+      const costA = Number(a.purchase_price) || 0;
+      const costB = Number(b.purchase_price) || 0;
+      const profitA = marketA - costA;
+      const profitB = marketB - costB;
+
+      switch (sortBy) {
+        case 'name_desc':
+          return -nameCompare;
+        case 'newest':
+          return dateB - dateA || nameCompare;
+        case 'oldest':
+          return dateA - dateB || nameCompare;
+        case 'console':
+          return consoleCompare || nameCompare;
+        case 'condition':
+          return a.condition.localeCompare(b.condition, undefined, { sensitivity: 'base' }) || nameCompare;
+        case 'cost_high':
+          return costB - costA || nameCompare;
+        case 'cost_low':
+          return costA - costB || nameCompare;
+        case 'market_high':
+          return marketB - marketA || nameCompare;
+        case 'market_low':
+          return marketA - marketB || nameCompare;
+        case 'profit_high':
+          return profitB - profitA || nameCompare;
+        case 'profit_low':
+          return profitA - profitB || nameCompare;
+        case 'name_asc':
+        default:
+          return nameCompare;
+      }
+    });
+  }, [items, searchQuery, consoleFilter, conditionFilter, selectedCollectionId, sortBy, getItemMarketValue]);
 
   const collectionItemCount = useCallback((colId: string) =>
     items.filter((i) => i.collection_id === colId).length, [items]);
@@ -456,9 +509,29 @@ export default function InventoryPage() {
               className="pl-9 bg-card border-border/50 h-10 text-sm rounded-xl"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-full min-w-[155px] flex-1 sm:w-[170px] sm:flex-none bg-card border-border/50 h-10 text-sm rounded-xl">
+                <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/50" />
+                <SelectValue placeholder="Sort" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="name_asc">Name A-Z</SelectItem>
+                <SelectItem value="name_desc">Name Z-A</SelectItem>
+                <SelectItem value="newest">Newest Added</SelectItem>
+                <SelectItem value="oldest">Oldest Added</SelectItem>
+                <SelectItem value="console">Console A-Z</SelectItem>
+                <SelectItem value="condition">Condition A-Z</SelectItem>
+                <SelectItem value="cost_high">Cost High-Low</SelectItem>
+                <SelectItem value="cost_low">Cost Low-High</SelectItem>
+                <SelectItem value="market_high">Market High-Low</SelectItem>
+                <SelectItem value="market_low">Market Low-High</SelectItem>
+                <SelectItem value="profit_high">Profit High-Low</SelectItem>
+                <SelectItem value="profit_low">Profit Low-High</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={consoleFilter} onValueChange={setConsoleFilter}>
-              <SelectTrigger className="w-[160px] bg-card border-border/50 h-10 text-sm rounded-xl">
+              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[160px] sm:flex-none bg-card border-border/50 h-10 text-sm rounded-xl">
                 <SelectValue placeholder="Console" />
               </SelectTrigger>
               <SelectContent>
@@ -467,7 +540,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={conditionFilter} onValueChange={setConditionFilter}>
-              <SelectTrigger className="w-[140px] bg-card border-border/50 h-10 text-sm rounded-xl">
+              <SelectTrigger className="w-full min-w-[135px] flex-1 sm:w-[140px] sm:flex-none bg-card border-border/50 h-10 text-sm rounded-xl">
                 <SelectValue placeholder="Condition" />
               </SelectTrigger>
               <SelectContent>
