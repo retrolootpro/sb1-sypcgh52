@@ -118,6 +118,21 @@ export async function getPricingData(
 
     if (isDev) console.log(`[Pricing] lookup-pricing: "${productName}" (${platform})`);
 
+    if (shouldUseLocalPricing()) {
+      const routeResult = await invokeLocalMarketPricing(productName, platform, {
+        upc: upc ?? null,
+        forceRefresh,
+      });
+
+      if (routeResult && routeResult.status !== 'api_error') {
+        return canonicalToPricingResult(routeResult);
+      }
+
+      if (routeResult?.errorCode === 'CONFIG_ERROR') {
+        return { status: 'config_error', error: routeResult.error, errorCode: routeResult.errorCode };
+      }
+    }
+
     const { data, error } = await supabase.functions.invoke('lookup-pricing', {
       body: {
         productName: productName.trim(),
@@ -410,8 +425,7 @@ function emptyPrices(): CanonicalPrices {
 }
 
 function shouldUseLocalPricing(): boolean {
-  if (typeof window === 'undefined') return false;
-  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  return typeof window !== 'undefined';
 }
 
 async function invokeLocalMarketPricing(
@@ -510,6 +524,35 @@ function pricingResultToCanonical(result: PricingResult, warnings: string[]): Ca
     },
     cached: false,
     source: 'pricecharting_api',
+  };
+}
+
+function canonicalToPricingResult(result: CanonicalPricingResult): PricingResult {
+  const p = result.prices;
+  const hasAnyPrice = p.loose.value > 0 || p.cib.value > 0 || p.new.value > 0 || p.graded.value > 0;
+
+  if (!hasAnyPrice) {
+    return {
+      status: 'no_match',
+      error: result.error || 'No pricing data found',
+    };
+  }
+
+  return {
+    status: 'success',
+    data: {
+      productName: result.pcMatch?.productName || '',
+      console: result.pcMatch?.platform || '',
+      loosePrice: p.loose.value,
+      cibPrice: p.cib.value,
+      newPrice: p.new.value,
+      gradedPrice: p.graded.value,
+      pcProductId: result.pcMatch?.productId || '',
+      matchedTitle: result.pcMatch?.productName || undefined,
+      matchedPlatform: result.pcMatch?.platform || undefined,
+      confidence: result.pcMatch ? 90 : 70,
+      strategy: result.pcMatch?.strategy || 'netlify_pricecharting',
+    },
   };
 }
 

@@ -12,7 +12,8 @@ import { InventoryTable } from '@/components/inventory-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CONSOLES, CONDITIONS, REGIONS } from '@/lib/constants';
 import { lookupUPC } from '@/lib/api-services';
-import { getMarketValueByCondition } from '@/lib/deal-score';
+import { getCanonicalPricing } from '@/lib/pricing-service';
+import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { toast } from 'sonner';
 import { CreateCollectionDialog, type Collection } from '@/components/create-collection-dialog';
 import {
@@ -45,6 +46,7 @@ type InventoryItem = {
   price_new?: number;
   price_graded?: number;
   selected_market_value?: number;
+  pc_source_product_id?: string | null;
   pricing_data?: {
     loose_price: number;
     cib_price: number;
@@ -72,6 +74,7 @@ export default function InventoryPage() {
   const [sortBy, setSortBy] = useState('name_asc');
   const [backfilling, setBackfilling] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
@@ -370,10 +373,10 @@ export default function InventoryPage() {
   const collectionItemCount = useCallback((colId: string) =>
     items.filter((i) => i.collection_id === colId).length, [items]);
 
-  const totalItems = selectedCollectionId === null ? items.length : filteredItems.length;
+  const totalItems = filteredItems.length;
 
   const { totalCost, totalMarketValue } = useMemo(() => {
-    const source = selectedCollectionId === null ? items : filteredItems;
+    const source = filteredItems;
     let cost = 0;
     let market = 0;
     for (const item of source) {
@@ -388,7 +391,106 @@ export default function InventoryPage() {
       market += (savedMarketValue > 0 ? savedMarketValue : conditionMarketValue) * item.quantity;
     }
     return { totalCost: cost, totalMarketValue: market };
-  }, [items, filteredItems, selectedCollectionId]);
+  }, [filteredItems]);
+
+  const handleRefreshInventoryPrices = async () => {
+    if (!user) return;
+
+    const targets = filteredItems.length > 0 ? filteredItems : items;
+    if (targets.length === 0) {
+      toast.info('No inventory items to price');
+      return;
+    }
+
+    setRefreshingPrices(true);
+    let updated = 0;
+    let missing = 0;
+    let failed = 0;
+
+    try {
+      toast.info(`Refreshing prices for ${targets.length} item${targets.length === 1 ? '' : 's'}...`);
+
+      for (const item of targets) {
+        try {
+          const result = await getCanonicalPricing(item.product_name, item.console, {
+            upc: item.barcode || null,
+            storedPcProductId: item.pc_source_product_id || null,
+            forceRefresh: true,
+          });
+
+          const p = result.prices;
+          const pricing = item.pricing_data?.[0];
+          const loosePrice = p.loose.value || Number(item.price_loose) || Number(pricing?.loose_price) || 0;
+          const cibPrice = p.cib.value || Number(item.price_cib) || Number(pricing?.cib_price) || 0;
+          const newPrice = p.new.value || Number(item.price_new) || Number(pricing?.new_price) || 0;
+          const gradedPrice = p.graded.value || Number(item.price_graded) || 0;
+          const marketValue = getMarketValueByCondition(item.condition, loosePrice, cibPrice, newPrice, gradedPrice);
+          const purchasePrice = Number(item.purchase_price) || 0;
+          const estimatedProfit = marketValue > 0 ? marketValue - purchasePrice : 0;
+          const estimatedMarginPercent = marketValue > 0 && purchasePrice > 0 ? (estimatedProfit / purchasePrice) * 100 : 0;
+          const itemAgeDays = Math.max(0, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 86400000));
+          const dealScore = marketValue > 0
+            ? calculateDealScore(purchasePrice, marketValue, 0, 0, itemAgeDays)
+            : null;
+
+          const updates: Record<string, any> = {
+            pricing_status: marketValue > 0 ? 'found' : result.status === 'api_error' ? 'error' : 'missing',
+            pricing_last_checked_at: new Date().toISOString(),
+            selected_market_value: marketValue,
+            estimated_profit: estimatedProfit,
+            estimated_margin_percent: estimatedMarginPercent,
+            deal_score: dealScore?.score ?? 0,
+            deal_score_label: dealScore?.label ?? '',
+            pricing_source: result.source || 'pricecharting',
+            pricing_error_message: result.status === 'api_error' ? result.error || 'Pricing refresh failed' : null,
+            pricing_confidence: result.pcMatch ? 90 : null,
+            pricing_diagnostics: {
+              ...result.diagnostics,
+              refreshedFrom: 'inventory_page',
+              refreshedAt: new Date().toISOString(),
+            },
+          };
+
+          if (p.loose.value > 0) updates.price_loose = p.loose.value;
+          if (p.cib.value > 0) updates.price_cib = p.cib.value;
+          if (p.new.value > 0) updates.price_new = p.new.value;
+          if (p.graded.value > 0) updates.price_graded = p.graded.value;
+          if (result.pcMatch?.productId) {
+            updates.pc_source_product_id = result.pcMatch.productId;
+            updates.pricing_matched_title = result.pcMatch.productName;
+            updates.pricing_matched_platform = result.pcMatch.platform;
+          }
+
+          const { error } = await supabase
+            .from('inventory_items')
+            .update(updates)
+            .eq('id', item.id)
+            .eq('user_id', user.id);
+
+          if (error) {
+            failed++;
+          } else if (marketValue > 0) {
+            updated++;
+          } else {
+            missing++;
+          }
+
+          await new Promise((resolve) => setTimeout(resolve, 200));
+        } catch {
+          failed++;
+        }
+      }
+
+      if (updated > 0) toast.success(`Updated pricing for ${updated} item${updated === 1 ? '' : 's'}`);
+      if (missing > 0) toast.warning(`${missing} item${missing === 1 ? '' : 's'} still need pricing data`);
+      if (failed > 0) toast.error(`${failed} price refresh${failed === 1 ? '' : 'es'} failed`);
+      if (updated === 0 && missing === 0 && failed === 0) toast.info('No pricing changes found');
+
+      await loadInventory();
+    } finally {
+      setRefreshingPrices(false);
+    }
+  };
 
   const activeCollection = collections.find((c) => c.id === selectedCollectionId);
 
@@ -402,12 +504,16 @@ export default function InventoryPage() {
               {activeCollection ? activeCollection.name : 'Inventory'}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleBackfillBarcodeData} disabled={backfilling || loading || reprocessing} className="text-xs h-9 rounded-lg">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={handleRefreshInventoryPrices} disabled={refreshingPrices || backfilling || loading || reprocessing} className="text-xs h-9 rounded-lg">
+              <TrendingUp className={`w-3.5 h-3.5 mr-1.5 ${refreshingPrices ? 'animate-pulse' : ''}`} />
+              {refreshingPrices ? 'Pricing...' : 'Refresh Prices'}
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleBackfillBarcodeData} disabled={backfilling || refreshingPrices || loading || reprocessing} className="text-xs h-9 rounded-lg">
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${backfilling ? 'animate-spin' : ''}`} />
               {backfilling ? 'Refreshing...' : 'Refresh Metadata'}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleReprocessInventory} disabled={reprocessing || loading || backfilling} className="text-xs h-9 rounded-lg">
+            <Button variant="outline" size="sm" onClick={handleReprocessInventory} disabled={reprocessing || loading || backfilling || refreshingPrices} className="text-xs h-9 rounded-lg">
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${reprocessing ? 'animate-spin' : ''}`} />
               {reprocessing ? 'Processing...' : 'Reprocess'}
             </Button>
