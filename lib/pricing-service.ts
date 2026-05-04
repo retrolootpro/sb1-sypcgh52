@@ -439,7 +439,17 @@ async function invokeLocalMarketPricing(
 ): Promise<CanonicalPricingResult | null> {
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) return null;
+    if (!session?.access_token) {
+      return {
+        status: 'api_error',
+        prices: emptyPrices(),
+        pcMatch: null,
+        diagnostics: failedDiagnostics(['No active session']),
+        cached: false,
+        source: 'none',
+        error: 'No active session',
+      };
+    }
 
     const response = await fetch('/api/local-market-prices', {
       method: 'POST',
@@ -491,7 +501,15 @@ async function invokeLocalMarketPricing(
     };
   } catch (error) {
     console.error('[Market] Local pricing exception:', error);
-    return null;
+    return {
+      status: 'api_error',
+      prices: emptyPrices(),
+      pcMatch: null,
+      diagnostics: failedDiagnostics([error instanceof Error ? error.message : 'Local pricing endpoint failed']),
+      cached: false,
+      source: 'none',
+      error: error instanceof Error ? error.message : 'Local pricing endpoint failed',
+    };
   }
 }
 

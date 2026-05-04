@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getPricingData } from './pricing-service';
 
 export interface UPCLookupResult {
   barcode: string;
@@ -61,64 +62,38 @@ export async function lookupUPC(barcode: string, userId: string, titleHint?: str
     routeErrorMessage = routeError instanceof Error ? routeError.message : 'UPC lookup route failed';
   }
 
-  const { data, error } = await supabase.functions.invoke('lookup-upc', {
-    body: requestBody,
-  });
-
-  if (error) {
-    let errorMessage = routeErrorMessage || 'UPC lookup failed';
-
-    if (data && typeof data === 'object' && 'error' in data) {
-      errorMessage = data.error;
-    } else if (error.message) {
-      errorMessage = error.message;
-    }
-
-    if (errorMessage.includes('API key not configured')) {
-      throw new Error('API key not configured. Please add a PriceCharting, Barcode Lookup, or UPCitemDB API key in Settings.');
-    }
-
-    if (errorMessage.includes('not found')) {
-      throw new Error(`Product not found for barcode ${barcode}. This barcode may not exist in the lookup databases.`);
-    }
-
-    if (errorMessage.includes('Failed to send a request to the Edge Function')) {
-      throw new Error(routeErrorMessage || 'UPC lookup is not available. Confirm your PriceCharting API key is active in Settings.');
-    }
-
-    if (errorMessage.includes('Authentication failed')) {
-      throw new Error('Authentication failed. Please try logging out and back in.');
-    }
-
-    throw new Error(errorMessage || 'UPC lookup failed. Please try again.');
+  if (routeErrorMessage.includes('API key not configured')) {
+    throw new Error('API key not configured. Please add a PriceCharting, Barcode Lookup, or UPCitemDB API key in Settings.');
   }
 
-  if (!data) {
-    throw new Error('No data returned from lookup');
+  if (routeErrorMessage.includes('not found')) {
+    throw new Error(`Product not found for barcode ${barcode}. This barcode may not exist in the lookup databases.`);
   }
 
-  return data;
+  if (routeErrorMessage.includes('Authentication failed')) {
+    throw new Error('Authentication failed. Please try logging out and back in.');
+  }
+
+  throw new Error(routeErrorMessage || 'UPC lookup failed. Please try again.');
 }
 
 /**
  * @deprecated Use getPricingData from '@/lib/pricing-service' instead
  */
 export async function getPricing(productName: string, platform: string, userId: string): Promise<PriceChartingResult | null> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) return null;
-
   if (!productName || productName.trim().length === 0) return null;
 
-  const { data, error } = await supabase.functions.invoke('lookup-pricing', {
-    body: {
-      productName: productName.trim(),
-      platform: platform || 'Unknown'
-    },
-  });
+  const result = await getPricingData(productName, platform, userId, true);
+  if (result.status !== 'success' || !result.data) return null;
 
-  if (error || !data) return null;
-
-  return data;
+  return {
+    productName: result.data.productName,
+    console: result.data.console,
+    loosePrice: result.data.loosePrice,
+    cibPrice: result.data.cibPrice,
+    newPrice: result.data.newPrice,
+    genre: result.data.genre,
+  };
 }
 
 export async function getEbayComps(productName: string, platform: string, userId: string): Promise<any[]> {

@@ -73,7 +73,6 @@ export default function InventoryPage() {
   const [regionFilter, setRegionFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name_asc');
   const [backfilling, setBackfilling] = useState(false);
-  const [reprocessing, setReprocessing] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
 
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -211,7 +210,7 @@ export default function InventoryPage() {
     if (!user) return;
     setBackfilling(true);
     try {
-      if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      if (typeof window !== 'undefined') {
         toast.info('Refreshing metadata and images...');
         const result = await runLocalMetadataRefresh();
         if ((result.updated ?? 0) > 0) {
@@ -273,30 +272,6 @@ export default function InventoryPage() {
       toast.error(error.message || 'Failed to backfill barcode data');
     } finally {
       setBackfilling(false);
-    }
-  };
-
-  const handleReprocessInventory = async () => {
-    if (!user) return;
-    setReprocessing(true);
-    try {
-      toast.info('Reprocessing inventory items...');
-      const { data: session } = await supabase.auth.getSession();
-      if (!session?.session?.access_token) throw new Error('Not authenticated');
-      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/backfill-inventory`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${session.session.access_token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dryRun: false })
-      });
-      if (!response.ok) { const error = await response.json(); throw new Error(error.error || 'Failed to reprocess'); }
-      const result = await response.json();
-      if (result.itemsUpdated > 0) { toast.success(`Reprocessed ${result.itemsUpdated} items`); loadInventory(); }
-      else if (result.itemsSkipped === result.itemsProcessed) { toast.info('All items are already up to date'); }
-      else { toast.info(`Processed ${result.itemsProcessed} items`); }
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to reprocess inventory');
-    } finally {
-      setReprocessing(false);
     }
   };
 
@@ -505,17 +480,13 @@ export default function InventoryPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleRefreshInventoryPrices} disabled={refreshingPrices || backfilling || loading || reprocessing} className="text-xs h-9 rounded-lg">
+            <Button variant="outline" size="sm" onClick={handleRefreshInventoryPrices} disabled={refreshingPrices || backfilling || loading} className="text-xs h-9 rounded-lg">
               <TrendingUp className={`w-3.5 h-3.5 mr-1.5 ${refreshingPrices ? 'animate-pulse' : ''}`} />
               {refreshingPrices ? 'Pricing...' : 'Refresh Prices'}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleBackfillBarcodeData} disabled={backfilling || refreshingPrices || loading || reprocessing} className="text-xs h-9 rounded-lg">
+            <Button variant="outline" size="sm" onClick={handleBackfillBarcodeData} disabled={backfilling || refreshingPrices || loading} className="text-xs h-9 rounded-lg">
               <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${backfilling ? 'animate-spin' : ''}`} />
               {backfilling ? 'Refreshing...' : 'Refresh Metadata'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleReprocessInventory} disabled={reprocessing || loading || backfilling || refreshingPrices} className="text-xs h-9 rounded-lg">
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${reprocessing ? 'animate-spin' : ''}`} />
-              {reprocessing ? 'Processing...' : 'Reprocess'}
             </Button>
             <Button size="sm" className="h-9 rounded-lg" onClick={() => setShowAddDialog(true)}>
               <Plus className="w-3.5 h-3.5 mr-1.5" />

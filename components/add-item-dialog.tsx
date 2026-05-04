@@ -11,7 +11,8 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
 import { CONSOLES, CONDITIONS, REGIONS } from '@/lib/constants';
-import { getPricing } from '@/lib/api-services';
+import { getCanonicalPricing } from '@/lib/pricing-service';
+import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 
 type AddItemDialogProps = {
   open: boolean;
@@ -101,13 +102,49 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
       if (!inventoryItem) throw new Error('Item created but no data returned');
 
       try {
-        const pricingData = await getPricing(formData.product_name.trim(), formData.console, user!.id);
-        if (pricingData) {
+        const pricingData = await getCanonicalPricing(formData.product_name.trim(), formData.console, {
+          upc: formData.barcode?.trim() || null,
+          forceRefresh: true,
+        });
+
+        if (pricingData.status !== 'api_error') {
+          const loosePrice = pricingData.prices.loose.value || 0;
+          const cibPrice = pricingData.prices.cib.value || 0;
+          const newPrice = pricingData.prices.new.value || 0;
+          const gradedPrice = pricingData.prices.graded.value || 0;
+          const marketValue = getMarketValueByCondition(formData.condition, loosePrice, cibPrice, newPrice, gradedPrice);
+          const estimatedProfit = marketValue > 0 ? marketValue - price : 0;
+          const estimatedMarginPercent = marketValue > 0 && price > 0 ? (estimatedProfit / price) * 100 : 0;
+          const dealScore = marketValue > 0 ? calculateDealScore(price, marketValue) : null;
+
+          await supabase
+            .from('inventory_items')
+            .update({
+              price_loose: loosePrice,
+              price_cib: cibPrice,
+              price_new: newPrice,
+              price_graded: gradedPrice,
+              selected_market_value: marketValue,
+              estimated_profit: estimatedProfit,
+              estimated_margin_percent: estimatedMarginPercent,
+              deal_score: dealScore?.score ?? 0,
+              deal_score_label: dealScore?.label ?? '',
+              pricing_status: marketValue > 0 ? 'found' : 'missing',
+              pricing_last_checked_at: new Date().toISOString(),
+              pricing_source: pricingData.source || 'pricecharting',
+              pricing_confidence: pricingData.pcMatch ? 90 : null,
+              pricing_matched_title: pricingData.pcMatch?.productName ?? null,
+              pricing_matched_platform: pricingData.pcMatch?.platform ?? null,
+              pc_source_product_id: pricingData.pcMatch?.productId ?? null,
+              pricing_diagnostics: pricingData.diagnostics,
+            })
+            .eq('id', inventoryItem.id);
+
           await supabase.from('pricing_data').insert({
             item_id: inventoryItem.id,
-            loose_price: Number(pricingData.loosePrice) || 0,
-            cib_price: Number(pricingData.cibPrice) || 0,
-            new_price: Number(pricingData.newPrice) || 0,
+            loose_price: loosePrice,
+            cib_price: cibPrice,
+            new_price: newPrice,
             fetched_at: new Date().toISOString(),
           });
         }
