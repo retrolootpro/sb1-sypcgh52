@@ -25,6 +25,8 @@ const quickPrompts = [
   'How much profit have I made in the last 4 days?',
   'What items are ready to list?',
   'Find bad data in my inventory.',
+  'Do I have any Mario Wii games?',
+  'What is Super Mario Party Jamboree at GameStop?',
   'Suggest changes I should approve.',
 ];
 
@@ -192,7 +194,7 @@ export default function AssistantPage() {
             <div className="label-caps mb-1">Business</div>
             <h1 className="text-2xl font-bold tracking-tight text-white/90">AI Assistant</h1>
             <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              Ask inventory, prep, finance, show, and cleanup questions. The assistant can suggest changes, but records should only be changed after your approval.
+              Ask inventory, prep, finance, show, cleanup, and quick external pricing questions. The assistant can suggest changes, but records should only be changed after your approval.
             </p>
           </div>
           <Badge variant="outline" className="w-fit border-white/10 text-white/55">
@@ -245,7 +247,7 @@ export default function AssistantPage() {
                 <div className="flex justify-start">
                   <div className="flex items-center gap-2 rounded-xl border border-border/35 bg-secondary/30 px-4 py-3 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Reading inventory
+                    Reading inventory and checking tools
                   </div>
                 </div>
               )}
@@ -272,7 +274,7 @@ export default function AssistantPage() {
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
                   className="min-h-[48px] flex-1 resize-none bg-secondary/40"
-                  placeholder="Ask about profit, cleanup, stale inventory, or a show theme..."
+                  placeholder="Ask about inventory, cleanup, profit, show themes, or GameStop pricing..."
                 />
                 <Button className="h-auto px-4" onClick={() => askAssistant()} disabled={loading}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
