@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getItemRegionDetails } from '@/lib/region';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,7 @@ type InventoryRow = {
   brand?: string | null;
   category?: string | null;
   genre?: string | null;
+  region?: string | null;
   pricing_matched_title?: string | null;
   pricing_matched_platform?: string | null;
   pc_source_product_id?: string | null;
@@ -360,7 +362,7 @@ export async function POST(req: NextRequest) {
 
     const { data: items, error } = await supabase
       .from('inventory_items')
-      .select('id, product_name, console, barcode, image_url, thumbnail_url, description, brand, category, genre, pricing_matched_title, pricing_matched_platform, pc_source_product_id')
+      .select('id, product_name, console, barcode, image_url, thumbnail_url, description, brand, category, genre, region, pricing_matched_title, pricing_matched_platform, pc_source_product_id')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -397,6 +399,15 @@ export async function POST(req: NextRequest) {
         if (meta.title) updates.pricing_matched_title = meta.title;
         if (meta.platform) updates.pricing_matched_platform = meta.platform;
         if (meta.pcProductId) updates.pc_source_product_id = meta.pcProductId;
+        const detectedRegion = getItemRegionDetails({
+          ...item,
+          product_name: meta.title || item.product_name,
+          console: meta.platform || item.console,
+          description: meta.description || item.description,
+          pricing_matched_title: meta.title || item.pricing_matched_title,
+          pricing_matched_platform: meta.platform || item.pricing_matched_platform,
+        });
+        if (detectedRegion && (!item.region || force)) updates.region = detectedRegion.value;
 
         if (Object.keys(updates).length === 0) {
           skipped++;

@@ -14,16 +14,37 @@ type InventoryItem = {
   id: string;
   product_name: string;
   console: string;
-  condition: 'Loose' | 'CIB' | 'New';
+  condition: string;
   purchase_price: number;
   quantity: number;
   created_at: string;
+  price_loose?: number;
+  price_cib?: number;
+  price_new?: number;
+  price_graded?: number;
+  selected_market_value?: number;
+  estimated_profit?: number;
+  deal_score?: number;
+  deal_score_label?: string;
   pricing_data?: {
     loose_price: number;
     cib_price: number;
     new_price: number;
   }[];
 };
+
+function getDashboardMarketValue(item: InventoryItem) {
+  const pricing = item.pricing_data?.[0];
+  const savedMarketValue = Number(item.selected_market_value) || 0;
+  if (savedMarketValue > 0) return savedMarketValue;
+
+  const loosePrice = Number(item.price_loose) || Number(pricing?.loose_price) || 0;
+  const cibPrice = Number(item.price_cib) || Number(pricing?.cib_price) || 0;
+  const newPrice = Number(item.price_new) || Number(pricing?.new_price) || 0;
+  const gradedPrice = Number(item.price_graded) || 0;
+
+  return getMarketValueByCondition(item.condition, loosePrice, cibPrice, newPrice, gradedPrice);
+}
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -40,7 +61,8 @@ export default function DashboardPage() {
 
       if (error) throw error;
       setItems(data as InventoryItem[]);
-    } catch {
+    } catch (error) {
+      console.error('[Dashboard] Failed to load dashboard data:', error);
     } finally {
       setLoading(false);
     }
@@ -62,14 +84,8 @@ export default function DashboardPage() {
       const spent = item.purchase_price * item.quantity;
       totalSpent += spent;
 
-      if (item.pricing_data && item.pricing_data.length > 0) {
-        const pricing = item.pricing_data[0];
-        const marketValue = getMarketValueByCondition(
-          item.condition,
-          pricing.loose_price,
-          pricing.cib_price,
-          pricing.new_price
-        );
+      const marketValue = getDashboardMarketValue(item);
+      if (marketValue > 0) {
         totalValue += marketValue * item.quantity;
 
         const inventoryAgeDays = Math.floor(
@@ -92,21 +108,15 @@ export default function DashboardPage() {
 
   const topDeals = useMemo(() => {
     return items
-      .filter((item) => item.pricing_data && item.pricing_data.length > 0)
       .map((item) => {
-        const pricing = item.pricing_data![0];
-        const marketValue = getMarketValueByCondition(
-          item.condition,
-          pricing.loose_price,
-          pricing.cib_price,
-          pricing.new_price
-        );
+        const marketValue = getDashboardMarketValue(item);
         const inventoryAgeDays = Math.floor(
           (Date.now() - new Date(item.created_at).getTime()) / (1000 * 60 * 60 * 24)
         );
         const dealScore = calculateDealScore(item.purchase_price, marketValue, 0, 0, inventoryAgeDays);
         return { ...item, dealScore, marketValue };
       })
+      .filter((item) => item.marketValue > 0)
       .sort((a, b) => b.dealScore.score - a.dealScore.score)
       .slice(0, 6);
   }, [items]);

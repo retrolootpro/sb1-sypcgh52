@@ -117,7 +117,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           const estimatedMarginPercent = marketValue > 0 && price > 0 ? (estimatedProfit / price) * 100 : 0;
           const dealScore = marketValue > 0 ? calculateDealScore(price, marketValue) : null;
 
-          await supabase
+          const { error: pricingUpdateError } = await supabase
             .from('inventory_items')
             .update({
               price_loose: loosePrice,
@@ -140,15 +140,21 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
             })
             .eq('id', inventoryItem.id);
 
-          await supabase.from('pricing_data').insert({
+          if (pricingUpdateError) throw pricingUpdateError;
+
+          const { error: pricingDataError } = await supabase.from('pricing_data').insert({
             item_id: inventoryItem.id,
             loose_price: loosePrice,
             cib_price: cibPrice,
             new_price: newPrice,
             fetched_at: new Date().toISOString(),
           });
+          if (pricingDataError) throw pricingDataError;
         }
-      } catch { /* pricing is optional */ }
+      } catch (pricingError) {
+        console.error('[Add Item] Pricing refresh failed:', pricingError);
+        toast.warning('Item was added, but pricing could not be refreshed automatically.');
+      }
 
       toast.success('Item added successfully!');
       setFormData({

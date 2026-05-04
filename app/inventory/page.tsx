@@ -14,6 +14,7 @@ import { CONSOLES, CONDITIONS, REGIONS } from '@/lib/constants';
 import { lookupUPC } from '@/lib/api-services';
 import { getCanonicalPricing } from '@/lib/pricing-service';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
+import { getItemRegionDetails } from '@/lib/region';
 import { toast } from 'sonner';
 import { CreateCollectionDialog, type Collection } from '@/components/create-collection-dialog';
 import {
@@ -39,8 +40,11 @@ type InventoryItem = {
   barcode?: string;
   image_url?: string;
   thumbnail_url?: string;
+  description?: string | null;
   brand?: string;
   collection_id?: string | null;
+  pricing_matched_title?: string | null;
+  pricing_matched_platform?: string | null;
   price_loose?: number;
   price_cib?: number;
   price_new?: number;
@@ -292,7 +296,7 @@ export default function InventoryPage() {
       const matchesSearch = !query || item.product_name.toLowerCase().includes(query) || item.console.toLowerCase().includes(query);
       const matchesConsole = consoleFilter === 'all' || item.console === consoleFilter;
       const matchesCondition = conditionFilter === 'all' || item.condition === conditionFilter;
-      const normalizedRegion = item.region?.trim() || 'unset';
+      const normalizedRegion = getItemRegionDetails(item)?.value || 'unset';
       const matchesRegion = regionFilter === 'all' || normalizedRegion === regionFilter;
       const matchesCollection = selectedCollectionId === null
         ? true
@@ -303,7 +307,7 @@ export default function InventoryPage() {
     return [...filtered].sort((a, b) => {
       const nameCompare = a.product_name.localeCompare(b.product_name, undefined, { sensitivity: 'base', numeric: true });
       const consoleCompare = a.console.localeCompare(b.console, undefined, { sensitivity: 'base', numeric: true });
-      const regionCompare = (a.region || 'ZZZ').localeCompare(b.region || 'ZZZ', undefined, { sensitivity: 'base' });
+      const regionCompare = (getItemRegionDetails(a)?.value || 'ZZZ').localeCompare(getItemRegionDetails(b)?.value || 'ZZZ', undefined, { sensitivity: 'base' });
       const dateA = new Date(a.created_at).getTime() || 0;
       const dateB = new Date(b.created_at).getTime() || 0;
       const marketA = getItemMarketValue(a);
