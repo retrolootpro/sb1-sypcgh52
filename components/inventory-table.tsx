@@ -155,17 +155,17 @@ export function InventoryTable({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       {isSelectionMode && (
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-primary/30 bg-primary/5 sticky top-2 z-10 backdrop-blur-sm">
+        <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 sticky top-2 z-10 backdrop-blur-sm">
           <div
-            className="w-5 h-5 flex items-center justify-center rounded-sm border border-primary/60 bg-primary/10 cursor-pointer hover:bg-primary/20 transition-colors flex-shrink-0"
+            className="w-6 h-6 flex items-center justify-center rounded-sm border border-primary/60 bg-primary/10 cursor-pointer hover:bg-primary/20 transition-colors flex-shrink-0"
             onClick={allSelected ? clearSelection : selectAll}
           >
             {allSelected ? (
-              <Check className="w-3 h-3 text-primary" />
+              <Check className="w-4 h-4 text-primary" />
             ) : someSelected ? (
-              <Minus className="w-3 h-3 text-primary" />
+              <Minus className="w-4 h-4 text-primary" />
             ) : null}
           </div>
 
@@ -187,8 +187,8 @@ export function InventoryTable({
           {collections.length > 0 && onBulkMoveToCollection && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5 border-border/60">
-                  <FolderOpen className="w-3.5 h-3.5" />
+                <Button size="sm" variant="outline" className="h-9 text-sm gap-1.5 border-border/60">
+                  <FolderOpen className="w-4 h-4" />
                   Move to Collection
                 </Button>
               </DropdownMenuTrigger>
@@ -222,7 +222,7 @@ export function InventoryTable({
           <Button
             size="sm"
             variant="ghost"
-            className="h-8 text-xs text-muted-foreground"
+            className="h-9 text-sm text-muted-foreground"
             onClick={clearSelection}
           >
             Clear
@@ -275,7 +275,7 @@ export function InventoryTable({
             key={item.id}
             href={`/inventory/${item.id}`}
             onClick={isSelectionMode ? (e) => { e.preventDefault(); toggleSelection(item.id); } : undefined}
-            className={`group flex items-center gap-3 p-3 rounded-xl border transition-all duration-200 cursor-pointer ${
+            className={`group flex items-center gap-4 p-4 rounded-xl border transition-all duration-200 cursor-pointer ${
               isSelected
                 ? 'border-primary/40 bg-primary/5 hover:bg-primary/10'
                 : 'border-border/40 bg-card/40 hover:bg-card/80 hover:border-border/70'
@@ -287,14 +287,14 @@ export function InventoryTable({
               }`}
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleSelection(item.id); }}
             >
-              <div className={`w-4 h-4 rounded-sm border flex items-center justify-center transition-colors ${
+              <div className={`w-5 h-5 rounded-sm border flex items-center justify-center transition-colors ${
                 isSelected ? 'bg-primary border-primary' : 'border-muted-foreground/40 hover:border-primary/60'
               }`}>
-                {isSelected && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
+                {isSelected && <Check className="w-3 h-3 text-primary-foreground" />}
               </div>
             </div>
 
-            <div className="relative w-14 h-14 rounded-lg overflow-hidden bg-secondary/30 border border-border/30 flex-shrink-0 flex items-center justify-center">
+            <div className="relative w-16 h-16 rounded-lg overflow-hidden bg-secondary/30 border border-border/30 flex-shrink-0 flex items-center justify-center">
               {imageUrl ? (
                 <img
                   src={imageUrl}
@@ -306,31 +306,31 @@ export function InventoryTable({
                   }}
                 />
               ) : null}
-              <Gamepad2 className={`w-5 h-5 text-muted-foreground/30 ${imageUrl ? 'hidden' : ''}`} />
+              <Gamepad2 className={`w-6 h-6 text-muted-foreground/30 ${imageUrl ? 'hidden' : ''}`} />
               {item.needs_review && (
                 <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-yellow-500 rounded-full border-2 border-card" />
               )}
             </div>
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="font-semibold text-sm truncate">{item.product_name}</span>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="font-semibold text-base truncate">{item.product_name}</span>
                 {item.needs_review && (
-                  <Badge variant="outline" className="border-yellow-500/40 text-yellow-400 text-[10px] px-1.5 py-0 h-4 flex-shrink-0">
+                  <Badge variant="outline" className="border-yellow-500/40 text-yellow-400 text-[11px] px-2 py-0 h-5 flex-shrink-0">
                     Review
                   </Badge>
                 )}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">{item.console}</span>
-                <span className="text-muted-foreground/30 text-xs">|</span>
-                <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${getConditionStyle(item.condition)}`}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-muted-foreground">{item.console}</span>
+                <span className="text-muted-foreground/30 text-sm">|</span>
+                <Badge variant="outline" className={`text-[11px] px-2 py-0 h-5 ${getConditionStyle(item.condition)}`}>
                   {item.condition}
                 </Badge>
                 {region && (
                   <Badge
                     variant="outline"
-                    className={`text-[10px] px-1.5 py-0 h-4 font-bold tracking-[0.04em] ${getRegionStyle(region)}`}
+                    className={`text-[11px] px-2 py-0 h-5 font-bold tracking-[0.04em] ${getRegionStyle(region)}`}
                     title={region.label}
                   >
                     {region.shortLabel}
@@ -338,19 +338,19 @@ export function InventoryTable({
                 )}
                 {item.genre && (
                   <>
-                    <span className="text-muted-foreground/30 text-xs hidden md:inline">|</span>
-                    <span className="text-[10px] text-muted-foreground/50 hidden md:inline">{item.genre}</span>
+                    <span className="text-muted-foreground/30 text-sm hidden md:inline">|</span>
+                    <span className="text-xs text-muted-foreground/60 hidden md:inline">{item.genre}</span>
                   </>
                 )}
                 {item.quantity > 1 && (
                   <>
-                    <span className="text-muted-foreground/30 text-xs">|</span>
-                    <span className="text-xs text-muted-foreground">x{item.quantity}</span>
+                    <span className="text-muted-foreground/30 text-sm">|</span>
+                    <span className="text-sm text-muted-foreground">x{item.quantity}</span>
                   </>
                 )}
               </div>
               {hasPricingTiers && (
-                <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex items-center gap-3 mt-1">
                   {[
                     { label: 'L', value: loosePrice, active: item.condition === 'Loose' },
                     { label: 'C', value: cibPrice, active: item.condition === 'CIB' },
@@ -359,7 +359,7 @@ export function InventoryTable({
                   ].map(({ label, value, active }) => (
                     <span
                       key={label}
-                      className={`text-[10px] font-mono ${
+                      className={`text-[11px] font-mono ${
                         active
                           ? 'text-primary font-semibold'
                           : 'text-muted-foreground/40'
@@ -373,29 +373,29 @@ export function InventoryTable({
               <PrepStageMini fields={item} />
             </div>
 
-            <div className="flex items-center gap-5 flex-shrink-0">
+            <div className="flex items-center gap-6 flex-shrink-0">
               <div className="text-right hidden sm:block">
-                <div className="text-xs text-muted-foreground/60 mb-0.5">Cost</div>
-                <div className="text-sm font-medium">${item.purchase_price.toFixed(2)}</div>
+                <div className="text-xs text-muted-foreground/60 mb-1">Cost</div>
+                <div className="text-base font-medium">${item.purchase_price.toFixed(2)}</div>
               </div>
 
               <div className="text-right hidden sm:block">
-                <div className="text-xs text-muted-foreground/60 mb-0.5">Market</div>
-                <div className="text-sm font-medium text-primary">
+                <div className="text-xs text-muted-foreground/60 mb-1">Market</div>
+                <div className="text-base font-medium text-primary">
                   {hasPricing ? `$${marketValue.toFixed(2)}` : '--'}
                 </div>
               </div>
 
               <div className="text-right hidden md:block w-20">
-                <div className="text-xs text-muted-foreground/60 mb-0.5">Profit</div>
-                <div className={`text-sm font-semibold ${profit > 0 ? 'text-green-400' : profit < 0 ? 'text-red-400' : 'text-muted-foreground'}`}>
+                <div className="text-xs text-muted-foreground/60 mb-1">Profit</div>
+                <div className={`text-base font-semibold ${profit > 0 ? 'text-green-400' : profit < 0 ? 'text-red-400' : 'text-muted-foreground'}`}>
                   {hasPricing ? `${profit >= 0 ? '+' : ''}$${profit.toFixed(2)}` : '--'}
                 </div>
               </div>
 
               {hasPricing && dealScore.label !== 'No Data' && (
                 <div className="hidden lg:block">
-                  <Badge variant="outline" className={`text-[10px] px-2 py-0.5 font-semibold ${getDealBadge(dealScore.label, dealScore.score)}`}>
+                  <Badge variant="outline" className={`text-[11px] px-2.5 py-1 font-semibold ${getDealBadge(dealScore.label, dealScore.score)}`}>
                     {dealScore.label} {dealScore.score}
                   </Badge>
                 </div>
@@ -407,10 +407,10 @@ export function InventoryTable({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-muted-foreground/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="h-9 w-9 text-muted-foreground/50 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                     >
-                      <FolderInput className="w-3.5 h-3.5" />
+                      <FolderInput className="w-4 h-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent
@@ -460,10 +460,10 @@ export function InventoryTable({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-muted-foreground/40 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="h-9 w-9 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                       onClick={(e) => e.preventDefault()}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent className="bg-card border-border">
@@ -487,7 +487,7 @@ export function InventoryTable({
               )}
 
               {!isSelectionMode && (
-                <ChevronRight className="w-4 h-4 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors hidden sm:block" />
+                <ChevronRight className="w-5 h-5 text-muted-foreground/30 group-hover:text-muted-foreground/60 transition-colors hidden sm:block" />
               )}
             </div>
           </Link>

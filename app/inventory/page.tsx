@@ -475,7 +475,7 @@ export default function InventoryPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-8 lg:p-10 max-w-6xl space-y-8">
+      <div className="p-6 sm:p-8 lg:p-10 max-w-7xl space-y-8">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <div className="label-caps mb-1">Catalog</div>
@@ -484,48 +484,48 @@ export default function InventoryPage() {
             </h1>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleRefreshInventoryPrices} disabled={refreshingPrices || backfilling || loading} className="text-xs h-9 rounded-lg">
-              <TrendingUp className={`w-3.5 h-3.5 mr-1.5 ${refreshingPrices ? 'animate-pulse' : ''}`} />
+            <Button variant="outline" size="sm" onClick={handleRefreshInventoryPrices} disabled={refreshingPrices || backfilling || loading} className="text-sm h-10 rounded-lg">
+              <TrendingUp className={`w-4 h-4 mr-1.5 ${refreshingPrices ? 'animate-pulse' : ''}`} />
               {refreshingPrices ? 'Pricing...' : 'Refresh Prices'}
             </Button>
-            <Button variant="outline" size="sm" onClick={handleBackfillBarcodeData} disabled={backfilling || refreshingPrices || loading} className="text-xs h-9 rounded-lg">
-              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${backfilling ? 'animate-spin' : ''}`} />
+            <Button variant="outline" size="sm" onClick={handleBackfillBarcodeData} disabled={backfilling || refreshingPrices || loading} className="text-sm h-10 rounded-lg">
+              <RefreshCw className={`w-4 h-4 mr-1.5 ${backfilling ? 'animate-spin' : ''}`} />
               {backfilling ? 'Refreshing...' : 'Refresh Metadata'}
             </Button>
-            <Button size="sm" className="h-9 rounded-lg" onClick={() => setShowAddDialog(true)}>
-              <Plus className="w-3.5 h-3.5 mr-1.5" />
+            <Button size="sm" className="h-10 rounded-lg text-sm" onClick={() => setShowAddDialog(true)}>
+              <Plus className="w-4 h-4 mr-1.5" />
               Add Item
             </Button>
           </div>
         </div>
 
         {!loading && items.length > 0 && (
-          <div className="grid grid-cols-3 gap-3">
-            <div className="flex items-center gap-3 p-4 rounded-2xl border border-border/40 bg-card">
-              <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Package className="w-4 h-4 text-primary" />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-card">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Package className="w-5 h-5 text-primary" />
               </div>
               <div>
                 <div className="label-caps">Items</div>
-                <div className="text-[18px] font-bold stat-number mt-0.5">{totalItems}</div>
+                <div className="text-[22px] font-bold stat-number mt-0.5">{totalItems}</div>
               </div>
             </div>
-            <div className="flex items-center gap-3 p-4 rounded-2xl border border-border/40 bg-card">
-              <div className="w-9 h-9 rounded-xl bg-amber-400/10 flex items-center justify-center">
-                <DollarSign className="w-4 h-4 text-amber-400" />
+            <div className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-card">
+              <div className="w-10 h-10 rounded-xl bg-amber-400/10 flex items-center justify-center">
+                <DollarSign className="w-5 h-5 text-amber-400" />
               </div>
               <div>
                 <div className="label-caps">Total Cost</div>
-                <div className="text-[18px] font-bold stat-number mt-0.5">${totalCost.toFixed(2)}</div>
+                <div className="text-[22px] font-bold stat-number mt-0.5">${totalCost.toFixed(2)}</div>
               </div>
             </div>
-            <div className="flex items-center gap-3 p-4 rounded-2xl border border-border/40 bg-card">
-              <div className="w-9 h-9 rounded-xl bg-emerald-400/10 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-emerald-400" />
+            <div className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-card">
+              <div className="w-10 h-10 rounded-xl bg-emerald-400/10 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-emerald-400" />
               </div>
               <div>
                 <div className="label-caps">Market Value</div>
-                <div className={`text-[18px] font-bold stat-number mt-0.5 ${totalMarketValue > totalCost ? 'text-emerald-400' : totalMarketValue > 0 ? 'text-red-400' : ''}`}>
+                <div className={`text-[22px] font-bold stat-number mt-0.5 ${totalMarketValue > totalCost ? 'text-emerald-400' : totalMarketValue > 0 ? 'text-red-400' : ''}`}>
                   {totalMarketValue > 0 ? `$${totalMarketValue.toFixed(2)}` : '--'}
                 </div>
               </div>
@@ -536,13 +536,13 @@ export default function InventoryPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setSelectedCollectionId(null)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 border ${
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 border ${
               selectedCollectionId === null
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-card border-border/50 text-muted-foreground hover:text-foreground hover:border-border'
             }`}
           >
-            <Package className="w-3.5 h-3.5" />
+            <Package className="w-4 h-4" />
             All Items
             <span className={`text-[11px] ml-0.5 ${selectedCollectionId === null ? 'text-primary-foreground/70' : 'text-muted-foreground/60'}`}>
               {items.length}
@@ -553,13 +553,13 @@ export default function InventoryPage() {
             <div key={col.id} className="relative group/chip">
               <button
                 onClick={() => setSelectedCollectionId(col.id === selectedCollectionId ? null : col.id)}
-                className={`flex items-center gap-1.5 pl-3 pr-7 py-1.5 rounded-lg text-sm font-medium transition-all duration-150 border ${
+                className={`flex items-center gap-2 pl-4 pr-8 py-2 rounded-lg text-sm font-medium transition-all duration-150 border ${
                   selectedCollectionId === col.id
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-card border-border/50 text-muted-foreground hover:text-foreground hover:border-border'
                 }`}
               >
-                <FolderOpen className="w-3.5 h-3.5" />
+                <FolderOpen className="w-4 h-4" />
                 {col.name}
                 <span className={`text-[11px] ml-0.5 ${selectedCollectionId === col.id ? 'text-primary-foreground/70' : 'text-muted-foreground/60'}`}>
                   {collectionItemCount(col.id)}
@@ -580,9 +580,9 @@ export default function InventoryPage() {
 
           <button
             onClick={() => setShowCreateCollection(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-border/50 text-muted-foreground/60 hover:text-muted-foreground hover:border-border transition-all duration-150"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-dashed border-border/50 text-muted-foreground/60 hover:text-muted-foreground hover:border-border transition-all duration-150"
           >
-            <FolderPlus className="w-3.5 h-3.5" />
+            <FolderPlus className="w-4 h-4" />
             New Collection
           </button>
         </div>
@@ -594,13 +594,13 @@ export default function InventoryPage() {
               placeholder="Search inventory..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-card border-border/50 h-10 text-sm rounded-xl"
+              className="pl-9 bg-card border-border/50 h-11 text-base rounded-xl"
             />
           </div>
           <div className="flex flex-wrap gap-2">
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-full min-w-[155px] flex-1 sm:w-[170px] sm:flex-none bg-card border-border/50 h-10 text-sm rounded-xl">
-                <ArrowUpDown className="mr-2 h-3.5 w-3.5 text-muted-foreground/50" />
+              <SelectTrigger className="w-full min-w-[155px] flex-1 sm:w-[180px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+                <ArrowUpDown className="mr-2 h-4 w-4 text-muted-foreground/50" />
                 <SelectValue placeholder="Sort" />
               </SelectTrigger>
               <SelectContent>
@@ -620,7 +620,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={consoleFilter} onValueChange={setConsoleFilter}>
-              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[160px] sm:flex-none bg-card border-border/50 h-10 text-sm rounded-xl">
+              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[170px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
                 <SelectValue placeholder="Console" />
               </SelectTrigger>
               <SelectContent>
@@ -629,7 +629,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={conditionFilter} onValueChange={setConditionFilter}>
-              <SelectTrigger className="w-full min-w-[135px] flex-1 sm:w-[140px] sm:flex-none bg-card border-border/50 h-10 text-sm rounded-xl">
+              <SelectTrigger className="w-full min-w-[135px] flex-1 sm:w-[150px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
                 <SelectValue placeholder="Condition" />
               </SelectTrigger>
               <SelectContent>
@@ -638,7 +638,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={regionFilter} onValueChange={setRegionFilter}>
-              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[150px] sm:flex-none bg-card border-border/50 h-10 text-sm rounded-xl">
+              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[160px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
                 <SelectValue placeholder="Region" />
               </SelectTrigger>
               <SelectContent>
