@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus } from 'lucide-react';
 import { PrepStageMini } from '@/components/prep-stage-bar';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
+import { REGIONS } from '@/lib/constants';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -35,6 +36,7 @@ type InventoryItem = {
   product_name: string;
   console: string;
   condition: string;
+  region?: string | null;
   purchase_price: number;
   quantity: number;
   created_at: string;
@@ -84,6 +86,22 @@ function getConditionStyle(condition: string) {
     case 'New': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
     case 'CIB': return 'bg-sky-500/10 text-sky-400 border-sky-500/30';
     default: return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
+  }
+}
+
+function getRegionDetails(region?: string | null) {
+  const normalized = region?.trim().toUpperCase();
+  const match = REGIONS.find((item) => item.value === normalized);
+  if (match) return match;
+  return { value: 'unset', label: 'Region Needed', shortLabel: 'NO REGION' };
+}
+
+function getRegionStyle(region?: string | null) {
+  switch (region?.trim().toUpperCase()) {
+    case 'US': return 'bg-blue-500/15 text-blue-300 border-blue-400/40';
+    case 'JP': return 'bg-pink-500/15 text-pink-300 border-pink-400/40';
+    case 'PAL': return 'bg-violet-500/15 text-violet-300 border-violet-400/40';
+    default: return 'bg-red-500/15 text-red-300 border-red-400/40';
   }
 }
 
@@ -264,6 +282,7 @@ export function InventoryTable({
         const imageUrl = item.thumbnail_url || item.image_url;
         const isSelected = selectedIds.has(item.id);
         const hasCollections = collections.length > 0 && onMoveToCollection;
+        const region = getRegionDetails(item.region);
 
         return (
           <Link
@@ -305,6 +324,9 @@ export function InventoryTable({
               {item.needs_review && (
                 <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-yellow-500 rounded-full border-2 border-card" />
               )}
+              <div className={`absolute bottom-0 left-0 right-0 px-1 py-0.5 text-center text-[8px] font-black leading-none tracking-[0.05em] border-t ${getRegionStyle(item.region)}`}>
+                {region.shortLabel}
+              </div>
             </div>
 
             <div className="flex-1 min-w-0">
@@ -321,6 +343,13 @@ export function InventoryTable({
                 <span className="text-muted-foreground/30 text-xs">|</span>
                 <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${getConditionStyle(item.condition)}`}>
                   {item.condition}
+                </Badge>
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] px-1.5 py-0 h-4 font-bold tracking-[0.04em] ${getRegionStyle(item.region)}`}
+                  title={region.label}
+                >
+                  {region.shortLabel}
                 </Badge>
                 {item.genre && (
                   <>

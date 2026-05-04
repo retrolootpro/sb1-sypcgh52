@@ -31,6 +31,12 @@ export const CONSOLES = [
 
 export const CONDITIONS = ['Loose', 'CIB', 'New', 'Graded'] as const;
 
+export const REGIONS = [
+  { value: 'US', label: 'US / NTSC', shortLabel: 'NTSC-US' },
+  { value: 'JP', label: 'Japan / NTSC-J', shortLabel: 'NTSC-J' },
+  { value: 'PAL', label: 'PAL / EU', shortLabel: 'PAL' },
+] as const;
+
 export const SHOW_CATEGORIES = [
   '$5 Start',
   '$10 Start',

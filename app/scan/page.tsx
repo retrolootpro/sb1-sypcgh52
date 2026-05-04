@@ -225,6 +225,7 @@ export default function ScanPage() {
     pricingResult: PricingResult | null,
     purchasePrice: number,
     selectedConsole: string,
+    selectedRegion: string,
     dealScoreData: any,
     needsReview: boolean
   ) => {
@@ -261,6 +262,7 @@ export default function ScanPage() {
         product_name: lookupResult.title?.trim() || 'Unknown Product',
         console: selectedConsole || lookupResult.platform || '',
         condition,
+        region: selectedRegion,
         purchase_price: Math.max(0, purchasePrice),
         quantity: 1,
         barcode: queueItem.barcode,
@@ -326,7 +328,7 @@ export default function ScanPage() {
     return inventoryItem;
   }, [user, selectedEmployeeId]);
 
-  const handleItemConfirm = useCallback(async (purchasePrice: number, selectedConsole: string) => {
+  const handleItemConfirm = useCallback(async (purchasePrice: number, selectedConsole: string, selectedRegion: string) => {
     if (!currentQueueItemForDialog || !user) return;
 
     setShowItemDialog(false);
@@ -435,14 +437,14 @@ export default function ScanPage() {
 
     try {
       if (reviewCheck.skip) {
-        await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, dealScoreData, false);
+        await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, false);
         updateQueueItem(queueItem.id, { status: 'added' });
         const pricingMsg = pricingResult?.status === 'success'
           ? `$${purchasePrice} → ${dealScoreData?.emoji ?? ''} ${dealScoreData?.label ?? ''}`
           : getPricingStatusMessage(pricingResult!);
         toast.success(`Added: ${lookupResult.title}`, { description: pricingMsg, duration: 2500 });
       } else {
-        await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, dealScoreData, true);
+        await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, true);
         updateQueueItem(queueItem.id, { status: 'needs_review' });
         toast.warning(`${lookupResult.title} — Needs Review`, { description: reviewCheck.reason, duration: 3000 });
       }
@@ -466,7 +468,7 @@ export default function ScanPage() {
     const detectedConsole = lookupResult.platform || '';
 
     try {
-      await createInventoryItem(queueItem, lookupResult, lookupResult.classification, lookupResult.confidence, lookupResult.pricingResult, 0, detectedConsole, null, true);
+      await createInventoryItem(queueItem, lookupResult, lookupResult.classification, lookupResult.confidence, lookupResult.pricingResult, 0, detectedConsole, 'US', null, true);
       updateQueueItem(queueItem.id, { status: 'needs_review' });
       toast.warning(`${lookupResult.title} — Needs Review`, { description: 'Missing purchase price', duration: 3000 });
     } catch (err: any) {

@@ -14,7 +14,7 @@ import { supabase } from '@/lib/supabase';
 import { lookupUPC, type UPCLookupResult } from '@/lib/api-services';
 import { getCanonicalPricing, sourceLabel, type CanonicalPricingResult } from '@/lib/pricing-service';
 import { calculateSimpleDealScore, getMarketValueByCondition } from '@/lib/deal-score';
-import { CONDITIONS, CONSOLES } from '@/lib/constants';
+import { CONDITIONS, CONSOLES, REGIONS } from '@/lib/constants';
 import { classifyItem, extractPlatform, normalizeTitle } from '@/lib/barcode-lookup';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -101,6 +101,7 @@ export default function DealScannerPage() {
   const [platformHint, setPlatformHint] = useState('Nintendo Switch');
   const [askingPrice, setAskingPrice] = useState('');
   const [condition, setCondition] = useState<(typeof CONDITIONS)[number]>('CIB');
+  const [region, setRegion] = useState('US');
   const [status, setStatus] = useState<LookupStatus>('idle');
   const [deal, setDeal] = useState<DealLookup | null>(null);
   const [error, setError] = useState('');
@@ -292,6 +293,7 @@ export default function DealScannerPage() {
           product_name: deal.title,
           console: deal.platform,
           condition,
+          region,
           purchase_price: price,
           quantity: 1,
           barcode: deal.barcode,
@@ -479,6 +481,20 @@ export default function DealScannerPage() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Region / TV Standard</Label>
+                <Select value={region} onValueChange={setRegion}>
+                  <SelectTrigger className="h-12 rounded-lg text-base">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {REGIONS.map((value) => (
+                      <SelectItem key={value.value} value={value.value}>{value.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">

@@ -10,7 +10,7 @@ import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CONSOLES, CONDITIONS } from '@/lib/constants';
+import { CONSOLES, CONDITIONS, REGIONS } from '@/lib/constants';
 import { lookupUPC } from '@/lib/api-services';
 import { getMarketValueByCondition } from '@/lib/deal-score';
 import { toast } from 'sonner';
@@ -31,6 +31,7 @@ type InventoryItem = {
   product_name: string;
   console: string;
   condition: string;
+  region?: string | null;
   purchase_price: number;
   quantity: number;
   created_at: string;
@@ -67,6 +68,7 @@ export default function InventoryPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [consoleFilter, setConsoleFilter] = useState('all');
   const [conditionFilter, setConditionFilter] = useState('all');
+  const [regionFilter, setRegionFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name_asc');
   const [backfilling, setBackfilling] = useState(false);
   const [reprocessing, setReprocessing] = useState(false);
@@ -312,15 +314,18 @@ export default function InventoryPage() {
       const matchesSearch = !query || item.product_name.toLowerCase().includes(query) || item.console.toLowerCase().includes(query);
       const matchesConsole = consoleFilter === 'all' || item.console === consoleFilter;
       const matchesCondition = conditionFilter === 'all' || item.condition === conditionFilter;
+      const normalizedRegion = item.region?.trim() || 'unset';
+      const matchesRegion = regionFilter === 'all' || normalizedRegion === regionFilter;
       const matchesCollection = selectedCollectionId === null
         ? true
         : item.collection_id === selectedCollectionId;
-      return matchesSearch && matchesConsole && matchesCondition && matchesCollection;
+      return matchesSearch && matchesConsole && matchesCondition && matchesRegion && matchesCollection;
     });
 
     return [...filtered].sort((a, b) => {
       const nameCompare = a.product_name.localeCompare(b.product_name, undefined, { sensitivity: 'base', numeric: true });
       const consoleCompare = a.console.localeCompare(b.console, undefined, { sensitivity: 'base', numeric: true });
+      const regionCompare = (a.region || 'ZZZ').localeCompare(b.region || 'ZZZ', undefined, { sensitivity: 'base' });
       const dateA = new Date(a.created_at).getTime() || 0;
       const dateB = new Date(b.created_at).getTime() || 0;
       const marketA = getItemMarketValue(a);
@@ -341,6 +346,8 @@ export default function InventoryPage() {
           return consoleCompare || nameCompare;
         case 'condition':
           return a.condition.localeCompare(b.condition, undefined, { sensitivity: 'base' }) || nameCompare;
+        case 'region':
+          return regionCompare || nameCompare;
         case 'cost_high':
           return costB - costA || nameCompare;
         case 'cost_low':
@@ -358,7 +365,7 @@ export default function InventoryPage() {
           return nameCompare;
       }
     });
-  }, [items, searchQuery, consoleFilter, conditionFilter, selectedCollectionId, sortBy, getItemMarketValue]);
+  }, [items, searchQuery, consoleFilter, conditionFilter, regionFilter, selectedCollectionId, sortBy, getItemMarketValue]);
 
   const collectionItemCount = useCallback((colId: string) =>
     items.filter((i) => i.collection_id === colId).length, [items]);
@@ -522,6 +529,7 @@ export default function InventoryPage() {
                 <SelectItem value="oldest">Oldest Added</SelectItem>
                 <SelectItem value="console">Console A-Z</SelectItem>
                 <SelectItem value="condition">Condition A-Z</SelectItem>
+                <SelectItem value="region">Region A-Z</SelectItem>
                 <SelectItem value="cost_high">Cost High-Low</SelectItem>
                 <SelectItem value="cost_low">Cost Low-High</SelectItem>
                 <SelectItem value="market_high">Market High-Low</SelectItem>
@@ -546,6 +554,18 @@ export default function InventoryPage() {
               <SelectContent>
                 <SelectItem value="all">All Conditions</SelectItem>
                 {CONDITIONS.map((condition) => (<SelectItem key={condition} value={condition}>{condition}</SelectItem>))}
+              </SelectContent>
+            </Select>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
+              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[150px] sm:flex-none bg-card border-border/50 h-10 text-sm rounded-xl">
+                <SelectValue placeholder="Region" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Regions</SelectItem>
+                {REGIONS.map((region) => (
+                  <SelectItem key={region.value} value={region.value}>{region.label}</SelectItem>
+                ))}
+                <SelectItem value="unset">No Region</SelectItem>
               </SelectContent>
             </Select>
           </div>

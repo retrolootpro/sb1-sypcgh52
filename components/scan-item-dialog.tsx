@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { DollarSign, Monitor, ChevronDown } from 'lucide-react';
+import { REGIONS } from '@/lib/constants';
 
 export const CONSOLE_OPTIONS = [
   { group: 'Sony', options: ['PlayStation 5', 'PlayStation 4', 'PlayStation 3', 'PlayStation 2', 'PlayStation', 'PS Vita', 'PSP'] },
@@ -21,7 +22,7 @@ export const ALL_CONSOLES = CONSOLE_OPTIONS.flatMap((g) => g.options);
 interface ScanItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (purchasePrice: number, console: string) => void;
+  onConfirm: (purchasePrice: number, console: string, region: string) => void;
   onSkip: () => void;
   productName: string;
   detectedConsole: string | null;
@@ -39,6 +40,7 @@ export function ScanItemDialog({
 }: ScanItemDialogProps) {
   const [price, setPrice] = useState<string>(suggestedPrice?.toString() || '');
   const [consoleValue, setConsoleValue] = useState<string>(detectedConsole || '');
+  const [region, setRegion] = useState('US');
   const [priceError, setPriceError] = useState('');
   const [consoleError, setConsoleError] = useState('');
   const priceInputRef = useRef<HTMLInputElement>(null);
@@ -46,6 +48,7 @@ export function ScanItemDialog({
   useEffect(() => {
     if (open) {
       setConsoleValue(detectedConsole || '');
+      setRegion('US');
       setPrice(suggestedPrice?.toString() || '');
       setPriceError('');
       setConsoleError('');
@@ -76,9 +79,10 @@ export function ScanItemDialog({
 
     if (!valid) return;
 
-    onConfirm(numPrice, consoleValue.trim());
+    onConfirm(numPrice, consoleValue.trim(), region);
     setPrice('');
     setConsoleValue('');
+    setRegion('US');
     setPriceError('');
     setConsoleError('');
   };
@@ -87,6 +91,7 @@ export function ScanItemDialog({
     onSkip();
     setPrice('');
     setConsoleValue('');
+    setRegion('US');
     setPriceError('');
     setConsoleError('');
   };
@@ -197,6 +202,24 @@ export function ScanItemDialog({
               Press <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to save
               {' '}or <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Esc</kbd> to skip
             </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[12px] text-muted-foreground">
+              Region / TV Standard
+            </Label>
+            <Select value={region} onValueChange={setRegion}>
+              <SelectTrigger className="h-10 bg-secondary/40 border-border/60 text-[13px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {REGIONS.map((item) => (
+                  <SelectItem key={item.value} value={item.value} className="text-[13px]">
+                    {item.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
-import { CONSOLES, CONDITIONS } from '@/lib/constants';
+import { CONSOLES, CONDITIONS, REGIONS } from '@/lib/constants';
 import { getPricing } from '@/lib/api-services';
 
 type AddItemDialogProps = {
@@ -31,6 +31,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
     product_name: '',
     console: 'Nintendo Switch',
     condition: 'CIB' as 'Loose' | 'CIB' | 'New',
+    region: 'US',
     purchase_price: '',
     quantity: '1',
     notes: '',
@@ -85,6 +86,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           product_name: formData.product_name.trim(),
           console: formData.console,
           condition: formData.condition,
+          region: formData.region,
           purchase_price: price,
           quantity: qty,
           notes: formData.notes?.trim() || null,
@@ -116,6 +118,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
         product_name: '',
         console: 'Nintendo Switch',
         condition: 'CIB',
+        region: 'US',
         purchase_price: '',
         quantity: '1',
         notes: '',
@@ -188,6 +191,23 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="region">Region / TV Standard</Label>
+              <Select
+                value={formData.region}
+                onValueChange={(value) => setFormData({ ...formData, region: value })}
+              >
+                <SelectTrigger className="bg-secondary/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REGIONS.map((region) => (
+                    <SelectItem key={region.value} value={region.value}>{region.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
