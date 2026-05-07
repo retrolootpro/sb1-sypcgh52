@@ -9,7 +9,7 @@ import { TrendingUp, Package, DollarSign, ArrowUpRight, ArrowDownRight, ChevronR
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getAgeStatus, getInventoryAgeDays, readStaleThresholdDays } from '@/lib/inventory-aging';
+import { getAgeStatus, getInventoryAgeDays, normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds, type AgingThresholds } from '@/lib/inventory-aging';
 import { toast } from 'sonner';
 
 type InventoryItem = {
@@ -53,7 +53,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [staleThresholdDays, setStaleThresholdDays] = useState(60);
+  const [agingThresholds, setAgingThresholds] = useState<AgingThresholds>({ watchDays: 45, reviewDays: 60 });
 
   const loadDashboardData = useCallback(async () => {
     if (!user) return;
@@ -79,7 +79,7 @@ export default function DashboardPage() {
   }, [user, loadDashboardData]);
 
   useEffect(() => {
-    const syncThreshold = () => setStaleThresholdDays(readStaleThresholdDays());
+    const syncThreshold = () => setAgingThresholds(readAgingThresholds());
     syncThreshold();
     window.addEventListener('storage', syncThreshold);
     window.addEventListener('retroloot-stale-threshold-change', syncThreshold);
@@ -88,6 +88,13 @@ export default function DashboardPage() {
       window.removeEventListener('retroloot-stale-threshold-change', syncThreshold);
     };
   }, []);
+
+  const saveAgingThresholds = (thresholds: Partial<AgingThresholds>) => {
+    const next = normalizeAgingThresholds({ ...agingThresholds, ...thresholds });
+    setAgingThresholds(next);
+    writeAgingThresholds(next);
+    toast.success(`Aging alerts set: watch ${next.watchDays}d, review ${next.reviewDays}d`);
+  };
 
   const stats = useMemo(() => {
     let totalValue = 0;
@@ -142,7 +149,7 @@ export default function DashboardPage() {
       .map((item) => ({
         ...item,
         ageDays: getInventoryAgeDays(item.created_at),
-        ageStatus: getAgeStatus(getInventoryAgeDays(item.created_at), staleThresholdDays),
+        ageStatus: getAgeStatus(getInventoryAgeDays(item.created_at), agingThresholds),
       }))
       .filter((item) => item.ageStatus === 'stale')
       .sort((a, b) => b.ageDays - a.ageDays);
@@ -153,15 +160,15 @@ export default function DashboardPage() {
       oldestAge: rows[0]?.ageDays || 0,
       oldestName: rows[0]?.product_name || '',
     };
-  }, [items, staleThresholdDays]);
+  }, [items, agingThresholds]);
 
   useEffect(() => {
     if (loading || agingAlerts.count === 0) return;
-    const key = `retroloot-aging-toast-${new Date().toISOString().slice(0, 10)}-${staleThresholdDays}`;
+    const key = `retroloot-aging-toast-${new Date().toISOString().slice(0, 10)}-${agingThresholds.reviewDays}`;
     if (window.sessionStorage.getItem(key)) return;
     window.sessionStorage.setItem(key, '1');
-    toast.warning(`${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${staleThresholdDays} days in stock`);
-  }, [agingAlerts.count, loading, staleThresholdDays]);
+    toast.warning(`${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${agingThresholds.reviewDays} days in stock`);
+  }, [agingAlerts.count, agingThresholds.reviewDays, loading]);
 
   const profitPositive = stats.totalProfit >= 0;
   const roi = stats.totalSpent > 0 ? ((stats.totalProfit / stats.totalSpent) * 100) : 0;
@@ -307,8 +314,8 @@ export default function DashboardPage() {
                   <div className="text-base font-semibold">Aging Inventory</div>
                   <div className="mt-0.5 text-sm text-muted-foreground">
                     {agingAlerts.count > 0
-                      ? `${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${staleThresholdDays} days`
-                      : `No items past ${staleThresholdDays} days`}
+                      ? `${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${agingThresholds.reviewDays} days`
+                      : `No items past ${agingThresholds.reviewDays} days`}
                   </div>
                 </div>
               </div>
@@ -331,6 +338,23 @@ export default function DashboardPage() {
                       Review aging items
                     </Button>
                   </Link>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: '30d', watchDays: 21, reviewDays: 30 },
+                      { label: '60d', watchDays: 45, reviewDays: 60 },
+                      { label: '90d', watchDays: 75, reviewDays: 90 },
+                    ].map((preset) => (
+                      <Button
+                        key={preset.label}
+                        variant="outline"
+                        size="sm"
+                        className="h-8 border-red-500/20 px-2 text-xs text-red-100 hover:bg-red-500/10"
+                        onClick={() => saveAgingThresholds(preset)}
+                      >
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

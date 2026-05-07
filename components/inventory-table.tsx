@@ -7,7 +7,7 @@ import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minu
 import { PrepStageMini } from '@/components/prep-stage-bar';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { getItemRegionDetails, getRegionStyle } from '@/lib/region';
-import { getAgeActionLabel, getAgeStatus, getInventoryAgeDays } from '@/lib/inventory-aging';
+import { getAgeActionLabel, getAgeStatus, getInventoryAgeDays, type AgingThresholds } from '@/lib/inventory-aging';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -79,7 +79,7 @@ type InventoryItem = {
 type InventoryTableProps = {
   items: InventoryItem[];
   onRefresh: () => void;
-  staleThresholdDays?: number;
+  agingThresholds?: AgingThresholds;
   collections?: Collection[];
   onMoveToCollection?: (itemId: string, collectionId: string | null) => Promise<void>;
   onBulkMoveToCollection?: (itemIds: string[], collectionId: string | null) => Promise<void>;
@@ -109,7 +109,7 @@ function getDealBadge(label: string, _score: number) {
 export function InventoryTable({
   items,
   onRefresh,
-  staleThresholdDays = 60,
+  agingThresholds = { watchDays: 45, reviewDays: 60 },
   collections = [],
   onMoveToCollection,
   onBulkMoveToCollection,
@@ -275,7 +275,7 @@ export function InventoryTable({
         const region = getItemRegionDetails(item);
         const isInStock = (item.status || 'available') !== 'sold';
         const ageDays = isInStock ? getInventoryAgeDays(item.created_at) : 0;
-        const ageStatus = isInStock ? getAgeStatus(ageDays, staleThresholdDays) : 'fresh';
+        const ageStatus = isInStock ? getAgeStatus(ageDays, agingThresholds) : 'fresh';
         const ageStyle =
           ageStatus === 'stale'
             ? 'border-red-500/35 bg-red-500/10 text-red-300'
@@ -365,7 +365,7 @@ export function InventoryTable({
                   <Badge
                     variant="outline"
                     className={`h-5 px-2 py-0 text-[11px] ${ageStyle}`}
-                    title={getAgeActionLabel(ageDays, staleThresholdDays)}
+                    title={getAgeActionLabel(ageDays, agingThresholds)}
                   >
                     <Clock className="mr-1 h-3 w-3" />
                     {ageDays}d

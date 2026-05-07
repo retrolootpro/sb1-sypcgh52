@@ -13,7 +13,7 @@ import { AmazonConnectCard } from '@/components/amazon-connect-card';
 import { WhatnotConnectCard } from '@/components/whatnot-connect-card';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { normalizeStaleThreshold, readStaleThresholdDays, writeStaleThresholdDays } from '@/lib/inventory-aging';
+import { normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds } from '@/lib/inventory-aging';
 
 type ApiKey = {
   id: string;
@@ -73,7 +73,8 @@ export default function SettingsPage() {
   const [newKeyValue, setNewKeyValue] = useState('');
   const [showKey, setShowKey] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
-  const [staleDaysInput, setStaleDaysInput] = useState('60');
+  const [watchDaysInput, setWatchDaysInput] = useState('45');
+  const [reviewDaysInput, setReviewDaysInput] = useState('60');
   const toastShown = useRef(false);
 
   useEffect(() => {
@@ -127,14 +128,28 @@ export default function SettingsPage() {
   }, [user, loadApiKeys]);
 
   useEffect(() => {
-    setStaleDaysInput(String(readStaleThresholdDays()));
+    const thresholds = readAgingThresholds();
+    setWatchDaysInput(String(thresholds.watchDays));
+    setReviewDaysInput(String(thresholds.reviewDays));
   }, []);
 
   const handleSaveAgingThreshold = () => {
-    const days = normalizeStaleThreshold(staleDaysInput);
-    writeStaleThresholdDays(days);
-    setStaleDaysInput(String(days));
-    toast.success(`Inventory aging alerts set to ${days} day${days === 1 ? '' : 's'}`);
+    const thresholds = normalizeAgingThresholds({
+      watchDays: Number(watchDaysInput),
+      reviewDays: Number(reviewDaysInput),
+    });
+    writeAgingThresholds(thresholds);
+    setWatchDaysInput(String(thresholds.watchDays));
+    setReviewDaysInput(String(thresholds.reviewDays));
+    toast.success(`Aging alerts set: watch at ${thresholds.watchDays} days, review at ${thresholds.reviewDays} days`);
+  };
+
+  const applyAgingPreset = (watchDays: number, reviewDays: number) => {
+    const thresholds = normalizeAgingThresholds({ watchDays, reviewDays });
+    setWatchDaysInput(String(thresholds.watchDays));
+    setReviewDaysInput(String(thresholds.reviewDays));
+    writeAgingThresholds(thresholds);
+    toast.success(`Aging preset saved`);
   };
 
   const handleSaveKey = async (serviceName: string) => {
@@ -207,17 +222,31 @@ export default function SettingsPage() {
           </div>
 
           <div className="p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex-1">
-                <label className="text-sm font-medium">Review threshold</label>
+            <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <div>
+                <label className="text-sm font-medium">Watch soon</label>
                 <div className="mt-1.5 flex items-center gap-2">
                   <Input
                     type="number"
                     min={1}
                     max={365}
-                    value={staleDaysInput}
-                    onChange={(event) => setStaleDaysInput(event.target.value)}
-                    className="h-11 max-w-[140px] bg-secondary/40"
+                    value={watchDaysInput}
+                    onChange={(event) => setWatchDaysInput(event.target.value)}
+                    className="h-11 bg-secondary/40"
+                  />
+                  <span className="text-sm text-muted-foreground">days in stock</span>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Review now</label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={reviewDaysInput}
+                    onChange={(event) => setReviewDaysInput(event.target.value)}
+                    className="h-11 bg-secondary/40"
                   />
                   <span className="text-sm text-muted-foreground">days in stock</span>
                 </div>
@@ -226,6 +255,24 @@ export default function SettingsPage() {
                 <Save className="mr-2 h-4 w-4" />
                 Save Alert
               </Button>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {[
+                { label: 'Fast movers', watch: 21, review: 30 },
+                { label: 'Standard', watch: 45, review: 60 },
+                { label: 'Long tail', watch: 75, review: 90 },
+              ].map((preset) => (
+                <Button
+                  key={preset.label}
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => applyAgingPreset(preset.watch, preset.review)}
+                >
+                  {preset.label}
+                </Button>
+              ))}
             </div>
           </div>
         </div>

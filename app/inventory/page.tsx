@@ -15,7 +15,7 @@ import { lookupUPC } from '@/lib/api-services';
 import { getCanonicalPricing } from '@/lib/pricing-service';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { getItemRegionDetails } from '@/lib/region';
-import { getAgeStatus, getInventoryAgeDays, readStaleThresholdDays } from '@/lib/inventory-aging';
+import { getAgeStatus, getInventoryAgeDays, normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds, type AgingThresholds } from '@/lib/inventory-aging';
 import { toast } from 'sonner';
 import { CreateCollectionDialog, type Collection } from '@/components/create-collection-dialog';
 import { useSearchParams } from 'next/navigation';
@@ -81,7 +81,7 @@ export default function InventoryPage() {
   const [regionFilter, setRegionFilter] = useState('all');
   const [ageFilter, setAgeFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name_asc');
-  const [staleThresholdDays, setStaleThresholdDays] = useState(60);
+  const [agingThresholds, setAgingThresholds] = useState<AgingThresholds>({ watchDays: 45, reviewDays: 60 });
   const [backfilling, setBackfilling] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
 
@@ -132,7 +132,7 @@ export default function InventoryPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    const syncThreshold = () => setStaleThresholdDays(readStaleThresholdDays());
+    const syncThreshold = () => setAgingThresholds(readAgingThresholds());
     syncThreshold();
     window.addEventListener('storage', syncThreshold);
     window.addEventListener('retroloot-stale-threshold-change', syncThreshold);
@@ -324,7 +324,7 @@ export default function InventoryPage() {
       const matchesRegion = regionFilter === 'all' || normalizedRegion === regionFilter;
       const isInStock = (item.status || 'available') !== 'sold';
       const ageDays = getInventoryAgeDays(item.created_at);
-      const ageStatus = getAgeStatus(ageDays, staleThresholdDays);
+      const ageStatus = getAgeStatus(ageDays, agingThresholds);
       const matchesAge =
         ageFilter === 'all' ||
         (isInStock && ageFilter === 'stale' && ageStatus === 'stale') ||
@@ -385,7 +385,7 @@ export default function InventoryPage() {
           return nameCompare;
       }
     });
-  }, [items, searchQuery, consoleFilter, conditionFilter, regionFilter, ageFilter, staleThresholdDays, selectedCollectionId, sortBy, getItemMarketValue]);
+  }, [items, searchQuery, consoleFilter, conditionFilter, regionFilter, ageFilter, agingThresholds, selectedCollectionId, sortBy, getItemMarketValue]);
 
   const collectionItemCount = useCallback((colId: string) =>
     items.filter((i) => i.collection_id === colId).length, [items]);
@@ -394,8 +394,8 @@ export default function InventoryPage() {
 
   const agingSummary = useMemo(() => {
     const availableItems = items.filter((item) => (item.status || 'available') !== 'sold');
-    const staleItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), staleThresholdDays) === 'stale');
-    const watchItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), staleThresholdDays) === 'watch');
+    const staleItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), agingThresholds) === 'stale');
+    const watchItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), agingThresholds) === 'watch');
     const oldest = [...availableItems].sort((a, b) => getInventoryAgeDays(b.created_at) - getInventoryAgeDays(a.created_at))[0];
     return {
       staleCount: staleItems.length,
@@ -403,7 +403,7 @@ export default function InventoryPage() {
       oldestAge: oldest ? getInventoryAgeDays(oldest.created_at) : 0,
       oldestName: oldest?.product_name || '',
     };
-  }, [items, staleThresholdDays]);
+  }, [items, agingThresholds]);
 
   const { totalCost, totalMarketValue } = useMemo(() => {
     const source = filteredItems;
@@ -522,6 +522,13 @@ export default function InventoryPage() {
     }
   };
 
+  const saveAgingThresholds = (thresholds: Partial<AgingThresholds>) => {
+    const next = normalizeAgingThresholds({ ...agingThresholds, ...thresholds });
+    setAgingThresholds(next);
+    writeAgingThresholds(next);
+    toast.success(`Aging alerts set: watch ${next.watchDays}d, review ${next.reviewDays}d`);
+  };
+
   const activeCollection = collections.find((c) => c.id === selectedCollectionId);
 
   return (
@@ -601,7 +608,7 @@ export default function InventoryPage() {
                   {agingSummary.staleCount}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {staleThresholdDays}+ days in stock
+                  Review at {agingThresholds.reviewDays}d
                 </div>
               </div>
             </button>
@@ -626,6 +633,23 @@ export default function InventoryPage() {
             <Button variant="outline" size="sm" className="h-9 border-red-500/30 text-red-100 hover:bg-red-500/10" onClick={() => setAgeFilter('stale')}>
               Review aging items
             </Button>
+            <div className="flex flex-wrap gap-2">
+              {[
+                { label: '30d', watchDays: 21, reviewDays: 30 },
+                { label: '60d', watchDays: 45, reviewDays: 60 },
+                { label: '90d', watchDays: 75, reviewDays: 90 },
+              ].map((preset) => (
+                <Button
+                  key={preset.label}
+                  variant="outline"
+                  size="sm"
+                  className="h-9 border-red-500/20 text-red-100 hover:bg-red-500/10"
+                  onClick={() => saveAgingThresholds(preset)}
+                >
+                  {preset.label}
+                </Button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -770,7 +794,7 @@ export default function InventoryPage() {
           <InventoryTable
             items={filteredItems}
             onRefresh={loadInventory}
-            staleThresholdDays={staleThresholdDays}
+            agingThresholds={agingThresholds}
             collections={collections}
             onMoveToCollection={handleMoveToCollection}
             onBulkMoveToCollection={handleBulkMoveToCollection}
