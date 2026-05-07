@@ -3,10 +3,11 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus } from 'lucide-react';
+import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus, Clock } from 'lucide-react';
 import { PrepStageMini } from '@/components/prep-stage-bar';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { getItemRegionDetails, getRegionStyle } from '@/lib/region';
+import { getAgeActionLabel, getAgeStatus, getInventoryAgeDays } from '@/lib/inventory-aging';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -39,6 +40,7 @@ type InventoryItem = {
   region?: string | null;
   purchase_price: number;
   quantity: number;
+  status?: string | null;
   created_at: string;
   image_url?: string;
   thumbnail_url?: string;
@@ -77,6 +79,7 @@ type InventoryItem = {
 type InventoryTableProps = {
   items: InventoryItem[];
   onRefresh: () => void;
+  staleThresholdDays?: number;
   collections?: Collection[];
   onMoveToCollection?: (itemId: string, collectionId: string | null) => Promise<void>;
   onBulkMoveToCollection?: (itemIds: string[], collectionId: string | null) => Promise<void>;
@@ -106,6 +109,7 @@ function getDealBadge(label: string, _score: number) {
 export function InventoryTable({
   items,
   onRefresh,
+  staleThresholdDays = 60,
   collections = [],
   onMoveToCollection,
   onBulkMoveToCollection,
@@ -269,6 +273,15 @@ export function InventoryTable({
         const isSelected = selectedIds.has(item.id);
         const hasCollections = collections.length > 0 && onMoveToCollection;
         const region = getItemRegionDetails(item);
+        const isInStock = (item.status || 'available') !== 'sold';
+        const ageDays = isInStock ? getInventoryAgeDays(item.created_at) : 0;
+        const ageStatus = isInStock ? getAgeStatus(ageDays, staleThresholdDays) : 'fresh';
+        const ageStyle =
+          ageStatus === 'stale'
+            ? 'border-red-500/35 bg-red-500/10 text-red-300'
+            : ageStatus === 'watch'
+              ? 'border-amber-500/35 bg-amber-500/10 text-amber-300'
+              : 'border-border/45 bg-secondary/30 text-muted-foreground';
 
         return (
           <Link
@@ -347,6 +360,16 @@ export function InventoryTable({
                     <span className="text-muted-foreground/30 text-sm">|</span>
                     <span className="text-sm text-muted-foreground">x{item.quantity}</span>
                   </>
+                )}
+                {isInStock && (
+                  <Badge
+                    variant="outline"
+                    className={`h-5 px-2 py-0 text-[11px] ${ageStyle}`}
+                    title={getAgeActionLabel(ageDays, staleThresholdDays)}
+                  >
+                    <Clock className="mr-1 h-3 w-3" />
+                    {ageDays}d
+                  </Badge>
                 )}
               </div>
               {hasPricingTiers && (

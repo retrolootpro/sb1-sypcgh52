@@ -5,10 +5,12 @@ import { DashboardLayout } from '@/components/dashboard-layout';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
-import { TrendingUp, Package, DollarSign, ArrowUpRight, ArrowDownRight, ChevronRight, ScanBarcode, ListChecks } from 'lucide-react';
+import { TrendingUp, Package, DollarSign, ArrowUpRight, ArrowDownRight, ChevronRight, ScanBarcode, ListChecks, Bell, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { getAgeStatus, getInventoryAgeDays, readStaleThresholdDays } from '@/lib/inventory-aging';
+import { toast } from 'sonner';
 
 type InventoryItem = {
   id: string;
@@ -17,6 +19,7 @@ type InventoryItem = {
   condition: string;
   purchase_price: number;
   quantity: number;
+  status?: string | null;
   created_at: string;
   price_loose?: number;
   price_cib?: number;
@@ -50,6 +53,7 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [staleThresholdDays, setStaleThresholdDays] = useState(60);
 
   const loadDashboardData = useCallback(async () => {
     if (!user) return;
@@ -73,6 +77,17 @@ export default function DashboardPage() {
       loadDashboardData();
     }
   }, [user, loadDashboardData]);
+
+  useEffect(() => {
+    const syncThreshold = () => setStaleThresholdDays(readStaleThresholdDays());
+    syncThreshold();
+    window.addEventListener('storage', syncThreshold);
+    window.addEventListener('retroloot-stale-threshold-change', syncThreshold);
+    return () => {
+      window.removeEventListener('storage', syncThreshold);
+      window.removeEventListener('retroloot-stale-threshold-change', syncThreshold);
+    };
+  }, []);
 
   const stats = useMemo(() => {
     let totalValue = 0;
@@ -120,6 +135,33 @@ export default function DashboardPage() {
       .sort((a, b) => b.dealScore.score - a.dealScore.score)
       .slice(0, 6);
   }, [items]);
+
+  const agingAlerts = useMemo(() => {
+    const rows = items
+      .filter((item) => (item.status || 'available') !== 'sold')
+      .map((item) => ({
+        ...item,
+        ageDays: getInventoryAgeDays(item.created_at),
+        ageStatus: getAgeStatus(getInventoryAgeDays(item.created_at), staleThresholdDays),
+      }))
+      .filter((item) => item.ageStatus === 'stale')
+      .sort((a, b) => b.ageDays - a.ageDays);
+
+    return {
+      items: rows.slice(0, 5),
+      count: rows.length,
+      oldestAge: rows[0]?.ageDays || 0,
+      oldestName: rows[0]?.product_name || '',
+    };
+  }, [items, staleThresholdDays]);
+
+  useEffect(() => {
+    if (loading || agingAlerts.count === 0) return;
+    const key = `retroloot-aging-toast-${new Date().toISOString().slice(0, 10)}-${staleThresholdDays}`;
+    if (window.sessionStorage.getItem(key)) return;
+    window.sessionStorage.setItem(key, '1');
+    toast.warning(`${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${staleThresholdDays} days in stock`);
+  }, [agingAlerts.count, loading, staleThresholdDays]);
 
   const profitPositive = stats.totalProfit >= 0;
   const roi = stats.totalSpent > 0 ? ((stats.totalProfit / stats.totalSpent) * 100) : 0;
@@ -252,6 +294,47 @@ export default function DashboardPage() {
           </div>
 
           <div className="space-y-3">
+            <div className={`rounded-xl border p-4 ${
+              agingAlerts.count > 0
+                ? 'border-red-500/30 bg-red-500/10'
+                : 'border-border/40 bg-card'
+            }`}>
+              <div className="flex items-start gap-3">
+                <div className={`rounded-lg p-2 ${agingAlerts.count > 0 ? 'bg-red-500/10' : 'bg-secondary/40'}`}>
+                  <Bell className={`h-4 w-4 ${agingAlerts.count > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-base font-semibold">Aging Inventory</div>
+                  <div className="mt-0.5 text-sm text-muted-foreground">
+                    {agingAlerts.count > 0
+                      ? `${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${staleThresholdDays} days`
+                      : `No items past ${staleThresholdDays} days`}
+                  </div>
+                </div>
+              </div>
+              {agingAlerts.count > 0 && (
+                <div className="mt-3 space-y-2">
+                  {agingAlerts.items.slice(0, 3).map((item) => (
+                    <Link key={item.id} href={`/inventory/${item.id}`} className="flex items-center justify-between gap-3 rounded-lg border border-red-500/20 bg-black/10 px-3 py-2 hover:bg-red-500/10">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{item.product_name}</div>
+                        <div className="text-xs text-muted-foreground">{item.console} &middot; {item.condition}</div>
+                      </div>
+                      <Badge variant="outline" className="shrink-0 border-red-500/30 text-red-300">
+                        <Clock className="mr-1 h-3 w-3" />
+                        {item.ageDays}d
+                      </Badge>
+                    </Link>
+                  ))}
+                  <Link href="/inventory?age=stale">
+                    <Button variant="outline" size="sm" className="mt-1 h-9 w-full border-red-500/30 text-red-100 hover:bg-red-500/10">
+                      Review aging items
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </div>
+
             <div className="label-caps px-1 mb-3">Quick Actions</div>
             {[
               { href: '/scan', icon: ScanBarcode, label: 'Scan Items', sub: 'Add via barcode' },

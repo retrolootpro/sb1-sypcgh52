@@ -7,12 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Key, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Plus, Trash2, Eye, EyeOff, ShieldCheck, Image, Plug } from 'lucide-react';
+import { Key, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Plus, Trash2, Eye, EyeOff, ShieldCheck, Image, Plug, Bell, Save } from 'lucide-react';
 import { EbayConnectCard } from '@/components/ebay-connect-card';
 import { AmazonConnectCard } from '@/components/amazon-connect-card';
 import { WhatnotConnectCard } from '@/components/whatnot-connect-card';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { normalizeStaleThreshold, readStaleThresholdDays, writeStaleThresholdDays } from '@/lib/inventory-aging';
 
 type ApiKey = {
   id: string;
@@ -72,6 +73,7 @@ export default function SettingsPage() {
   const [newKeyValue, setNewKeyValue] = useState('');
   const [showKey, setShowKey] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
+  const [staleDaysInput, setStaleDaysInput] = useState('60');
   const toastShown = useRef(false);
 
   useEffect(() => {
@@ -123,6 +125,17 @@ export default function SettingsPage() {
       loadApiKeys();
     }
   }, [user, loadApiKeys]);
+
+  useEffect(() => {
+    setStaleDaysInput(String(readStaleThresholdDays()));
+  }, []);
+
+  const handleSaveAgingThreshold = () => {
+    const days = normalizeStaleThreshold(staleDaysInput);
+    writeStaleThresholdDays(days);
+    setStaleDaysInput(String(days));
+    toast.success(`Inventory aging alerts set to ${days} day${days === 1 ? '' : 's'}`);
+  };
 
   const handleSaveKey = async (serviceName: string) => {
     if (!user || !newKeyValue.trim()) return;
@@ -180,6 +193,41 @@ export default function SettingsPage() {
         <div>
           <div className="label-caps mb-1">Account</div>
           <h1 className="heading-lg text-[22px]">Settings</h1>
+        </div>
+
+        <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
+          <div className="px-6 py-4 border-b border-border/40">
+            <div className="flex items-center gap-2">
+              <Bell className="w-4 h-4 text-primary" />
+              <h3 className="font-semibold text-[15px]">Inventory Aging Alerts</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Flag items that have been in stock long enough to consider discounting, relisting, or moving to another sales channel.
+            </p>
+          </div>
+
+          <div className="p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <label className="text-sm font-medium">Review threshold</label>
+                <div className="mt-1.5 flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={staleDaysInput}
+                    onChange={(event) => setStaleDaysInput(event.target.value)}
+                    className="h-11 max-w-[140px] bg-secondary/40"
+                  />
+                  <span className="text-sm text-muted-foreground">days in stock</span>
+                </div>
+              </div>
+              <Button className="h-11" onClick={handleSaveAgingThreshold}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Alert
+              </Button>
+            </div>
+          </div>
         </div>
 
         <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">

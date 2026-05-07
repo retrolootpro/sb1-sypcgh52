@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -15,8 +15,10 @@ import { lookupUPC } from '@/lib/api-services';
 import { getCanonicalPricing } from '@/lib/pricing-service';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { getItemRegionDetails } from '@/lib/region';
+import { getAgeStatus, getInventoryAgeDays, readStaleThresholdDays } from '@/lib/inventory-aging';
 import { toast } from 'sonner';
 import { CreateCollectionDialog, type Collection } from '@/components/create-collection-dialog';
+import { useSearchParams } from 'next/navigation';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,6 +38,7 @@ type InventoryItem = {
   region?: string | null;
   purchase_price: number;
   quantity: number;
+  status?: string | null;
   created_at: string;
   barcode?: string;
   image_url?: string;
@@ -68,6 +71,7 @@ type InventoryItem = {
 
 export default function InventoryPage() {
   const { user } = useAuth();
+  const searchParams = useSearchParams();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
@@ -75,7 +79,9 @@ export default function InventoryPage() {
   const [consoleFilter, setConsoleFilter] = useState('all');
   const [conditionFilter, setConditionFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
+  const [ageFilter, setAgeFilter] = useState('all');
   const [sortBy, setSortBy] = useState('name_asc');
+  const [staleThresholdDays, setStaleThresholdDays] = useState(60);
   const [backfilling, setBackfilling] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
 
@@ -117,6 +123,24 @@ export default function InventoryPage() {
       loadCollections();
     }
   }, [user, loadInventory, loadCollections]);
+
+  useEffect(() => {
+    if (searchParams.get('age') === 'stale') {
+      setAgeFilter('stale');
+      setSortBy('age_high');
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const syncThreshold = () => setStaleThresholdDays(readStaleThresholdDays());
+    syncThreshold();
+    window.addEventListener('storage', syncThreshold);
+    window.addEventListener('retroloot-stale-threshold-change', syncThreshold);
+    return () => {
+      window.removeEventListener('storage', syncThreshold);
+      window.removeEventListener('retroloot-stale-threshold-change', syncThreshold);
+    };
+  }, []);
 
   const handleCollectionCreated = (col: Collection) => {
     setCollections((prev) => [...prev, col]);
@@ -298,10 +322,18 @@ export default function InventoryPage() {
       const matchesCondition = conditionFilter === 'all' || item.condition === conditionFilter;
       const normalizedRegion = getItemRegionDetails(item)?.value || 'unset';
       const matchesRegion = regionFilter === 'all' || normalizedRegion === regionFilter;
+      const isInStock = (item.status || 'available') !== 'sold';
+      const ageDays = getInventoryAgeDays(item.created_at);
+      const ageStatus = getAgeStatus(ageDays, staleThresholdDays);
+      const matchesAge =
+        ageFilter === 'all' ||
+        (isInStock && ageFilter === 'stale' && ageStatus === 'stale') ||
+        (isInStock && ageFilter === 'watch' && ageStatus === 'watch') ||
+        (isInStock && ageFilter === 'fresh' && ageStatus === 'fresh');
       const matchesCollection = selectedCollectionId === null
         ? true
         : item.collection_id === selectedCollectionId;
-      return matchesSearch && matchesConsole && matchesCondition && matchesRegion && matchesCollection;
+      return matchesSearch && matchesConsole && matchesCondition && matchesRegion && matchesAge && matchesCollection;
     });
 
     return [...filtered].sort((a, b) => {
@@ -310,6 +342,8 @@ export default function InventoryPage() {
       const regionCompare = (getItemRegionDetails(a)?.value || 'ZZZ').localeCompare(getItemRegionDetails(b)?.value || 'ZZZ', undefined, { sensitivity: 'base' });
       const dateA = new Date(a.created_at).getTime() || 0;
       const dateB = new Date(b.created_at).getTime() || 0;
+      const ageA = getInventoryAgeDays(a.created_at);
+      const ageB = getInventoryAgeDays(b.created_at);
       const marketA = getItemMarketValue(a);
       const marketB = getItemMarketValue(b);
       const costA = Number(a.purchase_price) || 0;
@@ -324,6 +358,10 @@ export default function InventoryPage() {
           return dateB - dateA || nameCompare;
         case 'oldest':
           return dateA - dateB || nameCompare;
+        case 'age_high':
+          return ageB - ageA || nameCompare;
+        case 'age_low':
+          return ageA - ageB || nameCompare;
         case 'console':
           return consoleCompare || nameCompare;
         case 'condition':
@@ -347,12 +385,25 @@ export default function InventoryPage() {
           return nameCompare;
       }
     });
-  }, [items, searchQuery, consoleFilter, conditionFilter, regionFilter, selectedCollectionId, sortBy, getItemMarketValue]);
+  }, [items, searchQuery, consoleFilter, conditionFilter, regionFilter, ageFilter, staleThresholdDays, selectedCollectionId, sortBy, getItemMarketValue]);
 
   const collectionItemCount = useCallback((colId: string) =>
     items.filter((i) => i.collection_id === colId).length, [items]);
 
   const totalItems = filteredItems.length;
+
+  const agingSummary = useMemo(() => {
+    const availableItems = items.filter((item) => (item.status || 'available') !== 'sold');
+    const staleItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), staleThresholdDays) === 'stale');
+    const watchItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), staleThresholdDays) === 'watch');
+    const oldest = [...availableItems].sort((a, b) => getInventoryAgeDays(b.created_at) - getInventoryAgeDays(a.created_at))[0];
+    return {
+      staleCount: staleItems.length,
+      watchCount: watchItems.length,
+      oldestAge: oldest ? getInventoryAgeDays(oldest.created_at) : 0,
+      oldestName: oldest?.product_name || '',
+    };
+  }, [items, staleThresholdDays]);
 
   const { totalCost, totalMarketValue } = useMemo(() => {
     const source = filteredItems;
@@ -500,7 +551,7 @@ export default function InventoryPage() {
         </div>
 
         {!loading && items.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-card">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                 <Package className="w-5 h-5 text-primary" />
@@ -530,6 +581,51 @@ export default function InventoryPage() {
                 </div>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setAgeFilter(ageFilter === 'stale' ? 'all' : 'stale')}
+              className={`flex items-center gap-4 p-5 rounded-2xl border text-left transition-colors ${
+                agingSummary.staleCount > 0
+                  ? 'border-red-500/35 bg-red-500/10 hover:bg-red-500/15'
+                  : 'border-border/40 bg-card hover:bg-card/80'
+              }`}
+            >
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
+                agingSummary.staleCount > 0 ? 'bg-red-400/10' : 'bg-secondary/40'
+              }`}>
+                <Bell className={`w-5 h-5 ${agingSummary.staleCount > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
+              </div>
+              <div>
+                <div className="label-caps">Aging Alerts</div>
+                <div className={`text-[22px] font-bold stat-number mt-0.5 ${agingSummary.staleCount > 0 ? 'text-red-300' : ''}`}>
+                  {agingSummary.staleCount}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {staleThresholdDays}+ days in stock
+                </div>
+              </div>
+            </button>
+          </div>
+        )}
+
+        {!loading && agingSummary.staleCount > 0 && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5 rounded-lg bg-red-500/10 p-2">
+                <Clock className="h-4 w-4 text-red-300" />
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-red-100">
+                  {agingSummary.staleCount} item{agingSummary.staleCount === 1 ? '' : 's'} need listing review
+                </div>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Oldest item is {agingSummary.oldestAge} days old{agingSummary.oldestName ? `: ${agingSummary.oldestName}` : ''}. Consider discounting, refreshing photos, or moving it to another platform.
+                </p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="h-9 border-red-500/30 text-red-100 hover:bg-red-500/10" onClick={() => setAgeFilter('stale')}>
+              Review aging items
+            </Button>
           </div>
         )}
 
@@ -608,6 +704,8 @@ export default function InventoryPage() {
                 <SelectItem value="name_desc">Name Z-A</SelectItem>
                 <SelectItem value="newest">Newest Added</SelectItem>
                 <SelectItem value="oldest">Oldest Added</SelectItem>
+                <SelectItem value="age_high">Age High-Low</SelectItem>
+                <SelectItem value="age_low">Age Low-High</SelectItem>
                 <SelectItem value="console">Console A-Z</SelectItem>
                 <SelectItem value="condition">Condition A-Z</SelectItem>
                 <SelectItem value="region">Region A-Z</SelectItem>
@@ -649,6 +747,18 @@ export default function InventoryPage() {
                 <SelectItem value="unset">No Region</SelectItem>
               </SelectContent>
             </Select>
+            <Select value={ageFilter} onValueChange={setAgeFilter}>
+              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[165px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+                <Clock className="mr-2 h-4 w-4 text-muted-foreground/50" />
+                <SelectValue placeholder="Age" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Ages</SelectItem>
+                <SelectItem value="stale">Review Now</SelectItem>
+                <SelectItem value="watch">Watch Soon</SelectItem>
+                <SelectItem value="fresh">Fresh Stock</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -660,6 +770,7 @@ export default function InventoryPage() {
           <InventoryTable
             items={filteredItems}
             onRefresh={loadInventory}
+            staleThresholdDays={staleThresholdDays}
             collections={collections}
             onMoveToCollection={handleMoveToCollection}
             onBulkMoveToCollection={handleBulkMoveToCollection}
