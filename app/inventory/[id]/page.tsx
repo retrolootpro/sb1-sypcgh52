@@ -6,10 +6,14 @@ import { DashboardLayout } from '@/components/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
-import { ArrowLeft, Gamepad2, TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, CircleDot } from 'lucide-react';
+import { ArrowLeft, Gamepad2, TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, CircleDot, Pencil, Save, X } from 'lucide-react';
 import { PrepStageBar } from '@/components/prep-stage-bar';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -20,6 +24,7 @@ import {
   type ConditionSource,
 } from '@/lib/pricing-service';
 import { toast } from 'sonner';
+import { CONDITIONS, CONSOLES, REGIONS } from '@/lib/constants';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -32,6 +37,7 @@ type InventoryItem = {
   quantity: number;
   notes: string;
   barcode: string;
+  region?: string | null;
   created_at: string;
   brand?: string;
   description?: string;
@@ -50,6 +56,7 @@ type InventoryItem = {
   pricing_matched_platform?: string;
   pricing_source?: string;
   pricing_last_checked_at?: string;
+  pricing_attempted_at?: string;
   pc_source_product_id?: string;
   pricing_diagnostics?: Record<string, unknown>;
   sorted_at?: string | null;
@@ -60,6 +67,21 @@ type InventoryItem = {
   listed_ebay_at?: string | null;
   listed_amazon_at?: string | null;
   listed_whatnot_at?: string | null;
+};
+
+type MetadataForm = {
+  product_name: string;
+  console: string;
+  condition: string;
+  region: string;
+  brand: string;
+  category: string;
+  genre: string;
+  barcode: string;
+  image_url: string;
+  thumbnail_url: string;
+  description: string;
+  notes: string;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -111,23 +133,41 @@ function RefreshStatusIcon({ status }: { status: 'success' | 'partial' | 'failed
 export default function ItemDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
 
   const [item, setItem] = useState<InventoryItem | null>(null);
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [savingMetadata, setSavingMetadata] = useState(false);
+  const [editingMetadata, setEditingMetadata] = useState(false);
   const [showDiag, setShowDiag]     = useState(false);
+  const [autoRefreshAttempted, setAutoRefreshAttempted] = useState(false);
+  const [metadataForm, setMetadataForm] = useState<MetadataForm>({
+    product_name: '',
+    console: 'Unknown',
+    condition: 'Loose',
+    region: 'US',
+    brand: '',
+    category: '',
+    genre: '',
+    barcode: '',
+    image_url: '',
+    thumbnail_url: '',
+    description: '',
+    notes: '',
+  });
 
   // Live canonical pricing state (null = not yet refreshed this session)
   const [canonical, setCanonical] = useState<CanonicalPricingResult | null>(null);
 
   const loadItem = useCallback(async () => {
+    if (!user || !accountId) return;
     try {
       const { data, error } = await supabase
         .from('inventory_items')
         .select('*')
         .eq('id', params.id as string)
-        .eq('user_id', user!.id)
+        .eq('user_id', accountId)
         .single();
       if (error) throw error;
       setItem(data as InventoryItem);
@@ -136,17 +176,44 @@ export default function ItemDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [user, params.id, router]);
+  }, [user, accountId, params.id, router]);
 
   useEffect(() => {
-    if (user && params.id) loadItem();
-  }, [user, params.id, loadItem]);
+    if (user && accountId && params.id) loadItem();
+  }, [user, accountId, params.id, loadItem]);
+
+  useEffect(() => {
+    if (!item || editingMetadata) return;
+    setMetadataForm({
+      product_name: item.product_name || '',
+      console: item.console || 'Unknown',
+      condition: item.condition || 'Loose',
+      region: item.region || 'US',
+      brand: item.brand || '',
+      category: item.category || '',
+      genre: item.genre || '',
+      barcode: item.barcode || '',
+      image_url: item.image_url || '',
+      thumbnail_url: item.thumbnail_url || '',
+      description: item.description || '',
+      notes: item.notes || '',
+    });
+  }, [item, editingMetadata]);
+
+  const isPricingStale = useCallback((target: InventoryItem) => {
+    const lastChecked = target.pricing_last_checked_at || target.pricing_attempted_at;
+    if (!lastChecked) return true;
+    const lastCheckedTime = new Date(lastChecked).getTime();
+    if (!Number.isFinite(lastCheckedTime)) return true;
+    return Date.now() - lastCheckedTime > 4 * 60 * 60 * 1000;
+  }, []);
 
   // ── Refresh handler ───────────────────────────────────────────────────────
 
   const handleRefreshPricing = useCallback(async () => {
-    if (!item || !user) return;
+    if (!item || !user || !accountId) return;
     setRefreshing(true);
+    const checkedAt = new Date().toISOString();
     try {
       const result = await getCanonicalPricing(item.product_name, item.console, {
         upc:               item.barcode || null,
@@ -157,6 +224,20 @@ export default function ItemDetailPage() {
       setCanonical(result);
 
       if (result.status === 'api_error') {
+        await supabase
+          .from('inventory_items')
+          .update({
+            pricing_status: 'error',
+            pricing_attempted_at: checkedAt,
+            pricing_error_message: result.error || 'Pricing refresh failed',
+            pricing_diagnostics: {
+              refreshStatus: 'failed',
+              warnings: [result.error || 'Pricing refresh failed'],
+              refreshedAt: checkedAt,
+            },
+          })
+          .eq('id', item.id)
+          .eq('user_id', accountId);
         toast.error(result.error || 'Could not fetch market prices. Try again shortly.');
         return;
       }
@@ -167,14 +248,15 @@ export default function ItemDetailPage() {
       //    This prevents a partial refresh (e.g., eBay blocked for CIB) from
       //    zeroing out a previously good PriceCharting API value.
       const dbUpdates: Record<string, unknown> = {
-        pricing_status:           'found',
-        pricing_last_checked_at:  new Date().toISOString(),
+        pricing_status:           result.status === 'failed' ? 'missing' : 'found',
+        pricing_attempted_at:     checkedAt,
+        pricing_last_checked_at:  checkedAt,
         pricing_diagnostics:      {
           refreshStatus:     result.diagnostics.refreshStatus,
           missingConditions: result.diagnostics.missingConditions,
           warnings:          result.diagnostics.warnings,
           pcApiUsed:         result.diagnostics.pcApiUsed,
-          refreshedAt:       new Date().toISOString(),
+          refreshedAt:       checkedAt,
         },
       };
 
@@ -231,7 +313,7 @@ export default function ItemDetailPage() {
         .from('inventory_items')
         .update(dbUpdates)
         .eq('id', item.id)
-        .eq('user_id', user.id);
+        .eq('user_id', accountId);
 
       if (updateErr) throw updateErr;
 
@@ -251,7 +333,71 @@ export default function ItemDetailPage() {
     } finally {
       setRefreshing(false);
     }
-  }, [item, user, loadItem]);
+  }, [item, user, accountId, loadItem]);
+
+  useEffect(() => {
+    if (!item || autoRefreshAttempted || refreshing) return;
+    if (!isPricingStale(item)) return;
+    setAutoRefreshAttempted(true);
+    toast.info('Checking current market value...');
+    handleRefreshPricing();
+  }, [item, autoRefreshAttempted, refreshing, isPricingStale, handleRefreshPricing]);
+
+  const updateMetadataForm = (field: keyof MetadataForm, value: string) => {
+    setMetadataForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveMetadata = async () => {
+    if (!item || !user || !accountId) return;
+    if (!metadataForm.product_name.trim()) {
+      toast.error('Product name is required');
+      return;
+    }
+
+    setSavingMetadata(true);
+    try {
+      const titleChanged = metadataForm.product_name.trim() !== item.product_name;
+      const platformChanged = metadataForm.console !== item.console;
+      const conditionChanged = metadataForm.condition !== item.condition;
+      const imageUrl = metadataForm.image_url.trim();
+      const thumbnailUrl = metadataForm.thumbnail_url.trim() || imageUrl;
+
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({
+          product_name: metadataForm.product_name.trim(),
+          console: metadataForm.console,
+          condition: metadataForm.condition,
+          region: metadataForm.region,
+          brand: metadataForm.brand.trim() || null,
+          category: metadataForm.category.trim() || null,
+          genre: metadataForm.genre.trim() || null,
+          barcode: metadataForm.barcode.trim() || null,
+          image_url: imageUrl || null,
+          thumbnail_url: thumbnailUrl || null,
+          description: metadataForm.description.trim() || null,
+          notes: metadataForm.notes.trim() || null,
+          pc_source_product_id: titleChanged || platformChanged ? null : item.pc_source_product_id || null,
+          pricing_matched_title: titleChanged || platformChanged ? null : item.pricing_matched_title || null,
+          pricing_matched_platform: titleChanged || platformChanged ? null : item.pricing_matched_platform || null,
+          pricing_last_checked_at: titleChanged || platformChanged || conditionChanged ? null : item.pricing_last_checked_at || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', item.id)
+        .eq('user_id', accountId);
+
+      if (error) throw error;
+      toast.success('Item metadata updated');
+      setEditingMetadata(false);
+      setCanonical(null);
+      setAutoRefreshAttempted(false);
+      await loadItem();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update item');
+    } finally {
+      setSavingMetadata(false);
+    }
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -351,16 +497,27 @@ export default function ItemDetailPage() {
             <div>
               <div className="flex items-start justify-between gap-3 mb-1.5">
                 <h1 className="text-2xl font-bold tracking-tight">{item.product_name}</h1>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleRefreshPricing}
-                  disabled={refreshing}
-                  className="shrink-0 h-8 px-3 text-xs border-border/50"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
-                  {refreshing ? 'Refreshing...' : 'Refresh Pricing'}
-                </Button>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditingMetadata(true)}
+                    className="h-8 px-3 text-xs border-border/50"
+                  >
+                    <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRefreshPricing}
+                    disabled={refreshing}
+                    className="h-8 px-3 text-xs border-border/50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
+                    {refreshing ? 'Refreshing...' : 'Refresh Pricing'}
+                  </Button>
+                </div>
               </div>
               {item.description && (
                 <p className="text-sm text-muted-foreground/70 mb-2.5 leading-relaxed line-clamp-3">
@@ -377,6 +534,11 @@ export default function ItemDetailPage() {
                     {item.genre}
                   </Badge>
                 )}
+                {item.region && (
+                  <Badge variant="outline" className="border-border/50 text-xs text-muted-foreground">
+                    {REGIONS.find((region) => region.value === item.region)?.shortLabel || item.region}
+                  </Badge>
+                )}
                 {hasPricing && dealScore.label !== 'No Data' && (
                   <Badge variant="outline" className={`text-xs font-semibold ${getDealBadgeStyle(dealScore.label)}`}>
                     {dealScore.label} {dealScore.score}
@@ -387,6 +549,148 @@ export default function ItemDetailPage() {
                 </span>
               </div>
             </div>
+
+            {editingMetadata && (
+              <Card className="border-border/40 bg-card/40">
+                <CardHeader className="pb-3 flex flex-row items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Edit Item Metadata</CardTitle>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setEditingMetadata(false)}
+                    disabled={savingMetadata}
+                  >
+                    <X className="mr-1 h-3.5 w-3.5" />
+                    Cancel
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs text-muted-foreground">Title</Label>
+                      <Input
+                        value={metadataForm.product_name}
+                        onChange={(event) => updateMetadataForm('product_name', event.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Console / Platform</Label>
+                      <Select value={metadataForm.console} onValueChange={(value) => updateMetadataForm('console', value)}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CONSOLES.map((consoleName) => (
+                            <SelectItem key={consoleName} value={consoleName}>{consoleName}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Condition</Label>
+                      <Select value={metadataForm.condition} onValueChange={(value) => updateMetadataForm('condition', value)}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CONDITIONS.map((condition) => (
+                            <SelectItem key={condition} value={condition}>{condition}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Region</Label>
+                      <Select value={metadataForm.region} onValueChange={(value) => updateMetadataForm('region', value)}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REGIONS.map((region) => (
+                            <SelectItem key={region.value} value={region.value}>{region.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">UPC / Barcode</Label>
+                      <Input
+                        value={metadataForm.barcode}
+                        onChange={(event) => updateMetadataForm('barcode', event.target.value)}
+                        className="h-9 font-mono"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Publisher / Brand</Label>
+                      <Input
+                        value={metadataForm.brand}
+                        onChange={(event) => updateMetadataForm('brand', event.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Category</Label>
+                      <Input
+                        value={metadataForm.category}
+                        onChange={(event) => updateMetadataForm('category', event.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs text-muted-foreground">Image URL</Label>
+                      <Input
+                        value={metadataForm.image_url}
+                        onChange={(event) => updateMetadataForm('image_url', event.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs text-muted-foreground">Description</Label>
+                      <Textarea
+                        value={metadataForm.description}
+                        onChange={(event) => updateMetadataForm('description', event.target.value)}
+                        rows={3}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5 sm:col-span-2">
+                      <Label className="text-xs text-muted-foreground">Notes</Label>
+                      <Textarea
+                        value={metadataForm.notes}
+                        onChange={(event) => updateMetadataForm('notes', event.target.value)}
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      onClick={() => setEditingMetadata(false)}
+                      disabled={savingMetadata}
+                    >
+                      Cancel
+                    </Button>
+                    <Button size="sm" className="h-9" onClick={handleSaveMetadata} disabled={savingMetadata}>
+                      <Save className="mr-1.5 h-3.5 w-3.5" />
+                      {savingMetadata ? 'Saving...' : 'Save Changes'}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Prep stage */}
             <PrepStageBar
