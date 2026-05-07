@@ -92,7 +92,7 @@ function recommendation(score: number, marketValue: number, askingPrice: number)
 }
 
 export default function DealScannerPage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const searchParams = useSearchParams();
   const embedded = searchParams.get('embedded') === '1';
   const [scannerActive, setScannerActive] = useState(false);
@@ -182,7 +182,7 @@ export default function DealScannerPage() {
       }
 
       if (!product) {
-        product = await lookupUPC(code, user.id);
+      product = await lookupUPC(code, accountId || user.id);
       }
 
       if (!product?.title) throw new Error('No product found for this UPC');
@@ -289,7 +289,7 @@ export default function DealScannerPage() {
       const { data: inventoryItem, error: inventoryError } = await supabase
         .from('inventory_items')
         .insert({
-          user_id: user.id,
+          user_id: accountId || user.id,
           product_name: deal.title,
           console: deal.platform,
           condition,

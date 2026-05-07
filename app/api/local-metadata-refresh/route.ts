@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getItemRegionDetails } from '@/lib/region';
+import { getServerAccountContext } from '@/lib/server-account';
 
 export const dynamic = 'force-dynamic';
 
@@ -352,18 +353,19 @@ export async function POST(req: NextRequest) {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return json({ success: false, errorCode: 'UNAUTHORIZED', message: 'Auth failed' });
+    const { accountId } = await getServerAccountContext(supabase, user);
 
     const { data: apiKeys } = await supabase
       .from('user_api_keys')
       .select('provider, api_key')
-      .eq('user_id', user.id)
+      .eq('user_id', accountId)
       .eq('status', 'active');
     const keyMap = new Map((apiKeys as ApiKeyRow[] | null ?? []).map((key) => [key.provider, key.api_key]));
 
     const { data: items, error } = await supabase
       .from('inventory_items')
       .select('id, product_name, console, barcode, image_url, thumbnail_url, description, brand, category, genre, region, pricing_matched_title, pricing_matched_platform, pc_source_product_id')
-      .eq('user_id', user.id)
+      .eq('user_id', accountId)
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -418,7 +420,7 @@ export async function POST(req: NextRequest) {
           .from('inventory_items')
           .update(updates)
           .eq('id', item.id)
-          .eq('user_id', user.id);
+          .eq('user_id', accountId);
 
         if (updateError) throw updateError;
         updated++;

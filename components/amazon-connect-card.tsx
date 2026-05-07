@@ -34,7 +34,7 @@ type CredentialForm = {
 type ConnectionStatus = { connected: boolean; account_name?: string; connected_at?: string };
 
 export function AmazonConnectCard({ onStatusChange }: { onStatusChange?: (connected: boolean) => void }) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -63,7 +63,7 @@ export function AmazonConnectCard({ onStatusChange }: { onStatusChange?: (connec
     const { data } = await supabase
       .from('user_api_keys')
       .select('provider, api_key')
-      .eq('user_id', user.id)
+      .eq('user_id', (accountId || user.id))
       .in('provider', ['amazon_app_id', 'amazon_lwa_client_id', 'amazon_lwa_client_secret', 'amazon_aws_access_key', 'amazon_aws_secret_key', 'amazon_marketplace_id']);
     const keys: Record<string, string> = {};
     for (const k of (data || [])) keys[k.provider] = k.api_key;
@@ -89,12 +89,12 @@ export function AmazonConnectCard({ onStatusChange }: { onStatusChange?: (connec
     setSavingCreds(true);
     try {
       const upserts = [
-        { user_id: user.id, provider: 'amazon_app_id', api_key: form.app_id.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'amazon_lwa_client_id', api_key: form.lwa_client_id.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'amazon_lwa_client_secret', api_key: form.lwa_client_secret.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'amazon_aws_access_key', api_key: form.aws_access_key.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'amazon_aws_secret_key', api_key: form.aws_secret_key.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'amazon_marketplace_id', api_key: form.marketplace_id, status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'amazon_app_id', api_key: form.app_id.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'amazon_lwa_client_id', api_key: form.lwa_client_id.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'amazon_lwa_client_secret', api_key: form.lwa_client_secret.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'amazon_aws_access_key', api_key: form.aws_access_key.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'amazon_aws_secret_key', api_key: form.aws_secret_key.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'amazon_marketplace_id', api_key: form.marketplace_id, status: 'active', updated_at: new Date().toISOString() },
       ];
       for (const upsert of upserts) {
         await supabase.from('user_api_keys').upsert(upsert, { onConflict: 'user_id,provider' });

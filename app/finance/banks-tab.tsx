@@ -30,7 +30,7 @@ type PlaidConfig = {
 const DRAFT_KEY = 'plaid_draft';
 
 function PlaidSetupCard({ onSaved }: { onSaved: () => void }) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [clientId, setClientId] = useState('');
   const [secret, setSecret] = useState('');
   const [env, setEnv] = useState('sandbox');
@@ -43,7 +43,7 @@ function PlaidSetupCard({ onSaved }: { onSaved: () => void }) {
       const { data } = await supabase
         .from('user_api_keys')
         .select('provider, api_key')
-        .eq('user_id', user.id)
+        .eq('user_id', (accountId || user.id))
         .in('provider', ['plaid_client_id', 'plaid_secret', 'plaid_env']);
       const kv: Record<string, string> = {};
       for (const k of (data || [])) kv[k.provider] = k.api_key;
@@ -80,9 +80,9 @@ function PlaidSetupCard({ onSaved }: { onSaved: () => void }) {
     setSaving(true);
     try {
       await supabase.from('user_api_keys').upsert([
-        { user_id: user.id, provider: 'plaid_client_id', api_key: clientId.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'plaid_secret', api_key: secret.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'plaid_env', api_key: env, status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'plaid_client_id', api_key: clientId.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'plaid_secret', api_key: secret.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'plaid_env', api_key: env, status: 'active', updated_at: new Date().toISOString() },
       ], { onConflict: 'user_id,provider' });
       try { localStorage.removeItem(DRAFT_KEY); } catch {}
       toast.success('Plaid credentials saved');

@@ -4,19 +4,52 @@ import { useState, useEffect } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { UserPlus, Target, DollarSign, Package, ShoppingCart, Calendar, ShoppingBag, ExternalLink } from 'lucide-react';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { UserPlus, Target, DollarSign, Package, ShoppingCart, Calendar, ShoppingBag, ExternalLink, ShieldCheck, Mail, Users } from 'lucide-react';
 import Link from 'next/link';
 import { getAllEnhancedEmployeePerformances, type EnhancedEmployeePerformance } from '@/lib/api-services';
 import { AddEmployeeDialog } from '@/components/add-employee-dialog';
 import { SetGoalDialog } from '@/components/set-goal-dialog';
+import { useAuth } from '@/lib/auth-context';
+import { supabase } from '@/lib/supabase';
+import { AccountMembership, AccountRole } from '@/lib/account';
+import { toast } from 'sonner';
 
 export default function EmployeesPage() {
+  const { accountId, isAdmin, accountRole } = useAuth();
   const [employeePerformances, setEmployeePerformances] = useState<EnhancedEmployeePerformance[]>([]);
+  const [memberships, setMemberships] = useState<AccountMembership[]>([]);
   const [loading, setLoading] = useState(true);
+  const [membersLoading, setMembersLoading] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState<AccountRole>('user');
+  const [inviteSending, setInviteSending] = useState(false);
   const [addEmployeeOpen, setAddEmployeeOpen] = useState(false);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<'today' | 'week' | 'month'>('today');
+
+  const loadMemberships = async () => {
+    if (!accountId) return;
+    setMembersLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('user_account_memberships')
+        .select('*')
+        .eq('account_owner_id', accountId)
+        .neq('status', 'revoked')
+        .order('role', { ascending: true })
+        .order('email', { ascending: true });
+
+      if (error) throw error;
+      setMemberships((data || []) as AccountMembership[]);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to load account users');
+    } finally {
+      setMembersLoading(false);
+    }
+  };
 
   const loadPerformances = async () => {
     setLoading(true);
@@ -50,6 +83,37 @@ export default function EmployeesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateRange]);
 
+  useEffect(() => {
+    loadMemberships();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) return;
+    setInviteSending(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/team/invite', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.success === false) throw new Error(result.message || 'Invite failed');
+      toast.success(result.message || 'Invitation sent');
+      setInviteEmail('');
+      setInviteRole('user');
+      loadMemberships();
+    } catch (error: any) {
+      toast.error(error.message || 'Invite failed');
+    } finally {
+      setInviteSending(false);
+    }
+  };
+
   const getGoalProgress = (actual: number, target: number): number => {
     if (target === 0) return 0;
     return Math.min((actual / target) * 100, 100);
@@ -66,12 +130,75 @@ export default function EmployeesPage() {
         <div className="flex justify-between items-start">
           <div>
             <div className="label-caps mb-1">Business</div>
-            <h1 className="heading-lg text-[22px]">Employees</h1>
+            <h1 className="heading-lg text-[22px]">Team</h1>
           </div>
           <Button size="sm" className="h-9" onClick={() => setAddEmployeeOpen(true)}>
             <UserPlus className="w-3.5 h-3.5 mr-1.5" />
             Add Employee
           </Button>
+        </div>
+
+        <div className="rounded-2xl border border-border/40 bg-card p-5">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-primary" />
+                <h2 className="font-semibold text-[15px]">Account Access</h2>
+                <Badge variant="outline" className="text-[10px] uppercase">{accountRole || 'user'}</Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Admins can invite people into this same RetroLoot account. Users can work the app without managing logins.
+              </p>
+            </div>
+
+            {isAdmin && (
+              <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_130px_auto]">
+                <Input
+                  type="email"
+                  placeholder="teammate@email.com"
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  className="h-9"
+                />
+                <Select value={inviteRole} onValueChange={(value) => setInviteRole(value as AccountRole)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="user">User</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button size="sm" className="h-9" onClick={handleInvite} disabled={inviteSending}>
+                  <Mail className="mr-1.5 h-3.5 w-3.5" />
+                  {inviteSending ? 'Sending' : 'Invite'}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+            {membersLoading ? (
+              <div className="text-xs text-muted-foreground">Loading account users...</div>
+            ) : memberships.length === 0 ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Users className="h-3.5 w-3.5" />
+                No account users found yet.
+              </div>
+            ) : memberships.map((member) => (
+              <div key={member.id} className="rounded-lg border border-border/40 bg-background/40 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium">{member.email}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">
+                      {member.status === 'active' ? 'Active login' : 'Invitation pending'}
+                    </div>
+                  </div>
+                  <Badge variant="outline" className="text-[10px] uppercase">{member.role}</Badge>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="flex gap-1.5">

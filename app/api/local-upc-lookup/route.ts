@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getServerAccountContext } from '@/lib/server-account';
 
 export const dynamic = 'force-dynamic';
 
@@ -125,11 +126,12 @@ export async function POST(req: NextRequest) {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return json({ success: false, message: 'Auth failed' }, 401);
+    const { accountId } = await getServerAccountContext(supabase, user);
 
     const { data: apiKeys } = await supabase
       .from('user_api_keys')
       .select('provider, api_key')
-      .eq('user_id', user.id)
+      .eq('user_id', accountId)
       .eq('status', 'active');
 
     const keyMap = new Map((apiKeys as ApiKeyRow[] | null ?? []).map((row) => [row.provider, row.api_key]));

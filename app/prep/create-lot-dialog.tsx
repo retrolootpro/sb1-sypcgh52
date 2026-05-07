@@ -17,18 +17,18 @@ type Props = {
 };
 
 export function CreateLotDialog({ open, onOpenChange, onSuccess }: Props) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', source: '', notes: '' });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !user) return;
+    if (!form.name.trim() || !user || !accountId) return;
     setSaving(true);
     try {
       const { data, error } = await supabase
         .from('lots')
-        .insert({ user_id: user.id, name: form.name.trim(), source: form.source.trim(), notes: form.notes.trim() })
+        .insert({ user_id: accountId, name: form.name.trim(), source: form.source.trim(), notes: form.notes.trim() })
         .select()
         .single();
       if (error) throw error;

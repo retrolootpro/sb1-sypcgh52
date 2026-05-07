@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { getPricingData } from './pricing-service';
+import { getActiveAccountId } from './account';
 
 export interface UPCLookupResult {
   barcode: string;
@@ -140,7 +141,7 @@ export async function getEmployees(): Promise<Employee[]> {
   const { data, error } = await supabase
     .from('employees')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .order('name');
 
   if (error) throw error;
@@ -154,7 +155,7 @@ export async function getActiveEmployees(): Promise<Employee[]> {
   const { data, error } = await supabase
     .from('employees')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('is_active', true)
     .order('name');
 
@@ -170,7 +171,7 @@ export async function createEmployee(employee: Omit<Employee, 'id' | 'user_id' |
     .from('employees')
     .insert({
       ...employee,
-      user_id: session.user.id,
+      user_id: await getActiveAccountId(session.user),
     })
     .select()
     .single();
@@ -187,7 +188,7 @@ export async function updateEmployee(id: string, updates: Partial<Employee>): Pr
     .from('employees')
     .update(updates)
     .eq('id', id)
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .select()
     .single();
 
@@ -203,7 +204,7 @@ export async function deleteEmployee(id: string): Promise<void> {
     .from('employees')
     .delete()
     .eq('id', id)
-    .eq('user_id', session.user.id);
+    .eq('user_id', await getActiveAccountId(session.user));
 
   if (error) throw error;
 }
@@ -241,7 +242,7 @@ export async function createEmployeeGoal(goal: Omit<EmployeeGoal, 'id' | 'user_i
     .from('employee_goals')
     .insert({
       ...goal,
-      user_id: session.user.id,
+      user_id: await getActiveAccountId(session.user),
     })
     .select()
     .single();
@@ -282,7 +283,7 @@ export async function getEmployeePerformance(employeeId: string, startDate?: str
   let query = supabase
     .from('inventory_items')
     .select('status, purchase_price, sell_price, added_by_employee_id, sold_by_employee_id, created_at')
-    .eq('user_id', session.user.id);
+    .eq('user_id', await getActiveAccountId(session.user));
 
   if (startDate) {
     query = query.gte('created_at', startDate);
@@ -351,7 +352,7 @@ export async function createEbayListing(listing: Omit<EbayListing, 'id' | 'user_
     .from('ebay_listings')
     .insert({
       ...listing,
-      user_id: session.user.id,
+      user_id: await getActiveAccountId(session.user),
     })
     .select()
     .single();
@@ -367,7 +368,7 @@ export async function getEbayListingsByEmployee(employeeId: string, startDate?: 
   let query = supabase
     .from('ebay_listings')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('employee_id', employeeId)
     .order('created_at', { ascending: false });
 
@@ -413,7 +414,7 @@ export async function getShowsByEmployee(employeeId: string, startDate?: string,
   let query = supabase
     .from('show_lists')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('managed_by_employee_id', employeeId)
     .order('created_at', { ascending: false });
 
@@ -494,7 +495,7 @@ export async function getEmployeeById(employeeId: string): Promise<Employee | nu
     .from('employees')
     .select('*')
     .eq('id', employeeId)
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .maybeSingle();
 
   if (error) throw error;
@@ -521,7 +522,7 @@ export async function createAmazonListing(listing: Omit<AmazonListing, 'id' | 'u
 
   const { data, error } = await supabase
     .from('amazon_listings')
-    .insert({ ...listing, user_id: session.user.id })
+    .insert({ ...listing, user_id: await getActiveAccountId(session.user) })
     .select()
     .single();
 
@@ -536,7 +537,7 @@ export async function getAmazonListingsByEmployee(employeeId: string): Promise<A
   const { data, error } = await supabase
     .from('amazon_listings')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('employee_id', employeeId)
     .order('created_at', { ascending: false });
 
@@ -591,7 +592,7 @@ export async function getItemsToShipByEmployee(employeeId: string): Promise<Inve
   const { data, error } = await supabase
     .from('inventory_items')
     .select('id, title:product_name, platform:console, sell_price, purchase_price, status, shipping_status, shipped_at, tracking_number, shipping_carrier, sold_by_employee_id, added_by_employee_id, sold_via, marketplace_order_id, created_at, updated_at')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('sold_by_employee_id', employeeId)
     .eq('status', 'sold')
     .order('updated_at', { ascending: false });
@@ -607,7 +608,7 @@ export async function getReceivedItemsByEmployee(employeeId: string): Promise<In
   const { data, error } = await supabase
     .from('inventory_items')
     .select('id, title:product_name, platform:console, sell_price, purchase_price, status, shipping_status, shipped_at, tracking_number, shipping_carrier, sold_by_employee_id, added_by_employee_id, sold_via, marketplace_order_id, created_at, updated_at')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('added_by_employee_id', employeeId)
     .order('created_at', { ascending: false })
     .limit(50);
@@ -650,7 +651,7 @@ export async function getEbayListingsWithItemsByEmployee(employeeId: string): Pr
   const { data, error } = await supabase
     .from('ebay_listings')
     .select('*, inventory_items(title:product_name, platform:console)')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('employee_id', employeeId)
     .order('created_at', { ascending: false });
 
@@ -669,7 +670,7 @@ export async function getAmazonListingsWithItemsByEmployee(employeeId: string): 
   const { data, error } = await supabase
     .from('amazon_listings')
     .select('*, inventory_items(title:product_name, platform:console)')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('employee_id', employeeId)
     .order('created_at', { ascending: false });
 
@@ -684,7 +685,7 @@ export async function getShowListsAll(): Promise<ShowList[]> {
   const { data, error } = await supabase
     .from('show_lists')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -697,7 +698,7 @@ export async function createShowList(show: { name: string; show_date?: string; m
 
   const { data, error } = await supabase
     .from('show_lists')
-    .insert({ ...show, user_id: session.user.id, status: 'draft' })
+    .insert({ ...show, user_id: await getActiveAccountId(session.user), status: 'draft' })
     .select()
     .single();
 
@@ -712,7 +713,7 @@ export async function getInventoryItemsForListing(): Promise<{ id: string; title
   const { data, error } = await supabase
     .from('inventory_items')
     .select('id, title:product_name, platform:console, status')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('status', 'available')
     .order('product_name');
 
@@ -746,7 +747,7 @@ export async function getOutboundOrders(soldViaFilter?: string): Promise<Outboun
   let query = supabase
     .from('inventory_items')
     .select('id, title:product_name, platform:console, sell_price, purchase_price, status, shipping_status, shipped_at, tracking_number, shipping_carrier, sold_via, marketplace_order_id, sold_by_employee_id, sold_at, created_at, updated_at')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .eq('status', 'sold')
     .order('updated_at', { ascending: false });
 
@@ -790,7 +791,7 @@ export async function getInboundShipments(): Promise<InboundShipment[]> {
   const { data, error } = await supabase
     .from('inbound_shipments')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .order('created_at', { ascending: false });
 
   if (error) throw error;
@@ -803,7 +804,7 @@ export async function createInboundShipment(shipment: Omit<InboundShipment, 'id'
 
   const { data, error } = await supabase
     .from('inbound_shipments')
-    .insert({ ...shipment, user_id: session.user.id })
+    .insert({ ...shipment, user_id: await getActiveAccountId(session.user) })
     .select()
     .single();
 
@@ -868,7 +869,7 @@ export async function getPlatformOrders(platform?: string): Promise<PlatformOrde
   let query = supabase
     .from('platform_orders')
     .select('*')
-    .eq('user_id', session.user.id)
+    .eq('user_id', await getActiveAccountId(session.user))
     .order('order_created_at', { ascending: false });
 
   if (platform) {
@@ -941,7 +942,7 @@ export async function createPlatformOrder(order: {
     .from('platform_orders')
     .insert({
       ...order,
-      user_id: session.user.id,
+      user_id: await getActiveAccountId(session.user),
       quantity: order.quantity || 1,
       order_status: 'awaiting_shipment',
       shipping_status: 'pending',

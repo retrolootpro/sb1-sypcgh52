@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getServerAccountContext } from '@/lib/server-account';
 
 export const dynamic = 'force-dynamic';
 
@@ -233,6 +234,7 @@ export async function POST(req: NextRequest) {
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return json({ success: false, errorCode: 'UNAUTHORIZED', message: 'Auth failed' });
+    const { accountId } = await getServerAccountContext(supabase, user);
 
     const { productName, platform = '', upc = null } = await req.json();
     if (!productName?.trim()) return json({ success: false, errorCode: 'INVALID_INPUT', message: 'productName required' });
@@ -240,7 +242,7 @@ export async function POST(req: NextRequest) {
     const { data: keyRow } = await supabase
       .from('user_api_keys')
       .select('api_key')
-      .eq('user_id', user.id)
+      .eq('user_id', accountId)
       .eq('provider', 'pricecharting')
       .eq('status', 'active')
       .maybeSingle();

@@ -65,7 +65,7 @@ const API_SERVICES = [
 ];
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, accountId, isAdmin } = useAuth();
   const searchParams = useSearchParams();
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,11 +105,12 @@ export default function SettingsPage() {
   }, [searchParams]);
 
   const loadApiKeys = useCallback(async () => {
+    if (!accountId) return;
     try {
       const { data, error } = await supabase
         .from('user_api_keys')
         .select('*')
-        .eq('user_id', user!.id)
+        .eq('user_id', accountId)
         .order('provider');
 
       if (error) throw error;
@@ -119,13 +120,13 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [accountId]);
 
   useEffect(() => {
-    if (user) {
+    if (user && accountId) {
       loadApiKeys();
     }
-  }, [user, loadApiKeys]);
+  }, [user, accountId, loadApiKeys]);
 
   useEffect(() => {
     const thresholds = readAgingThresholds();
@@ -153,7 +154,7 @@ export default function SettingsPage() {
   };
 
   const handleSaveKey = async (serviceName: string) => {
-    if (!user || !newKeyValue.trim()) return;
+    if (!user || !accountId || !newKeyValue.trim() || !isAdmin) return;
 
     setSaving(true);
     try {
@@ -161,7 +162,7 @@ export default function SettingsPage() {
         .from('user_api_keys')
         .upsert(
           {
-            user_id: user.id,
+            user_id: accountId,
             provider: serviceName,
             api_key: newKeyValue.trim(),
             status: 'active',

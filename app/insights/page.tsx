@@ -113,7 +113,7 @@ function RecommendationCard({ rec }: { rec: Recommendation }) {
 }
 
 export default function InsightsPage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const now = new Date();
   const year = now.getFullYear();
 
@@ -123,7 +123,7 @@ export default function InsightsPage() {
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     setLoading(true);
     try {
       const [pl, tax, inv] = await Promise.all([
@@ -132,7 +132,7 @@ export default function InsightsPage() {
         supabase
           .from('inventory_items')
           .select('id, product_name, console, condition, purchase_price, sell_price, status, created_at, sold_at')
-          .eq('user_id', user.id)
+      .eq('user_id', accountId)
           .order('created_at', { ascending: false }),
       ]);
       setYtdPL(pl);

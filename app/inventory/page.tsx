@@ -70,7 +70,7 @@ type InventoryItem = {
 };
 
 export default function InventoryPage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const searchParams = useSearchParams();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,12 +91,12 @@ export default function InventoryPage() {
   const [collectionToDelete, setCollectionToDelete] = useState<Collection | null>(null);
 
   const loadInventory = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     try {
       const { data, error } = await supabase
         .from('inventory_items')
         .select(`*, pricing_data (*)`)
-        .eq('user_id', user.id)
+        .eq('user_id', accountId)
         .order('product_name', { ascending: true });
 
       if (error) throw error;
@@ -105,24 +105,24 @@ export default function InventoryPage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, accountId]);
 
   const loadCollections = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     const { data, error } = await supabase
       .from('collections')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', accountId)
       .order('created_at', { ascending: true });
     if (!error && data) setCollections(data as Collection[]);
-  }, [user]);
+  }, [user, accountId]);
 
   useEffect(() => {
-    if (user) {
+    if (user && accountId) {
       loadInventory();
       loadCollections();
     }
-  }, [user, loadInventory, loadCollections]);
+  }, [user, accountId, loadInventory, loadCollections]);
 
   useEffect(() => {
     if (searchParams.get('age') === 'stale') {
@@ -268,7 +268,7 @@ export default function InventoryPage() {
           if (!item.barcode) continue;
           let barcodeData: any = null;
           try {
-            barcodeData = await lookupUPC(item.barcode, user.id, item.product_name || undefined);
+            barcodeData = await lookupUPC(item.barcode, accountId || user.id, item.product_name || undefined);
           } catch {
             if (item.product_name) {
               const steamImage = await fetchSteamImage(item.product_name);
@@ -495,7 +495,7 @@ export default function InventoryPage() {
             .from('inventory_items')
             .update(updates)
             .eq('id', item.id)
-            .eq('user_id', user.id);
+            .eq('user_id', accountId || user.id);
 
           if (error) {
             failed++;

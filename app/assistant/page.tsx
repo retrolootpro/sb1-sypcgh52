@@ -81,7 +81,7 @@ function ItemRow({ item, rank }: { item: AnalyzedInventoryItem; rank: number }) 
 }
 
 export default function AssistantPage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [message, setMessage] = useState('Build me a high-profit show from available inventory.');
   const [theme, setTheme] = useState('High profit show');
   const [targetItemCount, setTargetItemCount] = useState('30');
@@ -152,14 +152,14 @@ export default function AssistantPage() {
   };
 
   const createShowFromPlan = async () => {
-    if (!analysis?.showPlan.items.length || !user) return;
+    if (!analysis?.showPlan.items.length || !user || !accountId) return;
     setCreatingShow(true);
 
     try {
       const { data: show, error: showError } = await supabase
         .from('show_lists')
         .insert({
-          user_id: user.id,
+          user_id: accountId,
           name: `${analysis.showPlan.theme} - AI Curated`,
           show_date: null,
           status: 'draft',

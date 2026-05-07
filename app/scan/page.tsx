@@ -45,7 +45,7 @@ type PendingBarcode = {
 };
 
 export default function ScanPage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [scanMode, setScanMode] = useState<ScanMode>('single');
   const [batchMode, setBatchMode] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
@@ -79,7 +79,7 @@ export default function ScanPage() {
 
       let upcLookupResult;
       try {
-        upcLookupResult = await lookupUPC(queueItem.barcode, user.id);
+        upcLookupResult = await lookupUPC(queueItem.barcode, accountId || user.id);
       } catch (lookupError: any) {
         if (lookupError.message?.includes('API key not configured')) {
           throw new Error('Please configure a barcode lookup API key in Settings');
@@ -103,7 +103,7 @@ export default function ScanPage() {
       if (classification.itemType === 'game' || classification.itemType === 'console') {
         updateQueueItem(queueItem.id, { status: 'pricing' });
         try {
-          pricingResult = await getPricingData(upcLookupResult.title, platform || 'Unknown', user.id);
+          pricingResult = await getPricingData(upcLookupResult.title, platform || 'Unknown', accountId || user.id);
         } catch (pricingError) {
           pricingResult = {
             status: 'api_error',
@@ -258,7 +258,7 @@ export default function ScanPage() {
     const { data: inventoryItem, error: inventoryError } = await supabase
       .from('inventory_items')
       .insert({
-        user_id: user.id,
+        user_id: accountId || user.id,
         product_name: lookupResult.title?.trim() || 'Unknown Product',
         console: selectedConsole || lookupResult.platform || '',
         condition,
@@ -358,7 +358,7 @@ export default function ScanPage() {
         const retriedPricing = await getPricingData(
           lookupResult.title,
           confirmedConsole,
-          user.id,
+          accountId || user.id,
           true,
           queueItem.barcode
         );
@@ -494,7 +494,7 @@ export default function ScanPage() {
         .from('inventory_items')
         .delete()
         .eq('barcode', lastItem.barcode)
-        .eq('user_id', user.id)
+        .eq('user_id', accountId || user.id)
         .order('created_at', { ascending: false })
         .limit(1);
     }

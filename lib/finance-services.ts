@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getActiveAccountId } from './account';
 
 export type Transaction = {
   id: string;
@@ -139,7 +140,7 @@ export async function createTransaction(tx: Omit<Transaction, 'id' | 'user_id' |
   if (!user) throw new Error('Not authenticated');
   const { data, error } = await supabase
     .from('financial_transactions')
-    .insert({ ...tx, user_id: user.id, updated_at: new Date().toISOString() })
+    .insert({ ...tx, user_id: await getActiveAccountId(user), updated_at: new Date().toISOString() })
     .select()
     .single();
   if (error) throw new Error(error.message);
@@ -167,17 +168,17 @@ export async function getLotCostSummaries(): Promise<LotCostSummary[]> {
     supabase
       .from('lots')
       .select('id, name, source, received_at')
-      .eq('user_id', user.id)
+      .eq('user_id', await getActiveAccountId(user))
       .order('received_at', { ascending: false }),
     supabase
       .from('inventory_items')
       .select('id, lot_id, product_name, console, condition, purchase_price, selected_market_value, price_loose, price_cib, price_new, price_graded')
-      .eq('user_id', user.id)
+      .eq('user_id', await getActiveAccountId(user))
       .not('lot_id', 'is', null),
     supabase
       .from('financial_transactions')
       .select('id, reference_id, amount')
-      .eq('user_id', user.id)
+      .eq('user_id', await getActiveAccountId(user))
       .eq('category', 'Inventory Purchase')
       .like('reference_id', 'lot_purchase_%'),
   ]);
@@ -240,13 +241,13 @@ export async function upsertLotPurchase(lot: { id: string; name: string; source?
   const { data: existing, error: findError } = await supabase
     .from('financial_transactions')
     .select('id')
-    .eq('user_id', user.id)
+    .eq('user_id', await getActiveAccountId(user))
     .eq('reference_id', referenceId)
     .maybeSingle();
   if (findError) throw new Error(findError.message);
 
   const payload = {
-    user_id: user.id,
+    user_id: await getActiveAccountId(user),
     date: (lot.received_at || new Date().toISOString()).slice(0, 10),
     description: `Lot purchase: ${lot.name}`,
     amount: -Math.abs(amount),
@@ -285,7 +286,7 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
   const { data: items, error } = await supabase
     .from('inventory_items')
     .select('id, selected_market_value, price_loose, price_cib, price_new, price_graded')
-    .eq('user_id', user.id)
+    .eq('user_id', await getActiveAccountId(user))
     .eq('lot_id', lotId);
   if (error) throw new Error(error.message);
   if (!items || items.length === 0) throw new Error('This lot has no items to allocate');
@@ -294,6 +295,7 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || items.length;
   const fallbackEqual = totalWeight <= 0;
 
+  const accountId = await getActiveAccountId(user);
   const updates = items.map((item, index) => {
     const weight = fallbackEqual ? 1 : weights[index];
     const divisor = fallbackEqual ? items.length : totalWeight;
@@ -304,7 +306,7 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
         updated_at: new Date().toISOString(),
       })
       .eq('id', item.id)
-      .eq('user_id', user.id);
+      .eq('user_id', accountId);
   });
 
   const results = await Promise.all(updates);
@@ -344,7 +346,7 @@ export async function importPlatformSales(): Promise<{ imported: number }> {
       : 'Sales - Other';
 
     await supabase.from('financial_transactions').insert({
-      user_id: user.id,
+      user_id: await getActiveAccountId(user),
       date: (item.sold_at as string).slice(0, 10),
       description: `Sale: ${label}`,
       amount: parseFloat(item.sell_price),
@@ -399,7 +401,7 @@ export async function upsertTaxProfile(profile: Partial<TaxProfile>): Promise<vo
   if (!user) throw new Error('Not authenticated');
   const { error } = await supabase
     .from('tax_profiles')
-    .upsert({ ...profile, user_id: user.id, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    .upsert({ ...profile, user_id: await getActiveAccountId(user), updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
   if (error) throw new Error(error.message);
 }
 

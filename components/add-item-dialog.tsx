@@ -25,7 +25,7 @@ type AddItemDialogProps = {
 type Lot = { id: string; name: string };
 
 export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollectionId, defaultLotId }: AddItemDialogProps) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [loading, setLoading] = useState(false);
   const [lots, setLots] = useState<Lot[]>([]);
   const [formData, setFormData] = useState({
@@ -41,15 +41,15 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
   });
 
   useEffect(() => {
-    if (open && user) {
+    if (open && user && accountId) {
       supabase
         .from('lots')
         .select('id, name')
-        .eq('user_id', user.id)
+        .eq('user_id', accountId)
         .order('received_at', { ascending: false })
         .then(({ data }) => setLots(data || []));
     }
-  }, [open, user]);
+  }, [open, user, accountId]);
 
   useEffect(() => {
     if (defaultLotId !== undefined) {
@@ -80,10 +80,11 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
     setLoading(true);
 
     try {
+      if (!user || !accountId) throw new Error('Not authenticated');
       const { data: inventoryItem, error } = await supabase
         .from('inventory_items')
         .insert({
-          user_id: user!.id,
+          user_id: accountId,
           product_name: formData.product_name.trim(),
           console: formData.console,
           condition: formData.condition,

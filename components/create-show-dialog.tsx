@@ -22,7 +22,7 @@ type CreateShowDialogProps = {
 };
 
 export function CreateShowDialog({ open, onOpenChange, onSuccess }: CreateShowDialogProps) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [loading, setLoading] = useState(false);
   const [name, setName] = useState('');
   const [date, setDate] = useState<Date>();
@@ -52,7 +52,7 @@ export function CreateShowDialog({ open, onOpenChange, onSuccess }: CreateShowDi
       const { error } = await supabase
         .from('show_lists')
         .insert({
-          user_id: user!.id,
+          user_id: accountId || user!.id,
           name: name,
           show_date: date ? date.toISOString() : null,
           managed_by_employee_id: employeeId || null,

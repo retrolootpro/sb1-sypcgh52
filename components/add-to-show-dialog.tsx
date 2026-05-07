@@ -28,7 +28,7 @@ type AddToShowDialogProps = {
 };
 
 export function AddToShowDialog({ open, onOpenChange, showId, onSuccess }: AddToShowDialogProps) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
@@ -47,7 +47,7 @@ export function AddToShowDialog({ open, onOpenChange, showId, onSuccess }: AddTo
       const { data, error } = await supabase
         .from('inventory_items')
         .select('id, product_name, console, condition, purchase_price')
-        .eq('user_id', user!.id)
+        .eq('user_id', accountId || user!.id)
         .not('id', 'in', `(${existingItemIds.join(',') || 'null'})`);
 
       if (error) throw error;
@@ -55,10 +55,10 @@ export function AddToShowDialog({ open, onOpenChange, showId, onSuccess }: AddTo
     } catch (error) {
       console.error('Error loading items:', error);
     }
-  }, [user, showId]);
+  }, [user, accountId, showId]);
 
   useEffect(() => {
-    if (open && user) {
+    if (open && user && accountId) {
       loadAvailableItems();
     }
   }, [open, user, loadAvailableItems]);

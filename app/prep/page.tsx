@@ -105,7 +105,7 @@ function LotSection({
 }
 
 export default function PrepPage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [items, setItems] = useState<PrepItem[]>([]);
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,26 +114,26 @@ export default function PrepPage() {
   const [showLotDialog, setShowLotDialog] = useState(false);
 
   const load = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     setLoading(true);
     try {
       const [itemsRes, lotsRes] = await Promise.all([
         supabase
           .from('inventory_items')
           .select('id, product_name, console, condition, purchase_price, created_at, sorted_at, cleaned_at, tested_at, notes_added_at, on_rack_at, listed_ebay_at, listed_amazon_at, listed_whatnot_at, status, sold_at, sell_price, lot_id')
-          .eq('user_id', user.id)
+          .eq('user_id', accountId)
           .order('created_at', { ascending: false }),
         supabase
           .from('lots')
           .select('id, name, source, notes, received_at')
-          .eq('user_id', user.id)
+          .eq('user_id', accountId)
           .order('received_at', { ascending: false }),
       ]);
       setItems((itemsRes.data as PrepItem[]) || []);
       setLots((lotsRes.data as Lot[]) || []);
     } catch { toast.error('Failed to load items'); }
     finally { setLoading(false); }
-  }, [user]);
+  }, [user, accountId]);
 
   useEffect(() => { load(); }, [load]);
 

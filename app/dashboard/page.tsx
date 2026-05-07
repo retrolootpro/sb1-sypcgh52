@@ -50,18 +50,18 @@ function getDashboardMarketValue(item: InventoryItem) {
 }
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [agingThresholds, setAgingThresholds] = useState<AgingThresholds>({ watchDays: 45, reviewDays: 60 });
 
   const loadDashboardData = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     try {
       const { data, error } = await supabase
         .from('inventory_items')
         .select(`*, pricing_data (*)`)
-        .eq('user_id', user.id);
+        .eq('user_id', accountId);
 
       if (error) throw error;
       setItems(data as InventoryItem[]);
@@ -70,13 +70,13 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, accountId]);
 
   useEffect(() => {
-    if (user) {
+    if (user && accountId) {
       loadDashboardData();
     }
-  }, [user, loadDashboardData]);
+  }, [user, accountId, loadDashboardData]);
 
   useEffect(() => {
     const syncThreshold = () => setAgingThresholds(readAgingThresholds());

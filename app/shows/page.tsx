@@ -21,12 +21,13 @@ type ShowList = {
 };
 
 export default function ShowsPage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [shows, setShows] = useState<ShowList[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
 
   const loadShows = useCallback(async () => {
+    if (!user || !accountId) return;
     try {
       const { data, error } = await supabase
         .from('show_lists')
@@ -34,7 +35,7 @@ export default function ShowsPage() {
           *,
           show_items (id)
         `)
-        .eq('user_id', user!.id)
+        .eq('user_id', accountId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -44,13 +45,13 @@ export default function ShowsPage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, accountId]);
 
   useEffect(() => {
-    if (user) {
+    if (user && accountId) {
       loadShows();
     }
-  }, [user, loadShows]);
+  }, [user, accountId, loadShows]);
 
   return (
     <DashboardLayout>

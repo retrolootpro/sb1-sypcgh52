@@ -25,7 +25,7 @@ type CredentialForm = {
 };
 
 export function EbayConnectCard({ onStatusChange }: { onStatusChange?: (connected: boolean) => void }) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -55,7 +55,7 @@ export function EbayConnectCard({ onStatusChange }: { onStatusChange?: (connecte
     const { data } = await supabase
       .from('user_api_keys')
       .select('provider, api_key')
-      .eq('user_id', user.id)
+      .eq('user_id', (accountId || user.id))
       .in('provider', ['ebay_client_id', 'ebay_client_secret', 'ebay_runame']);
 
     const keys: Record<string, string> = {};
@@ -81,9 +81,9 @@ export function EbayConnectCard({ onStatusChange }: { onStatusChange?: (connecte
     setSavingCreds(true);
     try {
       const upserts = [
-        { user_id: user.id, provider: 'ebay_client_id', api_key: form.client_id.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'ebay_client_secret', api_key: form.client_secret.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'ebay_runame', api_key: form.runame.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'ebay_client_id', api_key: form.client_id.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'ebay_client_secret', api_key: form.client_secret.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'ebay_runame', api_key: form.runame.trim(), status: 'active', updated_at: new Date().toISOString() },
       ];
 
       for (const upsert of upserts) {

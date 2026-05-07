@@ -22,17 +22,17 @@ type CreateCollectionDialogProps = {
 };
 
 export function CreateCollectionDialog({ open, onOpenChange, onSuccess }: CreateCollectionDialogProps) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
 
   const handleCreate = async () => {
-    if (!user || !name.trim()) return;
+    if (!user || !accountId || !name.trim()) return;
     setSaving(true);
     try {
       const { data, error } = await supabase
         .from('collections')
-        .insert({ user_id: user.id, name: name.trim() })
+        .insert({ user_id: accountId, name: name.trim() })
         .select()
         .single();
       if (error) throw error;

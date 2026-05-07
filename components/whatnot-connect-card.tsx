@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 type ConnectionStatus = { connected: boolean; account_name?: string; connected_at?: string };
 
 export function WhatnotConnectCard({ onStatusChange }: { onStatusChange?: (connected: boolean) => void }) {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [status, setStatus] = useState<ConnectionStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -36,7 +36,7 @@ export function WhatnotConnectCard({ onStatusChange }: { onStatusChange?: (conne
     const { data } = await supabase
       .from('user_api_keys')
       .select('provider, api_key')
-      .eq('user_id', user.id)
+      .eq('user_id', (accountId || user.id))
       .in('provider', ['whatnot_client_id', 'whatnot_client_secret']);
     const keys: Record<string, string> = {};
     for (const k of (data || [])) keys[k.provider] = k.api_key;
@@ -53,8 +53,8 @@ export function WhatnotConnectCard({ onStatusChange }: { onStatusChange?: (conne
     setSaving(true);
     try {
       await supabase.from('user_api_keys').upsert([
-        { user_id: user.id, provider: 'whatnot_client_id', api_key: clientId.trim(), status: 'active', updated_at: new Date().toISOString() },
-        { user_id: user.id, provider: 'whatnot_client_secret', api_key: clientSecret.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'whatnot_client_id', api_key: clientId.trim(), status: 'active', updated_at: new Date().toISOString() },
+        { user_id: (accountId || user.id), provider: 'whatnot_client_secret', api_key: clientSecret.trim(), status: 'active', updated_at: new Date().toISOString() },
       ], { onConflict: 'user_id,provider' });
 
       const redirectUri = `${window.location.origin}/auth/whatnot/callback`;

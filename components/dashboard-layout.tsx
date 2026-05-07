@@ -54,6 +54,7 @@ const navGroups = [
   },
   {
     label: 'Admin',
+    adminOnly: true,
     items: [
       { href: '/employees', label: 'Team', icon: Users },
       { href: '/shipping', label: 'Shipping', icon: Truck },
@@ -66,6 +67,12 @@ type NavItem = {
   label: string;
   icon: React.ElementType;
   featured?: boolean;
+};
+
+type NavGroup = {
+  label: string;
+  adminOnly?: boolean;
+  items: NavItem[];
 };
 
 function NavLink({ item, pathname, onNavClick }: {
@@ -126,12 +133,21 @@ function NavLink({ item, pathname, onNavClick }: {
   );
 }
 
-function SidebarContent({ pathname, user, signOut, onNavClick }: {
+function SidebarContent({ pathname, user, signOut, isAdmin, accountRole, onNavClick }: {
   pathname: string;
   user: any;
   signOut: () => void;
+  isAdmin?: boolean;
+  accountRole?: string | null;
   onNavClick?: () => void;
 }) {
+  const visibleNavGroups = (navGroups as NavGroup[])
+    .filter((group) => !group.adminOnly || isAdmin)
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.href !== '/settings' || isAdmin),
+    }));
+
   return (
     <div className="flex h-full flex-col bg-black">
       <div className="border-b border-white/[0.06] px-5 pb-5 pt-6">
@@ -149,7 +165,7 @@ function SidebarContent({ pathname, user, signOut, onNavClick }: {
       </div>
 
       <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-4">
-        {navGroups.map((group, groupIndex) => (
+        {visibleNavGroups.map((group, groupIndex) => (
           <div key={groupIndex}>
             {group.label && (
               <div className="label-caps mb-2 px-2 text-[9.5px]">{group.label}</div>
@@ -169,28 +185,35 @@ function SidebarContent({ pathname, user, signOut, onNavClick }: {
       </nav>
 
       <div className="mt-auto space-y-2 border-t border-white/[0.06] px-3 pb-5 pt-3">
-        <Link
-          href="/settings"
-          onClick={onNavClick}
-          className={cn(
-            'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-all duration-100',
-            pathname === '/settings'
-              ? 'bg-white/[0.055] text-white/90'
-              : 'text-white/42 hover:bg-white/[0.035] hover:text-white/75'
-          )}
-        >
-          {pathname === '/settings' && (
-            <div className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r-full bg-primary" />
-          )}
-          <Settings className={cn(
-            'h-[16px] w-[16px] shrink-0',
-            pathname === '/settings' ? 'text-primary' : 'text-white/28 group-hover:text-white/55'
-          )} />
-          <span>Settings</span>
-        </Link>
+        {isAdmin && (
+          <Link
+            href="/settings"
+            onClick={onNavClick}
+            className={cn(
+              'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-all duration-100',
+              pathname === '/settings'
+                ? 'bg-white/[0.055] text-white/90'
+                : 'text-white/42 hover:bg-white/[0.035] hover:text-white/75'
+            )}
+          >
+            {pathname === '/settings' && (
+              <div className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r-full bg-primary" />
+            )}
+            <Settings className={cn(
+              'h-[16px] w-[16px] shrink-0',
+              pathname === '/settings' ? 'text-primary' : 'text-white/28 group-hover:text-white/55'
+            )} />
+            <span>Settings</span>
+          </Link>
+        )}
 
         <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
           <div className="mb-2 truncate font-mono text-[10.5px] text-white/28">{user?.email}</div>
+          {accountRole && (
+            <div className="mb-2 w-fit rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-widest text-primary/75">
+              {accountRole}
+            </div>
+          )}
           <button
             onClick={signOut}
             className="flex items-center gap-2 text-[12px] text-white/38 transition-colors hover:text-white/70"
@@ -205,7 +228,7 @@ function SidebarContent({ pathname, user, signOut, onNavClick }: {
 }
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading, signOut } = useAuth();
+  const { user, loading, signOut, isAdmin, accountRole } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -237,7 +260,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex bg-black">
       <aside className="hidden w-60 flex-shrink-0 flex-col border-r border-white/[0.06] lg:flex">
-        <SidebarContent pathname={pathname} user={user} signOut={signOut} />
+        <SidebarContent pathname={pathname} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} />
       </aside>
 
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b border-white/[0.06] bg-black/95 backdrop-blur-sm flex items-center justify-between px-4">
@@ -254,7 +277,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <>
           <div className="lg:hidden fixed inset-0 z-40 bg-black/80 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
           <div className="fixed bottom-0 left-0 top-0 z-50 w-72 border-r border-white/[0.06] lg:hidden">
-            <SidebarContent pathname={pathname} user={user} signOut={signOut} onNavClick={() => setMobileOpen(false)} />
+            <SidebarContent pathname={pathname} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} onNavClick={() => setMobileOpen(false)} />
           </div>
         </>
       )}

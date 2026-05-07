@@ -32,7 +32,7 @@ type ReviewItem = {
 };
 
 export default function ReviewQueuePage() {
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedItem, setSelectedItem] = useState<ReviewItem | null>(null);
@@ -46,12 +46,12 @@ export default function ReviewQueuePage() {
   });
 
   const loadReviewQueue = useCallback(async () => {
-    if (!user) return;
+    if (!user || !accountId) return;
     try {
       const { data, error } = await supabase
         .from('inventory_items')
         .select('id, barcode, product_name, item_type, brand, image_url, confidence_score, console, condition, purchase_price, quantity, notes, pricing_status, created_at')
-        .eq('user_id', user.id)
+        .eq('user_id', accountId)
         .eq('needs_review', true)
         .order('created_at', { ascending: false });
 
@@ -63,7 +63,7 @@ export default function ReviewQueuePage() {
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [user, accountId]);
 
   useEffect(() => {
     if (user) {
@@ -84,7 +84,7 @@ export default function ReviewQueuePage() {
   };
 
   const handleApprove = async () => {
-    if (!selectedItem || !user) return;
+    if (!selectedItem || !user || !accountId) return;
 
     try {
       const { error } = await supabase
@@ -101,7 +101,7 @@ export default function ReviewQueuePage() {
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedItem.id)
-        .eq('user_id', user.id);
+        .eq('user_id', accountId);
 
       if (error) throw error;
 
@@ -117,14 +117,14 @@ export default function ReviewQueuePage() {
   };
 
   const handleReject = async () => {
-    if (!selectedItem || !user) return;
+    if (!selectedItem || !user || !accountId) return;
 
     try {
       const { error } = await supabase
         .from('inventory_items')
         .delete()
         .eq('id', selectedItem.id)
-        .eq('user_id', user.id);
+        .eq('user_id', accountId);
 
       if (error) throw error;
 

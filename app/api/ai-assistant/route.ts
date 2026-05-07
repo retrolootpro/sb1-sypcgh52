@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getServerAccountContext } from '@/lib/server-account';
 import {
   analyzeInventory,
   buildAppContext,
@@ -485,6 +486,7 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser();
 
     if (userError || !user) return json({ success: false, message: 'Auth failed' }, 401);
+    const { accountId } = await getServerAccountContext(supabase, user);
 
     const body = (await req.json()) as AssistantRequest;
     const message = body.message?.trim() || 'Give me the best business opportunities in my inventory.';
@@ -492,7 +494,7 @@ export async function POST(req: NextRequest) {
     const inventoryRes = await supabase
       .from('inventory_items')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', accountId)
       .order('created_at', { ascending: false })
       .limit(1500);
     if (inventoryRes.error) throw inventoryRes.error;
@@ -501,13 +503,13 @@ export async function POST(req: NextRequest) {
       supabase
         .from('financial_transactions')
         .select('id, date, description, amount, type, category, source, platform, is_reconciled')
-        .eq('user_id', user.id)
+        .eq('user_id', accountId)
         .order('date', { ascending: false })
         .limit(500),
       supabase
         .from('show_lists')
         .select('id, name, show_date, created_at, status, show_items(id)')
-        .eq('user_id', user.id)
+        .eq('user_id', accountId)
         .order('created_at', { ascending: false })
         .limit(50),
       shouldLookupGamestop(message) ? lookupGamestop(message) : Promise.resolve(null),
