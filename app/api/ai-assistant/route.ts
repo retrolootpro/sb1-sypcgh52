@@ -21,7 +21,7 @@ type AssistantRequest = {
   minMarginPercent?: number;
 };
 
-type ExternalLookup = {
+type GameStopLookup = {
   provider: 'gamestop';
   query: string;
   searchedAt: string;
@@ -35,6 +35,22 @@ type ExternalLookup = {
   }>;
   warnings: string[];
 };
+
+type EbaySoldLookup = {
+  provider: 'ebay_sold';
+  query: string;
+  searchedAt: string;
+  sourceUrl: string;
+  sampleSize: number;
+  averagePrice: number;
+  medianPrice: number;
+  lowPrice: number;
+  highPrice: number;
+  prices: number[];
+  warnings: string[];
+};
+
+type ExternalLookup = GameStopLookup | EbaySoldLookup;
 
 const BROWSER_HEADERS = {
   'User-Agent':
@@ -124,6 +140,10 @@ function shouldLookupGamestop(message: string) {
   return /\bgamestop|game stop\b/i.test(message) && /\b(price|cost|current|sell|available|stock|pre-owned|new)\b/i.test(message);
 }
 
+function shouldLookupEbaySold(message: string) {
+  return /\bebay\b/i.test(message) && /\b(avg|average|sold|selling price|sale price|comps?|last 90|90 days|ninety)\b/i.test(message);
+}
+
 async function fetchText(url: string) {
   const response = await fetch(url, { headers: BROWSER_HEADERS, cache: 'no-store' });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
@@ -134,7 +154,7 @@ async function lookupGamestop(message: string): Promise<ExternalLookup> {
   const query = cleanExternalGameQuery(message) || message;
   const sourceUrl = `https://www.gamestop.com/search/?q=${encodeURIComponent(query)}`;
   const warnings: string[] = [];
-  const results: ExternalLookup['results'] = [];
+  const results: GameStopLookup['results'] = [];
 
   try {
     const searchHtml = await fetchText(sourceUrl);
@@ -183,6 +203,77 @@ async function lookupGamestop(message: string): Promise<ExternalLookup> {
     searchedAt: new Date().toISOString(),
     sourceUrl,
     results,
+    warnings,
+  };
+}
+
+function cleanEbaySoldQuery(message: string) {
+  return message
+    .replace(/\b(what('| i)?s|what is|average|avg|selling|sale|sold|price|prices|for|on|ebay|over|last|past|days|day|ninety|90|has|been|the|a|an|game)\b/gi, ' ')
+    .replace(/[?]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parsePriceNumber(value: string) {
+  const cleaned = value.replace(/[$,\s]/g, '');
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function percentile(values: number[], p: number) {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.floor((sorted.length - 1) * p)));
+  return sorted[index];
+}
+
+async function lookupEbaySold(message: string): Promise<ExternalLookup> {
+  const query = cleanEbaySoldQuery(message) || message;
+  const sourceUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}&LH_Sold=1&LH_Complete=1&_sop=13`;
+  const warnings: string[] = [];
+  let prices: number[] = [];
+
+  try {
+    const html = await fetchText(sourceUrl);
+    const text = stripHtml(html);
+    prices = unique(priceStrings(text))
+      .map(parsePriceNumber)
+      .filter((price) => price >= 1 && price <= 2000);
+
+    const q1 = percentile(prices, 0.25);
+    const q3 = percentile(prices, 0.75);
+    const iqr = q3 - q1;
+    if (prices.length >= 8 && iqr > 0) {
+      prices = prices.filter((price) => price >= q1 - 1.5 * iqr && price <= q3 + 1.5 * iqr);
+    }
+
+    if (prices.length === 0) {
+      warnings.push('eBay did not expose readable sold-price values in the returned HTML. This can happen when eBay blocks automated result parsing.');
+    }
+  } catch (error) {
+    warnings.push(`eBay sold lookup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
+
+  const sorted = [...prices].sort((a, b) => a - b);
+  const averagePrice = sorted.length ? sorted.reduce((sum, price) => sum + price, 0) / sorted.length : 0;
+  const medianPrice = sorted.length
+    ? sorted.length % 2
+      ? sorted[Math.floor(sorted.length / 2)]
+      : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
+    : 0;
+
+  return {
+    provider: 'ebay_sold',
+    query,
+    searchedAt: new Date().toISOString(),
+    sourceUrl,
+    sampleSize: sorted.length,
+    averagePrice,
+    medianPrice,
+    lowPrice: sorted[0] || 0,
+    highPrice: sorted[sorted.length - 1] || 0,
+    prices: sorted.slice(0, 40),
     warnings,
   };
 }
@@ -320,6 +411,16 @@ function outputTextFromResponse(data: any) {
 }
 
 function buildExternalLookupAnswer(lookup: ExternalLookup) {
+  if (lookup.provider === 'ebay_sold') {
+    if (lookup.sampleSize === 0) {
+      const warning = lookup.warnings.length ? `\n\nWhat happened: ${lookup.warnings.join(' ')}` : '';
+      return `I tried to calculate recent eBay sold comps for "${lookup.query}", but I could not read sold prices from eBay's result HTML.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
+    }
+
+    const warning = lookup.warnings.length ? `\n\nParsing notes: ${lookup.warnings.join(' ')}` : '';
+    return `I checked visible eBay completed/sold results for "${lookup.query}" and calculated this from ${lookup.sampleSize} readable sold price(s):\n\nAverage: $${lookup.averagePrice.toFixed(2)}\nMedian: $${lookup.medianPrice.toFixed(2)}\nRange: $${lookup.lowPrice.toFixed(2)} - $${lookup.highPrice.toFixed(2)}\n\nSource: ${lookup.sourceUrl}${warning}`;
+  }
+
   if (lookup.results.length === 0) {
     const warning = lookup.warnings.length ? `\n\nWhat happened: ${lookup.warnings.join(' ')}` : '';
     return `I tried to check GameStop for "${lookup.query}", but I could not find a readable product price in the page HTML.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
@@ -387,6 +488,10 @@ function fallbackMarketValue(item: AssistantInventoryItem) {
 }
 
 function buildInventorySearchAnswer(message: string, inventory: AssistantInventoryItem[], app: AssistantAppContext) {
+  if (/\b(lot|lots|shipment|shipments|cogs|cost basis|allocation|allocated)\b/i.test(message)) {
+    return null;
+  }
+
   const words = queryWords(message);
   const isSearchy = /\b(do i have|find|search|show me|which|what.*inventory|list.*games|games.*have)\b/i.test(message);
   const isCleanQuestion = /\bclean|cleaned|cleaning\b/i.test(message);
@@ -455,7 +560,7 @@ async function askOpenAI(
       store: false,
       max_output_tokens: 1400,
       instructions:
-        'You are RetroLoot Pro Analyst, a practical resale business assistant for a video game resale inventory app. Read the provided inventory rows and app analysis before answering. Handle natural language flexibly: users may ask about counts, cleanup, profit, show curation, stale inventory, data quality, intake shipments, lots, COGS allocation, or specific titles. For app data, use only the provided inventory, prep, finance, intake, shows, and suggestions. Intake rule: every item starts as a shipment; received shipments create lots with total paid; scanned lot items get market values; COGS is allocated by lot total paid divided by total lot market value, applied to each item market value; item profit is market value minus allocated COGS. For external GameStop questions, use the provided externalLookup results and cite that it was parsed from GameStop pages at request time. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
+        'You are RetroLoot Pro Analyst, a practical resale business assistant for a video game resale inventory app. Read the provided inventory rows and app analysis before answering. Handle natural language flexibly: users may ask about counts, cleanup, profit, show curation, stale inventory, data quality, intake shipments, lots, COGS allocation, or specific titles. For app data, use only the provided inventory, prep, finance, intake, shows, and suggestions. Intake rule: every item starts as a shipment; received shipments create lots with total paid; scanned lot items get market values; COGS is allocated by lot total paid divided by total lot market value, applied to each item market value; item profit is market value minus allocated COGS. For external GameStop and eBay sold-comps questions, use the provided externalLookup results and cite that the data was parsed from the external page at request time. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
       input: [
         {
           role: 'user',
@@ -538,7 +643,11 @@ export async function POST(req: NextRequest) {
         .eq('user_id', accountId)
         .order('created_at', { ascending: false })
         .limit(100),
-      shouldLookupGamestop(message) ? lookupGamestop(message) : Promise.resolve(null),
+      shouldLookupGamestop(message)
+        ? lookupGamestop(message)
+        : shouldLookupEbaySold(message)
+          ? lookupEbaySold(message)
+          : Promise.resolve(null),
     ]);
 
     const inventory = (inventoryRes.data || []) as AssistantInventoryItem[];
@@ -559,9 +668,13 @@ export async function POST(req: NextRequest) {
     if (lotsRes.error) appContext.suggestedActions.push(`Lot data was unavailable to the assistant: ${lotsRes.error.message}`);
     if (shipmentsRes.error) appContext.suggestedActions.push(`Shipment data was unavailable to the assistant: ${shipmentsRes.error.message}`);
 
+    const intakeQuestion = /\b(lot|lots|shipment|shipments|cogs|cost basis|allocation|allocated)\b/i.test(message);
+    const deterministicAnswer = buildAppDeterministicAnswer(message, analysis, appContext);
     let answer = externalLookup
       ? buildExternalLookupAnswer(externalLookup)
-      : buildInventorySearchAnswer(message, inventory, appContext) || buildAppDeterministicAnswer(message, analysis, appContext);
+      : intakeQuestion
+        ? deterministicAnswer
+        : buildInventorySearchAnswer(message, inventory, appContext) || deterministicAnswer;
     let usedAI = false;
 
     try {
