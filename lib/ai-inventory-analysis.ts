@@ -32,6 +32,9 @@ export type AssistantInventoryItem = {
   listed_amazon_at?: string | null;
   listed_whatnot_at?: string | null;
   lot_id?: string | null;
+  lot_market_value_at_allocation?: number | null;
+  lot_allocation_ratio?: number | null;
+  purchase_price_override?: boolean | null;
 };
 
 export type AnalyzedInventoryItem = AssistantInventoryItem & {
@@ -102,6 +105,29 @@ export type AssistantShow = {
   show_items?: { id: string }[];
 };
 
+export type AssistantLot = {
+  id: string;
+  name: string;
+  source: string | null;
+  received_at: string | null;
+  total_paid: number | null;
+  total_market_value: number | null;
+  allocation_ratio: number | null;
+  allocation_status: string | null;
+  shipment_id: string | null;
+};
+
+export type AssistantShipment = {
+  id: string;
+  title: string;
+  source: string | null;
+  status: string | null;
+  total_paid: number | null;
+  lot_id: string | null;
+  expected_date: string | null;
+  received_at: string | null;
+};
+
 export type AssistantAppContext = {
   prep: {
     needsSorted: AssistantInventoryItem[];
@@ -130,6 +156,12 @@ export type AssistantAppContext = {
   shows: {
     recentShows: AssistantShow[];
     draftCount: number;
+  };
+  intake: {
+    pendingShipments: AssistantShipment[];
+    receivedShipments: AssistantShipment[];
+    lots: AssistantLot[];
+    lotsNeedingAllocation: AssistantLot[];
   };
   suggestedActions: string[];
 };
@@ -412,7 +444,9 @@ function sumSoldRevenue(items: AssistantInventoryItem[]) {
 export function buildAppContext(
   items: AssistantInventoryItem[],
   transactions: AssistantTransaction[] = [],
-  shows: AssistantShow[] = []
+  shows: AssistantShow[] = [],
+  lots: AssistantLot[] = [],
+  shipments: AssistantShipment[] = []
 ): AssistantAppContext {
   const activeItems = items.filter((item) => (item.status || 'available') !== 'sold');
   const soldItems = items.filter((item) => item.status === 'sold');
@@ -443,6 +477,9 @@ export function buildAppContext(
   if (prep.readyToList.length > 0) suggestedActions.push(`List ${prep.readyToList.length} item(s) already on rack.`);
   if (txLast30.some((tx) => !tx.is_reconciled)) suggestedActions.push('Reconcile recent financial transactions.');
   if (soldLast4Days.length > 0) suggestedActions.push('Review recent sales and restock similar profitable categories.');
+  const lotsNeedingAllocation = lots.filter((lot) => Number(lot.total_paid || 0) > 0 && lot.allocation_status !== 'allocated');
+  if (shipments.some((shipment) => shipment.status === 'pending')) suggestedActions.push('Receive pending shipments so they become scannable lots.');
+  if (lotsNeedingAllocation.length > 0) suggestedActions.push(`Finalize COGS allocation for ${lotsNeedingAllocation.length} lot(s).`);
 
   return {
     prep,
@@ -465,6 +502,12 @@ export function buildAppContext(
     shows: {
       recentShows: shows.slice(0, 10),
       draftCount: shows.filter((show: any) => show.status === 'draft').length,
+    },
+    intake: {
+      pendingShipments: shipments.filter((shipment) => shipment.status === 'pending').slice(0, 20),
+      receivedShipments: shipments.filter((shipment) => shipment.status === 'received').slice(0, 20),
+      lots: lots.slice(0, 50),
+      lotsNeedingAllocation,
     },
     suggestedActions,
   };
@@ -513,6 +556,14 @@ export function buildAppDeterministicAnswer(message: string, analysis: Assistant
 
   if (lower.includes('reconcile') || lower.includes('bank') || lower.includes('ledger')) {
     return `For the last 30 days, the ledger has ${formatMoney(app.finance.ledgerLast30Days.income)} income and ${formatMoney(app.finance.ledgerLast30Days.expenses)} expenses, with ${app.finance.ledgerLast30Days.unreconciledCount} unreconciled transaction(s). Suggested next step: reconcile those against bank activity before relying on net profit for tax or buying decisions.`;
+  }
+
+  if (lower.includes('lot') || lower.includes('shipment') || lower.includes('cogs') || lower.includes('cost basis')) {
+    const rows = app.intake.lots.slice(0, 10).map((lot) => {
+      const ratio = Number(lot.allocation_ratio || 0);
+      return `- ${lot.name}: paid ${formatMoney(Number(lot.total_paid || 0))}, FMV ${formatMoney(Number(lot.total_market_value || 0))}, ${lot.allocation_status || 'pending'}${ratio > 0 ? `, COGS ratio ${(ratio * 100).toFixed(1)}%` : ''}`;
+    }).join('\n');
+    return `Intake workflow: create a shipment first, receive it with total paid, scan items into the created lot, then finalize COGS by market-value weighting. ${app.intake.pendingShipments.length} shipment(s) are pending and ${app.intake.lotsNeedingAllocation.length} lot(s) need allocation.${rows ? `\n\nRecent lots:\n${rows}` : ''}`;
   }
 
   if (lower.includes('suggest') || lower.includes('change') || lower.includes('fix')) {

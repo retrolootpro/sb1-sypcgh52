@@ -351,6 +351,7 @@ export default function ShippingPage() {
   const [shipOrder, setShipOrder] = useState<OutboundOrder | null>(null);
   const [shipPlatformOrder, setShipPlatformOrder] = useState<PlatformOrder | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [receiveAmounts, setReceiveAmounts] = useState<Record<string, string>>({});
 
   const loadAll = useCallback(async () => {
     try {
@@ -432,13 +433,18 @@ export default function ShippingPage() {
   }, [loadAll, authLoading, user]);
 
   const handleMarkReceived = async (id: string) => {
+    const totalPaid = Number(receiveAmounts[id]);
+    if (!Number.isFinite(totalPaid) || totalPaid <= 0) {
+      toast.error('Enter the total paid for this shipment before receiving it');
+      return;
+    }
     setProcessingId(id);
     try {
-      await markInboundReceived(id);
-      toast.success('Marked as received');
+      await markInboundReceived(id, totalPaid);
+      toast.success('Shipment received and lot created');
       loadAll();
-    } catch {
-      toast.error('Failed to update');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to update');
     } finally {
       setProcessingId(null);
     }
@@ -798,7 +804,7 @@ export default function ShippingPage() {
               <div>
                 <h3 className="text-sm font-semibold">Expected Shipments</h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Track packages you're expecting to receive
+                  Every intake starts here. Receiving a shipment creates the lot used for scanning and cost allocation.
                 </p>
               </div>
               <Button size="sm" className="h-8 text-xs" onClick={() => setAddInboundOpen(true)}>
@@ -851,12 +857,28 @@ export default function ShippingPage() {
                               {shipment.notes && (
                                 <div className="text-xs text-muted-foreground/60 mt-1 italic">{shipment.notes}</div>
                               )}
+                              <div className="mt-3 max-w-xs">
+                                <Label className="text-[10px] text-sky-200/70 uppercase tracking-wider">Total paid for lot</Label>
+                                <div className="relative mt-1">
+                                  <DollarSign className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                                  <Input
+                                    value={receiveAmounts[shipment.id] || ''}
+                                    onChange={(event) => setReceiveAmounts((prev) => ({
+                                      ...prev,
+                                      [shipment.id]: event.target.value.replace(/[^0-9.]/g, ''),
+                                    }))}
+                                    inputMode="decimal"
+                                    placeholder="0.00"
+                                    className="h-8 pl-8 text-xs bg-card/60 border-sky-500/20"
+                                  />
+                                </div>
+                              </div>
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               <Button
                                 size="sm"
                                 className="h-7 text-xs"
-                                disabled={processingId === shipment.id}
+                                disabled={processingId === shipment.id || !(Number(receiveAmounts[shipment.id]) > 0)}
                                 onClick={() => handleMarkReceived(shipment.id)}
                               >
                                 <CheckCheck className="w-3 h-3 mr-1" />
@@ -896,6 +918,16 @@ export default function ShippingPage() {
                               <div className="text-sm font-medium truncate">{shipment.title}</div>
                               <div className="flex items-center gap-3 mt-1 flex-wrap">
                                 <span className="text-xs text-muted-foreground">{shipment.source}</span>
+                                {Number(shipment.total_paid) > 0 && (
+                                  <span className="text-xs text-emerald-400">
+                                    Lot paid ${Number(shipment.total_paid).toFixed(2)}
+                                  </span>
+                                )}
+                                {shipment.lot_id && (
+                                  <span className="text-xs text-muted-foreground font-mono">
+                                    Lot {shipment.lot_id.slice(0, 8)}
+                                  </span>
+                                )}
                                 {shipment.received_at && (
                                   <span className="text-xs text-muted-foreground">
                                     Received {new Date(shipment.received_at).toLocaleDateString()}

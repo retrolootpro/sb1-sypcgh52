@@ -8,6 +8,8 @@ import {
   type AssistantAnalysis,
   type AssistantAppContext,
   type AssistantInventoryItem,
+  type AssistantLot,
+  type AssistantShipment,
 } from '@/lib/ai-inventory-analysis';
 
 export const dynamic = 'force-dynamic';
@@ -197,6 +199,10 @@ function compactInventoryForAi(inventory: AssistantInventoryItem[]) {
     marketValue: item.selected_market_value || item.price_cib || item.price_loose || item.price_new || item.price_graded || 0,
     estimatedProfit: item.estimated_profit || 0,
     marginPercent: item.estimated_margin_percent || 0,
+    lotId: item.lot_id || null,
+    lotMarketValueAtAllocation: item.lot_market_value_at_allocation || 0,
+    lotAllocationRatio: item.lot_allocation_ratio || 0,
+    costOverride: Boolean(item.purchase_price_override),
     dealScore: item.deal_score || 0,
     dealScoreLabel: item.deal_score_label || '',
     category: item.category || '',
@@ -249,6 +255,14 @@ function compactAnalysisForAi(analysis: AssistantAnalysis, app: AssistantAppCont
       soldLast4DaysCount: app.finance.soldLast4Days.length,
       ledgerLast30Days: app.finance.ledgerLast30Days,
       recentTransactions: app.finance.recentTransactions.slice(0, 12),
+    },
+    intake: {
+      pendingShipments: app.intake.pendingShipments,
+      receivedShipments: app.intake.receivedShipments.slice(0, 12),
+      lotsNeedingAllocation: app.intake.lotsNeedingAllocation,
+      lots: app.intake.lots.slice(0, 25),
+      process:
+        'Every item starts as a shipment. Receiving a shipment creates a lot with total paid. Scanned items attach to that lot. Final COGS uses lot total paid divided by total current market value, then applies that ratio to each item market value. Profit is market value minus allocated COGS.',
     },
     shows: app.shows,
     suggestedActions: app.suggestedActions,
@@ -441,7 +455,7 @@ async function askOpenAI(
       store: false,
       max_output_tokens: 1400,
       instructions:
-        'You are RetroLoot Pro Analyst, a practical resale business assistant for a video game resale inventory app. Read the provided inventory rows and app analysis before answering. Handle natural language flexibly: users may ask about counts, cleanup, profit, show curation, stale inventory, data quality, or specific titles. For app data, use only the provided inventory, prep, finance, shows, and suggestions. For external GameStop questions, use the provided externalLookup results and cite that it was parsed from GameStop pages at request time. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
+        'You are RetroLoot Pro Analyst, a practical resale business assistant for a video game resale inventory app. Read the provided inventory rows and app analysis before answering. Handle natural language flexibly: users may ask about counts, cleanup, profit, show curation, stale inventory, data quality, intake shipments, lots, COGS allocation, or specific titles. For app data, use only the provided inventory, prep, finance, intake, shows, and suggestions. Intake rule: every item starts as a shipment; received shipments create lots with total paid; scanned lot items get market values; COGS is allocated by lot total paid divided by total lot market value, applied to each item market value; item profit is market value minus allocated COGS. For external GameStop questions, use the provided externalLookup results and cite that it was parsed from GameStop pages at request time. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
       input: [
         {
           role: 'user',
@@ -499,7 +513,7 @@ export async function POST(req: NextRequest) {
       .limit(1500);
     if (inventoryRes.error) throw inventoryRes.error;
 
-    const [txRes, showsRes, externalLookup] = await Promise.all([
+    const [txRes, showsRes, lotsRes, shipmentsRes, externalLookup] = await Promise.all([
       supabase
         .from('financial_transactions')
         .select('id, date, description, amount, type, category, source, platform, is_reconciled')
@@ -512,6 +526,18 @@ export async function POST(req: NextRequest) {
         .eq('user_id', accountId)
         .order('created_at', { ascending: false })
         .limit(50),
+      supabase
+        .from('lots')
+        .select('id, name, source, received_at, total_paid, total_market_value, allocation_ratio, allocation_status, shipment_id')
+        .eq('user_id', accountId)
+        .order('received_at', { ascending: false })
+        .limit(100),
+      supabase
+        .from('inbound_shipments')
+        .select('id, title, source, status, total_paid, lot_id, expected_date, received_at')
+        .eq('user_id', accountId)
+        .order('created_at', { ascending: false })
+        .limit(100),
       shouldLookupGamestop(message) ? lookupGamestop(message) : Promise.resolve(null),
     ]);
 
@@ -524,10 +550,14 @@ export async function POST(req: NextRequest) {
     const appContext = buildAppContext(
       inventory,
       txRes.error ? [] : (txRes.data || []) as any,
-      showsRes.error ? [] : (showsRes.data || []) as any
+      showsRes.error ? [] : (showsRes.data || []) as any,
+      lotsRes.error ? [] : (lotsRes.data || []) as AssistantLot[],
+      shipmentsRes.error ? [] : (shipmentsRes.data || []) as AssistantShipment[]
     );
     if (txRes.error) appContext.suggestedActions.push(`Finance data was unavailable to the assistant: ${txRes.error.message}`);
     if (showsRes.error) appContext.suggestedActions.push(`Show list data was unavailable to the assistant: ${showsRes.error.message}`);
+    if (lotsRes.error) appContext.suggestedActions.push(`Lot data was unavailable to the assistant: ${lotsRes.error.message}`);
+    if (shipmentsRes.error) appContext.suggestedActions.push(`Shipment data was unavailable to the assistant: ${shipmentsRes.error.message}`);
 
     let answer = externalLookup
       ? buildExternalLookupAnswer(externalLookup)

@@ -14,13 +14,14 @@ import { ScanResult } from '@/lib/barcode-scanner';
 import {
   Camera, Keyboard, History, CircleCheck as CheckCircle2,
   CircleAlert as AlertCircle, Loader as Loader2, Undo2, Trash2,
-  User, TrendingUp, Layers, Play, ScanBarcode,
+  User, TrendingUp, Layers, Play, ScanBarcode, PackageCheck, Calculator,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { classifyItem, normalizeTitle, calculateConfidence, extractPlatform, detectEdition } from '@/lib/barcode-lookup';
 import { lookupUPC, getActiveEmployees, type Employee } from '@/lib/api-services';
+import { allocateLotCost, formatCurrency, getLotCostSummaries, type LotCostSummary } from '@/lib/finance-services';
 import { getCanonicalPricing, getPricingData, getPricingStatusMessage, toDatabaseStatus, type PricingResult } from '@/lib/pricing-service';
 import { calculateSimpleDealScore, getMarketValueByCondition, shouldSkipReview } from '@/lib/deal-score';
 
@@ -55,6 +56,9 @@ export default function ScanPage() {
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [lots, setLots] = useState<LotCostSummary[]>([]);
+  const [selectedLotId, setSelectedLotId] = useState<string>('none');
+  const [allocatingLot, setAllocatingLot] = useState(false);
 
   const [showItemDialog, setShowItemDialog] = useState(false);
   const [currentQueueItemForDialog, setCurrentQueueItemForDialog] = useState<QueueItem | null>(null);
@@ -63,7 +67,10 @@ export default function ScanPage() {
 
   useEffect(() => {
     getActiveEmployees().then(setEmployees).catch(() => {});
+    getLotCostSummaries().then(setLots).catch(() => {});
   }, []);
+
+  const selectedLot = lots.find((lot) => lot.id === selectedLotId) || null;
 
   const updateQueueItem = useCallback((id: string, updates: Partial<QueueItem>) => {
     setQueue((prev) =>
@@ -283,6 +290,7 @@ export default function ScanPage() {
         image_url: lookupResult.imageUrl || null,
         thumbnail_url: lookupResult.thumbnailUrl || null,
         added_by_employee_id: selectedEmployeeId || null,
+        lot_id: selectedLotId !== 'none' ? selectedLotId : null,
         pricing_source: pricingResult?.status === 'success' ? 'PriceCharting' : 'pending',
         pricing_status: pricingStatus,
         pricing_attempted_at: new Date().toISOString(),
@@ -305,6 +313,7 @@ export default function ScanPage() {
         selected_market_value: selectedMarketValue,
         estimated_profit: estimatedProfit,
         estimated_margin_percent: estimatedMarginPercent,
+        purchase_price_override: purchasePrice > 0,
         deal_score: dealScoreData?.score || 0,
         deal_score_label: dealScoreData?.label || '',
         needs_review: needsReview,
@@ -325,8 +334,40 @@ export default function ScanPage() {
       }).then(() => {});
     }
 
+    if (selectedLotId !== 'none') {
+      try {
+        const lot = lots.find((entry) => entry.id === selectedLotId);
+        const paid = Number(lot?.totalCost || lot?.total_paid || 0);
+        if (paid > 0) {
+          await allocateLotCost(selectedLotId, paid, 'market_weighted');
+          getLotCostSummaries().then(setLots).catch(() => {});
+        }
+      } catch {
+        // If market data is incomplete, the lot can be finalized from the panel.
+      }
+    }
+
     return inventoryItem;
-  }, [user, selectedEmployeeId]);
+  }, [user, accountId, selectedEmployeeId, selectedLotId, lots]);
+
+  const handleAllocateSelectedLot = useCallback(async () => {
+    if (!selectedLot) return;
+    const paid = Number(selectedLot.totalCost || selectedLot.total_paid || 0);
+    if (paid <= 0) {
+      toast.error('This lot needs a total paid amount before COGS can be allocated');
+      return;
+    }
+    setAllocatingLot(true);
+    try {
+      await allocateLotCost(selectedLot.id, paid, 'market_weighted');
+      toast.success('Lot COGS allocated from market-value totals');
+      setLots(await getLotCostSummaries());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to allocate lot cost');
+    } finally {
+      setAllocatingLot(false);
+    }
+  }, [selectedLot]);
 
   const handleItemConfirm = useCallback(async (purchasePrice: number, selectedConsole: string, selectedRegion: string) => {
     if (!currentQueueItemForDialog || !user) return;
@@ -628,6 +669,25 @@ export default function ScanPage() {
                 />
               </div>
               <div className="space-y-1.5">
+                <Label htmlFor="lot" className="label-caps">Receiving Lot</Label>
+                <Select value={selectedLotId} onValueChange={setSelectedLotId}>
+                  <SelectTrigger id="lot" className="bg-secondary/40 border-border/60 h-9 rounded-lg text-[13px]">
+                    <SelectValue placeholder="Select lot..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No lot selected</SelectItem>
+                    {lots.map((lot) => (
+                      <SelectItem key={lot.id} value={lot.id}>
+                        {lot.name} - {formatCurrency(Number(lot.totalCost || lot.total_paid || 0))}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground/70">
+                  Receive a shipment in Shipping Hub to create a scannable lot.
+                </p>
+              </div>
+              <div className="space-y-1.5">
                 <Label htmlFor="employee" className="label-caps">Added By (Optional)</Label>
                 <Select value={selectedEmployeeId ?? 'none'} onValueChange={(value) => setSelectedEmployeeId(value === 'none' ? null : value)}>
                   <SelectTrigger id="employee" className="bg-secondary/40 border-border/60 h-9 rounded-lg text-[13px]">
@@ -652,6 +712,31 @@ export default function ScanPage() {
             </form>
           </div>
         </div>
+
+        {selectedLot && (
+          <div className="rounded-xl border border-primary/20 bg-primary/[0.04] p-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg border border-primary/25 bg-primary/10 flex items-center justify-center shrink-0">
+                  <PackageCheck className="w-4 h-4 text-primary" />
+                </div>
+                <div>
+                  <div className="text-sm font-semibold">{selectedLot.name}</div>
+                  <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                    <span>Paid {formatCurrency(Number(selectedLot.totalCost || selectedLot.total_paid || 0))}</span>
+                    <span>{selectedLot.itemCount} item{selectedLot.itemCount === 1 ? '' : 's'}</span>
+                    <span>FMV {formatCurrency(Number(selectedLot.totalMarketValue || selectedLot.total_market_value || 0))}</span>
+                    {Number(selectedLot.allocation_ratio) > 0 && <span>COGS ratio {(Number(selectedLot.allocation_ratio) * 100).toFixed(1)}%</span>}
+                  </div>
+                </div>
+              </div>
+              <Button size="sm" className="h-9 text-xs" onClick={handleAllocateSelectedLot} disabled={allocatingLot}>
+                {allocatingLot ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Calculator className="w-3.5 h-3.5 mr-1.5" />}
+                Finalize Lot COGS
+              </Button>
+            </div>
+          </div>
+        )}
 
         {batchMode && pendingBarcodes.length > 0 && (
           <div className="rounded-xl border border-primary/20 bg-primary/[0.04] overflow-hidden">

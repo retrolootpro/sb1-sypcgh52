@@ -19,7 +19,7 @@ import { Calculator, DollarSign, Layers, Loader2, RefreshCw, Scale } from 'lucid
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
-type AllocationMethod = 'equal' | 'weighted';
+type AllocationMethod = 'equal' | 'market_weighted';
 
 function CostStat({ label, value, tone = 'neutral' }: { label: string; value: string; tone?: 'neutral' | 'green' | 'amber' }) {
   return (
@@ -53,7 +53,7 @@ function LotCostDialog({
   useEffect(() => {
     if (lot && open) {
       setAmount(lot.totalCost > 0 ? lot.totalCost.toFixed(2) : '');
-      setMethod('equal');
+      setMethod('market_weighted');
     }
   }, [lot, open]);
 
@@ -118,8 +118,8 @@ function LotCostDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="market_weighted">Weighted by current market value</SelectItem>
                   <SelectItem value="equal">Equal average per item</SelectItem>
-                  <SelectItem value="weighted">Weighted by market value</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -180,7 +180,7 @@ export function LotsTab() {
         <div>
           <h2 className="text-sm font-semibold text-white/85">Lot Costing</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Enter what you paid for each lot, then allocate average principal into item cost basis.
+            Lots come from received shipments. Allocate COGS by each item's share of current market value.
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={load} disabled={loading}>
@@ -231,7 +231,7 @@ export function LotsTab() {
 
                     <div className="grid grid-cols-3 gap-2 lg:w-[360px]">
                       <CostStat label="Paid" value={formatCurrency(lot.totalCost)} tone="amber" />
-                      <CostStat label="Avg" value={formatCurrency(lot.averageCost)} />
+                      <CostStat label="FMV" value={formatCurrency(lot.totalMarketValue)} />
                       <CostStat label="Delta" value={formatCurrency(delta)} tone={Math.abs(delta) < 0.05 ? 'green' : 'amber'} />
                     </div>
 

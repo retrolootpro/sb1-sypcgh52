@@ -63,7 +63,7 @@ export function ScanItemDialog({
   const handleConfirm = () => {
     let valid = true;
 
-    const numPrice = parseFloat(price);
+    const numPrice = price.trim() === '' ? 0 : parseFloat(price);
     if (isNaN(numPrice) || numPrice < 0) {
       setPriceError('Enter a valid price (0 or more)');
       valid = false;
@@ -181,7 +181,7 @@ export function ScanItemDialog({
           <div className="space-y-1.5">
             <Label className="text-[12px] text-muted-foreground flex items-center gap-1.5">
               <DollarSign className="w-3.5 h-3.5" />
-              Purchase Price
+              Cost Override
             </Label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span>
@@ -190,7 +190,7 @@ export function ScanItemDialog({
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="0.00"
+                placeholder="Leave blank for lot allocation"
                 value={price}
                 onChange={(e) => { setPrice(e.target.value); setPriceError(''); }}
                 onKeyDown={handleKeyDown}
@@ -199,7 +199,8 @@ export function ScanItemDialog({
             </div>
             {priceError && <p className="text-[12px] text-red-400">{priceError}</p>}
             <p className="text-[11px] text-muted-foreground/60">
-              Press <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to save
+              Optional for single-item buys. Lot scans will allocate cost after market values are totaled.
+              {' '}Press <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to save
               {' '}or <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Esc</kbd> to skip
             </p>
           </div>

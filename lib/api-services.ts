@@ -780,6 +780,8 @@ export interface InboundShipment {
   expected_date?: string;
   status: string;
   received_at?: string;
+  lot_id?: string | null;
+  total_paid?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -821,13 +823,56 @@ export async function updateInboundShipment(id: string, updates: Partial<Inbound
   if (error) throw error;
 }
 
-export async function markInboundReceived(id: string): Promise<void> {
+export async function markInboundReceived(id: string, totalPaid: number): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  if (!Number.isFinite(totalPaid) || totalPaid <= 0) throw new Error('Enter the total paid before receiving this shipment');
+
+  const accountId = await getActiveAccountId(session.user);
+  const { data: shipment, error: shipmentError } = await supabase
+    .from('inbound_shipments')
+    .select('*')
+    .eq('id', id)
+    .eq('user_id', accountId)
+    .single();
+  if (shipmentError) throw shipmentError;
+  if (!shipment) throw new Error('Shipment not found');
+  if (shipment.lot_id) {
+    const { error } = await supabase
+      .from('inbound_shipments')
+      .update({ status: 'received', received_at: shipment.received_at || new Date().toISOString(), total_paid: totalPaid, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .eq('user_id', accountId);
+    if (error) throw error;
+    return shipment.lot_id;
+  }
+
+  const now = new Date().toISOString();
+  const { data: lot, error: lotError } = await supabase
+    .from('lots')
+    .insert({
+      user_id: accountId,
+      name: shipment.title || 'Received shipment',
+      source: shipment.source || '',
+      notes: shipment.notes || '',
+      received_at: now,
+      shipment_id: id,
+      total_paid: totalPaid,
+      allocation_status: 'pending',
+      updated_at: now,
+    })
+    .select('id')
+    .single();
+  if (lotError) throw lotError;
+
   const { error } = await supabase
     .from('inbound_shipments')
-    .update({ status: 'received', received_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq('id', id);
+    .update({ status: 'received', received_at: now, lot_id: lot.id, total_paid: totalPaid, updated_at: now })
+    .eq('id', id)
+    .eq('user_id', accountId);
 
   if (error) throw error;
+  return lot.id;
 }
 
 export async function deleteInboundShipment(id: string): Promise<void> {

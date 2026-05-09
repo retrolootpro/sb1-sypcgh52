@@ -58,11 +58,15 @@ export type LotCostItem = {
   console: string;
   condition: string;
   purchase_price: number;
+  quantity?: number | null;
   selected_market_value?: number | null;
   price_loose?: number | null;
   price_cib?: number | null;
   price_new?: number | null;
   price_graded?: number | null;
+  lot_market_value_at_allocation?: number | null;
+  lot_allocation_ratio?: number | null;
+  purchase_price_override?: boolean | null;
 };
 
 export type LotCostSummary = {
@@ -70,7 +74,15 @@ export type LotCostSummary = {
   name: string;
   source: string | null;
   received_at: string | null;
+  shipment_id?: string | null;
+  total_paid?: number | null;
+  total_market_value?: number | null;
+  allocation_ratio?: number | null;
+  allocation_status?: string | null;
+  cost_allocated_at?: string | null;
   totalCost: number;
+  totalMarketValue: number;
+  discountPercent: number;
   itemCount: number;
   allocatedCost: number;
   averageCost: number;
@@ -167,12 +179,12 @@ export async function getLotCostSummaries(): Promise<LotCostSummary[]> {
   const [{ data: lots, error: lotsError }, { data: items, error: itemsError }, { data: txns, error: txError }] = await Promise.all([
     supabase
       .from('lots')
-      .select('id, name, source, received_at')
+      .select('id, name, source, received_at, shipment_id, total_paid, total_market_value, allocation_ratio, allocation_status, cost_allocated_at')
       .eq('user_id', await getActiveAccountId(user))
       .order('received_at', { ascending: false }),
     supabase
       .from('inventory_items')
-      .select('id, lot_id, product_name, console, condition, purchase_price, selected_market_value, price_loose, price_cib, price_new, price_graded')
+      .select('id, lot_id, product_name, console, condition, purchase_price, quantity, selected_market_value, price_loose, price_cib, price_new, price_graded, lot_market_value_at_allocation, lot_allocation_ratio, purchase_price_override')
       .eq('user_id', await getActiveAccountId(user))
       .not('lot_id', 'is', null),
     supabase
@@ -197,11 +209,15 @@ export async function getLotCostSummaries(): Promise<LotCostSummary[]> {
       console: item.console,
       condition: item.condition,
       purchase_price: Number(item.purchase_price) || 0,
+      quantity: Number(item.quantity) || 1,
       selected_market_value: Number(item.selected_market_value) || 0,
       price_loose: Number(item.price_loose) || 0,
       price_cib: Number(item.price_cib) || 0,
       price_new: Number(item.price_new) || 0,
       price_graded: Number(item.price_graded) || 0,
+      lot_market_value_at_allocation: Number(item.lot_market_value_at_allocation) || 0,
+      lot_allocation_ratio: Number(item.lot_allocation_ratio) || 0,
+      purchase_price_override: Boolean(item.purchase_price_override),
     });
     itemsByLot.set(lotId, list);
   }
@@ -215,14 +231,26 @@ export async function getLotCostSummaries(): Promise<LotCostSummary[]> {
   return (lots || []).map((lot) => {
     const lotItems = itemsByLot.get(lot.id) || [];
     const tx = txByLot.get(lot.id);
-    const allocatedCost = lotItems.reduce((sum, item) => sum + (Number(item.purchase_price) || 0), 0);
-    const totalCost = tx?.amount ?? allocatedCost;
+    const allocatedCost = lotItems.reduce((sum, item) => sum + (Number(item.purchase_price) || 0) * (Number(item.quantity) || 1), 0);
+    const liveMarketValue = lotItems.reduce((sum, item) => sum + marketWeight(item) * (Number(item.quantity) || 1), 0);
+    const storedPaid = Number((lot as any).total_paid) || 0;
+    const totalCost = storedPaid || tx?.amount || allocatedCost;
+    const totalMarketValue = Number((lot as any).total_market_value) || liveMarketValue;
+    const allocationRatio = Number((lot as any).allocation_ratio) || (totalMarketValue > 0 && totalCost > 0 ? totalCost / totalMarketValue : 0);
     return {
       id: lot.id,
       name: lot.name,
       source: lot.source,
       received_at: lot.received_at,
+      shipment_id: (lot as any).shipment_id || null,
+      total_paid: storedPaid,
+      total_market_value: totalMarketValue,
+      allocation_ratio: allocationRatio,
+      allocation_status: (lot as any).allocation_status || null,
+      cost_allocated_at: (lot as any).cost_allocated_at || null,
       totalCost,
+      totalMarketValue,
+      discountPercent: allocationRatio > 0 ? (1 - allocationRatio) * 100 : 0,
       itemCount: lotItems.length,
       allocatedCost,
       averageCost: lotItems.length > 0 ? totalCost / lotItems.length : 0,
@@ -266,6 +294,13 @@ export async function upsertLotPurchase(lot: { id: string; name: string; source?
     : await supabase.from('financial_transactions').insert(payload);
 
   if (result.error) throw new Error(result.error.message);
+
+  const { error: lotError } = await supabase
+    .from('lots')
+    .update({ total_paid: amount, updated_at: new Date().toISOString() })
+    .eq('id', lot.id)
+    .eq('user_id', await getActiveAccountId(user));
+  if (lotError) throw new Error(lotError.message);
 }
 
 function marketWeight(item: LotCostItem): number {
@@ -279,31 +314,56 @@ function marketWeight(item: LotCostItem): number {
   );
 }
 
-export async function allocateLotCost(lotId: string, totalCost: number, method: 'equal' | 'weighted'): Promise<void> {
+export async function allocateLotCost(lotId: string, totalCost: number, method: 'equal' | 'weighted' | 'market_weighted' = 'market_weighted'): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
   const { data: items, error } = await supabase
     .from('inventory_items')
-    .select('id, selected_market_value, price_loose, price_cib, price_new, price_graded')
+    .select('id, quantity, purchase_price, purchase_price_override, selected_market_value, price_loose, price_cib, price_new, price_graded')
     .eq('user_id', await getActiveAccountId(user))
     .eq('lot_id', lotId);
   if (error) throw new Error(error.message);
   if (!items || items.length === 0) throw new Error('This lot has no items to allocate');
 
-  const weights = items.map((item) => method === 'weighted' ? marketWeight(item as LotCostItem) : 1);
+  const useMarketWeight = method === 'weighted' || method === 'market_weighted';
+  const overrideTotal = items.reduce((sum, item) => {
+    if (!item.purchase_price_override) return sum;
+    return sum + (Number(item.purchase_price) || 0) * (Number(item.quantity) || 1);
+  }, 0);
+  const remainingCost = Math.max(0, totalCost - overrideTotal);
+  const weights = items.map((item) => {
+    if (item.purchase_price_override) return 0;
+    return useMarketWeight ? marketWeight(item as LotCostItem) * (Number(item.quantity) || 1) : (Number(item.quantity) || 1);
+  });
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || items.length;
   const fallbackEqual = totalWeight <= 0;
+  const marketTotal = items.reduce((sum, item) => sum + marketWeight(item as LotCostItem) * (Number(item.quantity) || 1), 0);
+  const allocationRatio = marketTotal > 0 ? totalCost / marketTotal : 0;
+  const now = new Date().toISOString();
 
   const accountId = await getActiveAccountId(user);
   const updates = items.map((item, index) => {
+    const itemMarket = marketWeight(item as LotCostItem);
     const weight = fallbackEqual ? 1 : weights[index];
     const divisor = fallbackEqual ? items.length : totalWeight;
+    const quantity = Number(item.quantity) || 1;
+    const allocatedUnitCost = item.purchase_price_override
+      ? Number(item.purchase_price) || 0
+      : useMarketWeight && totalWeight > 0
+        ? (remainingCost * weight) / divisor / quantity
+        : (remainingCost * weight) / divisor / quantity;
+    const profit = itemMarket - allocatedUnitCost;
     return supabase
       .from('inventory_items')
       .update({
-        purchase_price: Number(((totalCost * weight) / divisor).toFixed(2)),
-        updated_at: new Date().toISOString(),
+        purchase_price: Number(allocatedUnitCost.toFixed(2)),
+        lot_market_value_at_allocation: Number(itemMarket.toFixed(2)),
+        lot_allocation_ratio: Number(allocationRatio.toFixed(6)),
+        estimated_profit: Number(profit.toFixed(2)),
+        estimated_margin_percent: itemMarket > 0 ? Number(((profit / itemMarket) * 100).toFixed(2)) : 0,
+        cost_allocated_at: now,
+        updated_at: now,
       })
       .eq('id', item.id)
       .eq('user_id', accountId);
@@ -312,6 +372,21 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
   const results = await Promise.all(updates);
   const failed = results.find((result) => result.error);
   if (failed?.error) throw new Error(failed.error.message);
+
+  const { error: lotError } = await supabase
+    .from('lots')
+    .update({
+      total_paid: Number(totalCost.toFixed(2)),
+      total_market_value: Number(marketTotal.toFixed(2)),
+      allocation_ratio: Number(allocationRatio.toFixed(6)),
+      allocation_method: useMarketWeight ? 'market_weighted' : 'equal',
+      allocation_status: marketTotal > 0 ? 'allocated' : 'needs_market_values',
+      cost_allocated_at: now,
+      updated_at: now,
+    })
+    .eq('id', lotId)
+    .eq('user_id', accountId);
+  if (lotError) throw new Error(lotError.message);
 }
 
 export async function importPlatformSales(): Promise<{ imported: number }> {
