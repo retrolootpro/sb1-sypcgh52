@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,24 +11,12 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { formatMoney, type AssistantAnalysis, type AssistantAppContext, type AnalyzedInventoryItem } from '@/lib/ai-inventory-analysis';
 import { toast } from 'sonner';
-import { Bot, Brain, Check, ClipboardList, DollarSign, Loader2, Package, Plus, Send, Sparkles, TriangleAlert } from 'lucide-react';
+import { Bot, Brain, Check, ClipboardList, DollarSign, Loader2, Package, Plus, Send, Sparkles, TriangleAlert, WifiOff } from 'lucide-react';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
 };
-
-const quickPrompts = [
-  'What are my best profit opportunities?',
-  'Build me a Nintendo family night show.',
-  'What games still need cleaned?',
-  'How much profit have I made in the last 4 days?',
-  'What items are ready to list?',
-  'Find bad data in my inventory.',
-  'Do I have any Mario Wii games?',
-  'What is Super Mario Party Jamboree at GameStop?',
-  'Suggest changes I should approve.',
-];
 
 function Stat({ label, value, icon: Icon }: { label: string; value: string; icon: React.ElementType }) {
   return (
@@ -82,7 +70,7 @@ function ItemRow({ item, rank }: { item: AnalyzedInventoryItem; rank: number }) 
 
 export default function AssistantPage() {
   const { user, accountId } = useAuth();
-  const [message, setMessage] = useState('Build me a high-profit show from available inventory.');
+  const [message, setMessage] = useState('');
   const [theme, setTheme] = useState('High profit show');
   const [targetItemCount, setTargetItemCount] = useState('30');
   const [minMarginPercent, setMinMarginPercent] = useState('20');
@@ -90,7 +78,7 @@ export default function AssistantPage() {
     {
       role: 'assistant',
       content:
-        'Ask me about profit, stale inventory, bad data, or a show theme. I will use your inventory records and calculate the numbers before answering.',
+        'Ask me naturally about inventory, lots, profit, prep work, show planning, or current market prices. I will use your app data first and external lookup data when the question calls for it.',
     },
   ]);
   const [analysis, setAnalysis] = useState<AssistantAnalysis | null>(null);
@@ -101,6 +89,19 @@ export default function AssistantPage() {
   const [openAIConfigured, setOpenAIConfigured] = useState(false);
   const [aiModel, setAiModel] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/ai-assistant')
+      .then((response) => response.json())
+      .then((data) => {
+        setOpenAIConfigured(Boolean(data.openAIConfigured));
+        setAiModel(data.model || null);
+        if (!data.openAIConfigured) {
+          setAiError('OPENAI_API_KEY is not configured in Netlify.');
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const askAssistant = async (prompt?: string) => {
     const content = (prompt || message).trim();
@@ -139,7 +140,12 @@ export default function AssistantPage() {
       setOpenAIConfigured(Boolean(result.openAIConfigured));
       setAiModel(result.aiModel || null);
       setAiError(result.aiError || null);
-      setMessages((prev) => [...prev, { role: 'assistant', content: result.answer }]);
+      const statusPrefix = result.usedAI
+        ? ''
+        : result.aiError
+          ? `OpenAI is not connected, so I used the calculated fallback.\n\n`
+          : '';
+      setMessages((prev) => [...prev, { role: 'assistant', content: `${statusPrefix}${result.answer}` }]);
     } catch (error: any) {
       const message = error.message || 'Assistant request failed';
       toast.error(message);
@@ -205,12 +211,24 @@ export default function AssistantPage() {
               Ask inventory, prep, finance, show, cleanup, and quick external pricing questions. The assistant can suggest changes, but records should only be changed after your approval.
             </p>
           </div>
-          <Badge variant="outline" className="w-fit border-white/10 text-white/55">
-            {usedAI ? `LLM: ${aiModel || 'OpenAI'}` : openAIConfigured ? 'LLM fallback' : 'LLM not connected'}
+          <Badge variant="outline" className={usedAI ? 'w-fit border-primary/30 text-primary' : 'w-fit border-amber-500/30 text-amber-300'}>
+            {usedAI ? `OpenAI ${aiModel || ''}` : openAIConfigured ? 'OpenAI fallback' : 'OpenAI not connected'}
           </Badge>
         </div>
 
-        {aiError && (
+        {!openAIConfigured && (
+          <div className="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <div className="font-semibold">OpenAI is not connected yet.</div>
+              <div className="mt-1 text-amber-100/80">
+                Add `OPENAI_API_KEY` in Netlify environment variables. Until then, answers use calculated fallback logic instead of the LLM.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {openAIConfigured && aiError && (
           <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
             OpenAI was not used for the last answer: {aiError}
           </div>
@@ -234,16 +252,21 @@ export default function AssistantPage() {
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section className="rounded-2xl border border-border/40 bg-card">
             <div className="border-b border-border/30 p-4 sm:p-5">
-              <div className="flex items-center gap-2">
-                <Bot className="h-4 w-4 text-primary" />
-                <h2 className="text-sm font-semibold text-white/85">Chat Analyst</h2>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-primary" />
+                  <h2 className="text-sm font-semibold text-white/85">Chat Analyst</h2>
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  {usedAI ? 'LLM active' : 'Fallback mode'}
+                </span>
               </div>
             </div>
 
-            <div className="h-[420px] space-y-3 overflow-y-auto p-4 sm:p-5">
+            <div className="h-[520px] space-y-3 overflow-y-auto p-4 sm:p-5">
               {messages.map((chat, index) => (
                 <div key={index} className={chat.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
                   <div
@@ -268,27 +291,12 @@ export default function AssistantPage() {
             </div>
 
             <div className="border-t border-border/30 p-4 sm:p-5">
-              <div className="mb-3 flex flex-wrap gap-2">
-                {quickPrompts.map((prompt) => (
-                  <Button
-                    key={prompt}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-8 border-white/10 text-xs text-white/65"
-                    onClick={() => askAssistant(prompt)}
-                    disabled={loading}
-                  >
-                    {prompt}
-                  </Button>
-                ))}
-              </div>
               <div className="flex gap-2">
                 <Textarea
                   value={message}
                   onChange={(event) => setMessage(event.target.value)}
-                  className="min-h-[48px] flex-1 resize-none bg-secondary/40"
-                  placeholder="Ask about inventory, cleanup, profit, show themes, or GameStop pricing..."
+                  className="min-h-[54px] flex-1 resize-none bg-secondary/40"
+                  placeholder="Ask anything about inventory, lots, profit, prep, show planning, GameStop pricing, or eBay sold comps..."
                 />
                 <Button className="h-auto px-4" onClick={() => askAssistant()} disabled={loading}>
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -298,6 +306,29 @@ export default function AssistantPage() {
           </section>
 
           <aside className="space-y-4">
+            <section className="rounded-2xl border border-border/40 bg-card p-4 sm:p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-semibold text-white/85">Assistant Status</h2>
+              </div>
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/30 px-3 py-2">
+                  <span>OpenAI</span>
+                  <span className={openAIConfigured ? 'text-emerald-400' : 'text-amber-300'}>
+                    {openAIConfigured ? 'Connected' : 'Missing key'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/30 px-3 py-2">
+                  <span>Model</span>
+                  <span className="text-white/70">{aiModel || 'Not set'}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/30 px-3 py-2">
+                  <span>Last answer</span>
+                  <span className={usedAI ? 'text-primary' : 'text-amber-300'}>{usedAI ? 'LLM' : 'Fallback'}</span>
+                </div>
+              </div>
+            </section>
+
             <section className="rounded-2xl border border-border/40 bg-card p-4 sm:p-5">
               <div className="mb-4 flex items-center gap-2">
                 <Brain className="h-4 w-4 text-primary" />
