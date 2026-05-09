@@ -228,6 +228,7 @@ function AddInboundDialog({
     tracking_number: '',
     carrier: 'USPS',
     expected_date: '',
+    total_paid: '',
   });
   const [loading, setLoading] = useState(false);
 
@@ -243,14 +244,15 @@ function AddInboundDialog({
         tracking_number: form.tracking_number.trim() || undefined,
         carrier: form.tracking_number.trim() ? form.carrier : undefined,
         expected_date: form.expected_date || undefined,
+        total_paid: Number(form.total_paid) || 0,
         status: 'pending',
       });
       toast.success('Inbound shipment added');
-      setForm({ title: '', source: 'Other', notes: '', tracking_number: '', carrier: 'USPS', expected_date: '' });
+      setForm({ title: '', source: 'Other', notes: '', tracking_number: '', carrier: 'USPS', expected_date: '', total_paid: '' });
       onOpenChange(false);
       onAdded();
-    } catch {
-      toast.error('Failed to add shipment');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to add shipment');
     } finally {
       setLoading(false);
     }
@@ -316,6 +318,19 @@ function AddInboundDialog({
             />
           </div>
           <div className="space-y-1.5">
+            <Label className="text-xs text-white/50">Total Paid (optional until received)</Label>
+            <div className="relative">
+              <DollarSign className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={form.total_paid}
+                onChange={(e) => setForm(f => ({ ...f, total_paid: e.target.value.replace(/[^0-9.]/g, '') }))}
+                inputMode="decimal"
+                placeholder="0.00"
+                className="h-9 pl-8 text-sm"
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs text-white/50">Notes (optional)</Label>
             <Textarea
               value={form.notes}
@@ -354,20 +369,39 @@ export default function ShippingPage() {
   const [receiveAmounts, setReceiveAmounts] = useState<Record<string, string>>({});
 
   const loadAll = useCallback(async () => {
-    try {
-      const [orders, shipments, pOrders] = await Promise.all([
-        getOutboundOrders(),
-        getInboundShipments(),
-        getPlatformOrders(),
-      ]);
-      setOutboundOrders(orders);
-      setInboundShipments(shipments);
-      setPlatformOrders(pOrders);
-    } catch (err) {
-      console.error('Failed to load shipping data:', err);
-    } finally {
-      setLoading(false);
+    const [orders, shipments, pOrders] = await Promise.allSettled([
+      getOutboundOrders(),
+      getInboundShipments(),
+      getPlatformOrders(),
+    ]);
+
+    if (orders.status === 'fulfilled') {
+      setOutboundOrders(orders.value);
+    } else {
+      console.error('Failed to load outbound orders:', orders.reason);
     }
+
+    if (shipments.status === 'fulfilled') {
+      setInboundShipments(shipments.value);
+      const seededAmounts = shipments.value.reduce<Record<string, string>>((acc, shipment) => {
+        const paid = Number(shipment.total_paid) || 0;
+        if (shipment.status === 'pending' && paid > 0) acc[shipment.id] = paid.toFixed(2);
+        return acc;
+      }, {});
+      setReceiveAmounts((prev) => ({ ...seededAmounts, ...prev }));
+    } else {
+      console.error('Failed to load inbound shipments:', shipments.reason);
+      toast.error('Could not load inbound shipments', {
+        description: shipments.reason instanceof Error ? shipments.reason.message : 'Check the shipping data connection.',
+      });
+    }
+
+    if (pOrders.status === 'fulfilled') {
+      setPlatformOrders(pOrders.value);
+    } else {
+      console.error('Failed to load marketplace orders:', pOrders.reason);
+    }
+    setLoading(false);
   }, []);
 
   const handleSyncEbay = async () => {
@@ -842,6 +876,11 @@ export default function ShippingPage() {
                               <div className="text-sm font-medium truncate">{shipment.title}</div>
                               <div className="flex items-center gap-3 mt-1 flex-wrap">
                                 <span className="text-xs text-muted-foreground">{shipment.source}</span>
+                                {Number(shipment.total_paid) > 0 && (
+                                  <span className="text-xs text-sky-300">
+                                    Paid ${Number(shipment.total_paid).toFixed(2)}
+                                  </span>
+                                )}
                                 {shipment.expected_date && (
                                   <span className="text-xs text-muted-foreground flex items-center gap-1">
                                     <Calendar className="w-3 h-3" />
@@ -862,7 +901,7 @@ export default function ShippingPage() {
                                 <div className="relative mt-1">
                                   <DollarSign className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                                   <Input
-                                    value={receiveAmounts[shipment.id] || ''}
+                                    value={receiveAmounts[shipment.id] ?? (Number(shipment.total_paid) > 0 ? Number(shipment.total_paid).toFixed(2) : '')}
                                     onChange={(event) => setReceiveAmounts((prev) => ({
                                       ...prev,
                                       [shipment.id]: event.target.value.replace(/[^0-9.]/g, ''),
