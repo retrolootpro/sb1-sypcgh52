@@ -99,6 +99,8 @@ export default function AssistantPage() {
   const [creatingShow, setCreatingShow] = useState(false);
   const [usedAI, setUsedAI] = useState(false);
   const [openAIConfigured, setOpenAIConfigured] = useState(false);
+  const [aiModel, setAiModel] = useState<string | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const askAssistant = async (prompt?: string) => {
     const content = (prompt || message).trim();
@@ -135,6 +137,8 @@ export default function AssistantPage() {
       setAppContext(result.appContext);
       setUsedAI(Boolean(result.usedAI));
       setOpenAIConfigured(Boolean(result.openAIConfigured));
+      setAiModel(result.aiModel || null);
+      setAiError(result.aiError || null);
       setMessages((prev) => [...prev, { role: 'assistant', content: result.answer }]);
     } catch (error: any) {
       const message = error.message || 'Assistant request failed';
@@ -202,9 +206,15 @@ export default function AssistantPage() {
             </p>
           </div>
           <Badge variant="outline" className="w-fit border-white/10 text-white/55">
-            {usedAI ? 'AI response' : openAIConfigured ? 'Calculated fallback' : 'Calculated mode'}
+            {usedAI ? `LLM: ${aiModel || 'OpenAI'}` : openAIConfigured ? 'LLM fallback' : 'LLM not connected'}
           </Badge>
         </div>
+
+        {aiError && (
+          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+            OpenAI was not used for the last answer: {aiError}
+          </div>
+        )}
 
         {summary && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

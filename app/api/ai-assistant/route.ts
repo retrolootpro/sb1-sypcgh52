@@ -545,39 +545,48 @@ async function askOpenAI(
   app: AssistantAppContext,
   inventory: AssistantInventoryItem[],
   externalLookup: ExternalLookup | null
-) {
+): Promise<{ answer: string | null; error: string | null; model: string | null }> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) return { answer: null, error: 'OPENAI_API_KEY is not configured', model: null };
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
-      store: false,
-      max_output_tokens: 1400,
-      instructions:
-        'You are RetroLoot Pro Analyst, a practical resale business assistant for a video game resale inventory app. Read the provided inventory rows and app analysis before answering. Handle natural language flexibly: users may ask about counts, cleanup, profit, show curation, stale inventory, data quality, intake shipments, lots, COGS allocation, or specific titles. For app data, use only the provided inventory, prep, finance, intake, shows, and suggestions. Intake rule: every item starts as a shipment; received shipments create lots with total paid; scanned lot items get market values; COGS is allocated by lot total paid divided by total lot market value, applied to each item market value; item profit is market value minus allocated COGS. For external GameStop and eBay sold-comps questions, use the provided externalLookup results and cite that the data was parsed from the external page at request time. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
-      input: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'input_text',
-              text: `User request: ${message}\n\nApp analysis JSON:\n${JSON.stringify(compactAnalysisForAi(analysis, app, inventory))}\n\nExternal lookup JSON:\n${JSON.stringify(externalLookup)}`,
-            },
-          ],
-        },
-      ],
-    }),
-  });
+  const model = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
+  try {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        store: false,
+        max_output_tokens: 2200,
+        text: { verbosity: 'medium' },
+        instructions:
+          'You are RetroLoot Pro Analyst, a natural-language business copilot for a video game resale inventory app. Think through the user request, choose the relevant app data or external lookup data, perform any needed math, and answer plainly. You can answer questions about inventory, prep, finance, profit, stale inventory, metadata, shipments, lots, COGS allocation, show curation, specific titles, and external pricing. For app data, use only the provided inventory, prep, finance, intake, shows, and suggestions. Intake rule: every item starts as a shipment; received shipments create lots with total paid; scanned lot items get market values; COGS is allocated by lot total paid divided by total lot market value, applied to each item market value; item profit is market value minus allocated COGS. For external GameStop and eBay sold-comps questions, use the provided externalLookup results and cite that the data was parsed from the external page at request time. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing and suggest the next best action. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
+        input: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_text',
+                text: `User request: ${message}\n\nApp analysis JSON:\n${JSON.stringify(compactAnalysisForAi(analysis, app, inventory))}\n\nExternal lookup JSON:\n${JSON.stringify(externalLookup)}`,
+              },
+            ],
+          },
+        ],
+      }),
+    });
 
-  if (!response.ok) return null;
-  const data = await response.json();
-  return outputTextFromResponse(data) || null;
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      return { answer: null, error: `OpenAI request failed (${response.status}): ${errorText.slice(0, 300)}`, model };
+    }
+    const data = await response.json();
+    return { answer: outputTextFromResponse(data) || null, error: null, model };
+  } catch (error) {
+    return { answer: null, error: error instanceof Error ? error.message : 'OpenAI request failed', model };
+  }
 }
 
 export async function GET() {
@@ -585,6 +594,7 @@ export async function GET() {
     ok: true,
     message: 'AI assistant endpoint is running. Use POST from the Assistant page.',
     openAIConfigured: Boolean(process.env.OPENAI_API_KEY),
+    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
   });
 }
 
@@ -670,21 +680,22 @@ export async function POST(req: NextRequest) {
 
     const intakeQuestion = /\b(lot|lots|shipment|shipments|cogs|cost basis|allocation|allocated)\b/i.test(message);
     const deterministicAnswer = buildAppDeterministicAnswer(message, analysis, appContext);
-    let answer = externalLookup
+    const fallbackAnswer = externalLookup
       ? buildExternalLookupAnswer(externalLookup)
       : intakeQuestion
         ? deterministicAnswer
         : buildInventorySearchAnswer(message, inventory, appContext) || deterministicAnswer;
+    let answer = fallbackAnswer;
     let usedAI = false;
+    let aiError: string | null = null;
+    let aiModel: string | null = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
 
-    try {
-      const aiAnswer = await askOpenAI(message, analysis, appContext, inventory, externalLookup);
-      if (aiAnswer) {
-        answer = aiAnswer;
-        usedAI = true;
-      }
-    } catch {
-      usedAI = false;
+    const aiResult = await askOpenAI(message, analysis, appContext, inventory, externalLookup);
+    aiError = aiResult.error;
+    aiModel = aiResult.model || aiModel;
+    if (aiResult.answer) {
+      answer = aiResult.answer;
+      usedAI = true;
     }
 
     return json({
@@ -692,6 +703,9 @@ export async function POST(req: NextRequest) {
       answer,
       usedAI,
       openAIConfigured: Boolean(process.env.OPENAI_API_KEY),
+      aiError,
+      aiModel,
+      fallbackAnswer,
       externalLookup,
       analysis,
       appContext,
