@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { Plus, Search, Trash2, RefreshCw, Download, Filter, CircleCheck as CheckCircle2, Circle } from 'lucide-react';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { Plus, Search, Trash2, RefreshCw, Download, Filter, CircleCheck as CheckCircle2, Circle, Upload, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import {
   getTransactions, createTransaction, deleteTransaction, updateTransaction,
@@ -32,6 +32,115 @@ const SOURCE_COLORS: Record<string, string> = {
   show: 'text-primary',
   import: 'text-white/40',
 };
+
+type ParsedStatementTransaction = {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: Transaction['type'];
+  category: string;
+  merchant_name: string | null;
+  notes: string | null;
+};
+
+type DuplicateReviewItem = {
+  incoming: ParsedStatementTransaction;
+  matches: Transaction[];
+  decision: 'add' | 'skip';
+};
+
+function normalizeHeader(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function normalizeDescription(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function parseCurrency(value: string) {
+  const cleaned = value.replace(/[$,\s]/g, '').replace(/^\((.*)\)$/, '-$1');
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function splitCsvLine(line: string) {
+  const cells: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    const next = line[i + 1];
+    if (char === '"' && next === '"') {
+      current += '"';
+      i++;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      cells.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
+function parseStatementCsv(text: string): ParsedStatementTransaction[] {
+  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return [];
+
+  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
+  const indexFor = (...names: string[]) => headers.findIndex((header) => names.includes(header));
+  const dateIndex = indexFor('date', 'transactiondate', 'posteddate', 'postingdate');
+  const descriptionIndex = indexFor('description', 'name', 'merchant', 'payee', 'details', 'memo');
+  const amountIndex = indexFor('amount', 'transactionamount');
+  const debitIndex = indexFor('debit', 'withdrawal', 'withdrawals', 'spent');
+  const creditIndex = indexFor('credit', 'deposit', 'deposits', 'received');
+
+  if (dateIndex < 0 || descriptionIndex < 0 || (amountIndex < 0 && debitIndex < 0 && creditIndex < 0)) {
+    throw new Error('CSV needs Date, Description, and Amount columns. Bank exports with Debit/Credit columns also work.');
+  }
+
+  return lines.slice(1).map((line, index) => {
+    const cells = splitCsvLine(line);
+    const date = new Date(cells[dateIndex] || '');
+    const isoDate = Number.isNaN(date.getTime()) ? cells[dateIndex] : date.toISOString().slice(0, 10);
+    const description = (cells[descriptionIndex] || 'Imported transaction').trim();
+    const debit = debitIndex >= 0 ? Math.abs(parseCurrency(cells[debitIndex] || '')) : 0;
+    const credit = creditIndex >= 0 ? Math.abs(parseCurrency(cells[creditIndex] || '')) : 0;
+    const amount = amountIndex >= 0 ? parseCurrency(cells[amountIndex] || '') : credit - debit;
+    const signedAmount = amount === 0 && debit > 0 ? -debit : amount === 0 && credit > 0 ? credit : amount;
+    const type: Transaction['type'] = signedAmount >= 0 ? 'income' : 'expense';
+
+    return {
+      id: `statement-${Date.now()}-${index}`,
+      date: isoDate,
+      description,
+      amount: signedAmount,
+      type,
+      category: type === 'income' ? 'Sales - Other' : 'Uncategorized',
+      merchant_name: description,
+      notes: 'Imported from statement upload',
+    };
+  }).filter((tx) => tx.date && tx.description && tx.amount !== 0);
+}
+
+function isLikelyDuplicate(incoming: ParsedStatementTransaction, existing: Transaction[]) {
+  const incomingDesc = normalizeDescription(incoming.description);
+  return existing.filter((tx) => {
+    const sameDate = tx.date === incoming.date;
+    const sameAmount = Math.abs(Number(tx.amount) - incoming.amount) < 0.01;
+    const existingDesc = normalizeDescription(tx.description || tx.merchant_name || '');
+    const similarDescription =
+      incomingDesc.length > 8 &&
+      existingDesc.length > 8 &&
+      (incomingDesc.includes(existingDesc.slice(0, 18)) || existingDesc.includes(incomingDesc.slice(0, 18)));
+    return sameDate && sameAmount && similarDescription;
+  });
+}
 
 function AddTransactionDialog({ open, onOpenChange, onAdded }: {
   open: boolean;
@@ -141,9 +250,14 @@ export function TransactionsTab() {
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [uploadingStatement, setUploadingStatement] = useState(false);
+  const [duplicateReview, setDuplicateReview] = useState<DuplicateReviewItem[]>([]);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [pendingUniqueImports, setPendingUniqueImports] = useState<ParsedStatementTransaction[]>([]);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const statementInputRef = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -165,6 +279,102 @@ export function TransactionsTab() {
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Import failed');
     } finally { setImporting(false); }
+  };
+
+  const saveStatementRows = async (rows: ParsedStatementTransaction[]) => {
+    for (const row of rows) {
+      await createTransaction({
+        date: row.date,
+        description: row.description,
+        amount: row.amount,
+        type: row.type,
+        category: row.category,
+        source: 'import',
+        merchant_name: row.merchant_name,
+        notes: row.notes,
+        is_reconciled: false,
+      });
+    }
+  };
+
+  const handleStatementFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setUploadingStatement(true);
+    try {
+      const text = await file.text();
+      const parsed = parseStatementCsv(text);
+      if (parsed.length === 0) throw new Error('No transactions found in that statement file');
+
+      const existing = await getTransactions({ limit: 5000 });
+      const comparisonRows: Transaction[] = [...existing];
+      const review: DuplicateReviewItem[] = [];
+      const unique: ParsedStatementTransaction[] = [];
+
+      for (const row of parsed) {
+        const matches = isLikelyDuplicate(row, comparisonRows);
+        if (matches.length > 0) review.push({ incoming: row, matches, decision: 'skip' });
+        else {
+          unique.push(row);
+          comparisonRows.push({
+            id: row.id,
+            user_id: '',
+            date: row.date,
+            description: row.description,
+            amount: row.amount,
+            type: row.type,
+            category: row.category,
+            source: 'import',
+            merchant_name: row.merchant_name,
+            notes: row.notes,
+            is_reconciled: false,
+            created_at: '',
+            updated_at: '',
+          });
+        }
+      }
+
+      if (unique.length > 0) {
+        await saveStatementRows(unique);
+      }
+
+      if (review.length > 0) {
+        setPendingUniqueImports(unique);
+        setDuplicateReview(review);
+        setReviewOpen(true);
+        toast.info(`${unique.length} imported. Review ${review.length} possible duplicate(s).`);
+      } else {
+        toast.success(`Imported ${unique.length} statement transaction(s)`);
+        load();
+      }
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Statement upload failed');
+    } finally {
+      setUploadingStatement(false);
+    }
+  };
+
+  const updateDuplicateDecision = (id: string, decision: 'add' | 'skip') => {
+    setDuplicateReview((prev) => prev.map((item) => item.incoming.id === id ? { ...item, decision } : item));
+  };
+
+  const finishDuplicateReview = async () => {
+    const rowsToAdd = duplicateReview.filter((item) => item.decision === 'add').map((item) => item.incoming);
+    setUploadingStatement(true);
+    try {
+      if (rowsToAdd.length > 0) await saveStatementRows(rowsToAdd);
+      toast.success(`Statement import complete: ${pendingUniqueImports.length + rowsToAdd.length} added, ${duplicateReview.length - rowsToAdd.length} skipped`);
+      setReviewOpen(false);
+      setDuplicateReview([]);
+      setPendingUniqueImports([]);
+      load();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Failed to finish import');
+    } finally {
+      setUploadingStatement(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -225,6 +435,23 @@ export function TransactionsTab() {
           </Select>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <input
+            ref={statementInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleStatementFile}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs"
+            onClick={() => statementInputRef.current?.click()}
+            disabled={uploadingStatement}
+          >
+            <Upload className={`w-3.5 h-3.5 mr-1.5 ${uploadingStatement ? 'animate-pulse' : ''}`} />
+            Statement CSV
+          </Button>
           <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleImport} disabled={importing}>
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${importing ? 'animate-spin' : ''}`} />
             {importing ? 'Importing...' : 'Import Sales'}
@@ -324,6 +551,67 @@ export function TransactionsTab() {
       </div>
 
       <AddTransactionDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />
+
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-400" />
+              Review Possible Duplicates
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[58vh] space-y-3 overflow-y-auto pr-1">
+            {duplicateReview.map((item) => (
+              <div key={item.incoming.id} className="rounded-xl border border-border/40 bg-secondary/20 p-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-white/85">{item.incoming.description}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {item.incoming.date} / {formatCurrency(Math.abs(item.incoming.amount))} / {item.incoming.type}
+                    </div>
+                    <div className="mt-2 text-[11px] text-amber-200/80">
+                      Looks similar to {item.matches.length} existing transaction{item.matches.length === 1 ? '' : 's'}.
+                    </div>
+                    <div className="mt-2 space-y-1">
+                      {item.matches.slice(0, 3).map((match) => (
+                        <div key={match.id} className="rounded-md bg-background/40 px-2 py-1 text-[11px] text-muted-foreground">
+                          {format(new Date(match.date), 'MMM d, yyyy')} / {match.description} / {formatCurrency(Math.abs(match.amount))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      size="sm"
+                      variant={item.decision === 'skip' ? 'default' : 'outline'}
+                      className="h-8 text-xs"
+                      onClick={() => updateDuplicateDecision(item.incoming.id, 'skip')}
+                    >
+                      Skip
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={item.decision === 'add' ? 'default' : 'outline'}
+                      className="h-8 text-xs"
+                      onClick={() => updateDuplicateDecision(item.incoming.id, 'add')}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReviewOpen(false)} disabled={uploadingStatement}>
+              Decide Later
+            </Button>
+            <Button onClick={finishDuplicateReview} disabled={uploadingStatement}>
+              Finish Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

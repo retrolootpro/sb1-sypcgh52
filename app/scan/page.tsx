@@ -38,6 +38,13 @@ type QueueItem = {
   purchasePrice?: number;
   selectedConsole?: string;
   dealScore?: any;
+  duplicateMatches?: Array<{
+    id: string;
+    product_name: string;
+    console: string | null;
+    condition: string | null;
+    created_at: string | null;
+  }>;
 };
 
 type PendingBarcode = {
@@ -77,6 +84,41 @@ export default function ScanPage() {
       prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
     );
   }, []);
+
+  const findDuplicateInventoryItems = useCallback(async (barcode: string, title: string, platform: string | null) => {
+    if (!user) return [];
+    const normalizedTitleStr = normalizeTitle(title || '');
+    const account = accountId || user.id;
+
+    let query = supabase
+      .from('inventory_items')
+      .select('id, product_name, console, condition, created_at')
+      .eq('user_id', account)
+      .eq('barcode', barcode)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    const { data: barcodeMatches, error: barcodeError } = await query;
+    if (barcodeError) return [];
+    if (barcodeMatches?.length) return barcodeMatches;
+
+    if (!normalizedTitleStr) return [];
+
+    let titleQuery = supabase
+      .from('inventory_items')
+      .select('id, product_name, console, condition, created_at')
+      .eq('user_id', account)
+      .eq('normalized_title', normalizedTitleStr)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (platform) {
+      titleQuery = titleQuery.ilike('console', platform);
+    }
+
+    const { data: titleMatches } = await titleQuery;
+    return titleMatches || [];
+  }, [user, accountId]);
 
   const processBarcode = useCallback(async (queueItem: QueueItem) => {
     if (!user) return;
@@ -130,10 +172,11 @@ export default function ScanPage() {
         editionMatch: edition !== null,
       });
 
+      const duplicateMatches = await findDuplicateInventoryItems(queueItem.barcode, upcLookupResult.title, platform);
       const result = { ...upcLookupResult, platform, edition, pricingResult, classification, confidence };
 
-      updateQueueItem(queueItem.id, { status: 'awaiting_price', result, productName: upcLookupResult.title });
-      setCurrentQueueItemForDialog({ ...queueItem, result, productName: upcLookupResult.title });
+      updateQueueItem(queueItem.id, { status: 'awaiting_price', result, productName: upcLookupResult.title, duplicateMatches });
+      setCurrentQueueItemForDialog({ ...queueItem, result, productName: upcLookupResult.title, duplicateMatches });
       setShowItemDialog(true);
 
     } catch (error: any) {
@@ -148,16 +191,20 @@ export default function ScanPage() {
         toast.error('Scan Failed', { description: errorMessage, duration: 4000 });
       }
     }
-  }, [user, updateQueueItem]);
+  }, [user, accountId, updateQueueItem, findDuplicateInventoryItems]);
 
   const handleScan = useCallback((result: ScanResult) => {
     const barcode = result.barcode;
 
     if (recentScansRef.current.has(barcode)) {
-      toast.info('Already scanned', { duration: 1500 });
-      return;
+      const addAgain = window.confirm('This barcode was already scanned in this session. Add another copy?');
+      if (!addAgain) {
+        toast.info('Duplicate scan skipped', { duration: 1500 });
+        return;
+      }
+    } else {
+      recentScansRef.current.add(barcode);
     }
-    recentScansRef.current.add(barcode);
 
     if (batchMode) {
       setPendingBarcodes((prev) => {
@@ -854,6 +901,7 @@ export default function ScanPage() {
           onSkip={handleItemSkip}
           productName={currentQueueItemForDialog?.result?.title || currentQueueItemForDialog?.productName || ''}
           detectedConsole={detectedConsoleForDialog}
+          duplicateMatches={currentQueueItemForDialog?.duplicateMatches || []}
         />
       </div>
     </DashboardLayout>

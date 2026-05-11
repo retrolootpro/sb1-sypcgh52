@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { DollarSign, Monitor, ChevronDown } from 'lucide-react';
+import { AlertTriangle, DollarSign, Monitor, ChevronDown } from 'lucide-react';
 import { REGIONS } from '@/lib/constants';
 
 export const CONSOLE_OPTIONS = [
@@ -27,6 +27,13 @@ interface ScanItemDialogProps {
   productName: string;
   detectedConsole: string | null;
   suggestedPrice?: number;
+  duplicateMatches?: Array<{
+    id: string;
+    product_name: string;
+    console: string | null;
+    condition: string | null;
+    created_at: string | null;
+  }>;
 }
 
 export function ScanItemDialog({
@@ -37,6 +44,7 @@ export function ScanItemDialog({
   productName,
   detectedConsole,
   suggestedPrice,
+  duplicateMatches = [],
 }: ScanItemDialogProps) {
   const [price, setPrice] = useState<string>(suggestedPrice?.toString() || '');
   const [consoleValue, setConsoleValue] = useState<string>(detectedConsole || '');
@@ -123,6 +131,30 @@ export function ScanItemDialog({
               {productName || 'Unknown Product'}
             </p>
           </div>
+
+          {duplicateMatches.length > 0 && (
+            <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                <div>
+                  <div className="text-[13px] font-semibold text-amber-100">
+                    Possible duplicate in inventory
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-amber-100/75">
+                    {duplicateMatches.length} matching item{duplicateMatches.length === 1 ? '' : 's'} already in stock.
+                    Save Item will add another copy. Skip will ignore this scan.
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {duplicateMatches.slice(0, 3).map((match) => (
+                      <div key={match.id} className="text-[11px] text-amber-100/70">
+                        {match.product_name} {match.console ? `(${match.console})` : ''}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <Label className="text-[12px] text-muted-foreground flex items-center gap-1.5">

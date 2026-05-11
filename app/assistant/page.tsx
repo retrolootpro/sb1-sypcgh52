@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { formatMoney, type AssistantAnalysis, type AssistantAppContext, type AnalyzedInventoryItem } from '@/lib/ai-inventory-analysis';
 import { toast } from 'sonner';
-import { Bot, Brain, Check, ClipboardList, DollarSign, Loader2, Package, Plus, Send, Sparkles, TriangleAlert, WifiOff } from 'lucide-react';
+import { Bot, Brain, Check, ClipboardList, DollarSign, Loader2, Package, Plus, Send, Sparkles, TriangleAlert } from 'lucide-react';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -143,7 +143,7 @@ export default function AssistantPage() {
       const statusPrefix = result.usedAI
         ? ''
         : result.aiError
-          ? `OpenAI could not answer this request, so I used the calculated fallback.\n\n`
+          ? `I used the calculated fallback for this answer.\n\n`
           : '';
       setMessages((prev) => [...prev, { role: 'assistant', content: `${statusPrefix}${result.answer}` }]);
     } catch (error: any) {
@@ -211,28 +211,7 @@ export default function AssistantPage() {
               Ask inventory, prep, finance, show, cleanup, and quick external pricing questions. The assistant can suggest changes, but records should only be changed after your approval.
             </p>
           </div>
-          <Badge variant="outline" className={usedAI ? 'w-fit border-primary/30 text-primary' : 'w-fit border-amber-500/30 text-amber-300'}>
-            {usedAI ? `OpenAI ${aiModel || ''}` : openAIConfigured ? 'OpenAI unavailable' : 'OpenAI not connected'}
-          </Badge>
         </div>
-
-        {!openAIConfigured && (
-          <div className="flex items-start gap-3 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-            <WifiOff className="mt-0.5 h-4 w-4 shrink-0" />
-            <div>
-              <div className="font-semibold">OpenAI is not connected yet.</div>
-              <div className="mt-1 text-amber-100/80">
-                Add `OPENAI_API_KEY` in Netlify environment variables. Until then, answers use calculated fallback logic instead of the LLM.
-              </div>
-            </div>
-          </div>
-        )}
-
-        {openAIConfigured && aiError && (
-          <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-            OpenAI was not used for the last answer: {aiError}
-          </div>
-        )}
 
         {summary && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -260,9 +239,6 @@ export default function AssistantPage() {
                   <Bot className="h-4 w-4 text-primary" />
                   <h2 className="text-sm font-semibold text-white/85">Chat Analyst</h2>
                 </div>
-                <span className="text-[11px] text-muted-foreground">
-                  {usedAI ? 'LLM active' : 'Fallback mode'}
-                </span>
               </div>
             </div>
 
@@ -306,34 +282,6 @@ export default function AssistantPage() {
           </section>
 
           <aside className="space-y-4">
-            <section className="rounded-2xl border border-border/40 bg-card p-4 sm:p-5">
-              <div className="mb-3 flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                <h2 className="text-sm font-semibold text-white/85">Assistant Status</h2>
-              </div>
-              <div className="space-y-2 text-xs text-muted-foreground">
-                <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/30 px-3 py-2">
-                  <span>OpenAI</span>
-                  <span className={usedAI ? 'text-emerald-400' : openAIConfigured ? 'text-amber-300' : 'text-amber-300'}>
-                    {usedAI ? 'Connected' : openAIConfigured ? 'Key found' : 'Missing key'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/30 px-3 py-2">
-                  <span>Model</span>
-                  <span className="text-white/70">{aiModel || 'Not set'}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/30 px-3 py-2">
-                  <span>Last answer</span>
-                  <span className={usedAI ? 'text-primary' : 'text-amber-300'}>{usedAI ? 'LLM' : 'Fallback'}</span>
-                </div>
-                {openAIConfigured && aiError && (
-                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-amber-100/85">
-                    {aiError}
-                  </div>
-                )}
-              </div>
-            </section>
-
             <section className="rounded-2xl border border-border/40 bg-card p-4 sm:p-5">
               <div className="mb-4 flex items-center gap-2">
                 <Brain className="h-4 w-4 text-primary" />
