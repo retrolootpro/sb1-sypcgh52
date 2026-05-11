@@ -52,6 +52,36 @@ export type TaxProfile = {
   notes: string | null;
 };
 
+export type OwnerLoan = {
+  id: string;
+  user_id: string;
+  lender_name: string;
+  loan_date: string;
+  original_amount: number;
+  purpose: string | null;
+  status: 'open' | 'paid' | 'forgiven';
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type OwnerLoanPayment = {
+  id: string;
+  loan_id: string;
+  user_id: string;
+  payment_date: string;
+  amount: number;
+  transaction_id: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type OwnerLoanSummary = OwnerLoan & {
+  paidAmount: number;
+  balance: number;
+  payments: OwnerLoanPayment[];
+};
+
 export type LotCostItem = {
   id: string;
   product_name: string;
@@ -102,6 +132,8 @@ export const TRANSACTION_CATEGORIES = [
   'Travel',
   'Bank Fees',
   'Interest',
+  'Owner Loan',
+  'Owner Loan Repayment',
   'Transfer',
   'Services',
   'Taxes',
@@ -170,6 +202,152 @@ export async function updateTransaction(id: string, updates: Partial<Transaction
 export async function deleteTransaction(id: string): Promise<void> {
   const { error } = await supabase.from('financial_transactions').delete().eq('id', id);
   if (error) throw new Error(error.message);
+}
+
+export async function getOwnerLoans(): Promise<OwnerLoanSummary[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+
+  const [{ data: loans, error: loanError }, { data: payments, error: paymentError }] = await Promise.all([
+    supabase
+      .from('owner_loans')
+      .select('*')
+      .eq('user_id', accountId)
+      .order('loan_date', { ascending: false })
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('owner_loan_payments')
+      .select('*')
+      .eq('user_id', accountId)
+      .order('payment_date', { ascending: false })
+      .order('created_at', { ascending: false }),
+  ]);
+
+  if (loanError) throw new Error(loanError.message);
+  if (paymentError) throw new Error(paymentError.message);
+
+  const paymentsByLoan = new Map<string, OwnerLoanPayment[]>();
+  for (const payment of (payments || []) as OwnerLoanPayment[]) {
+    const list = paymentsByLoan.get(payment.loan_id) || [];
+    list.push(payment);
+    paymentsByLoan.set(payment.loan_id, list);
+  }
+
+  return ((loans || []) as OwnerLoan[]).map((loan) => {
+    const loanPayments = paymentsByLoan.get(loan.id) || [];
+    const paidAmount = loanPayments.reduce((sum, payment) => sum + Math.abs(Number(payment.amount) || 0), 0);
+    return {
+      ...loan,
+      paidAmount,
+      balance: Math.max(0, Number(loan.original_amount) - paidAmount),
+      payments: loanPayments,
+    };
+  });
+}
+
+export async function createOwnerLoan(input: {
+  lender_name: string;
+  loan_date: string;
+  original_amount: number;
+  purpose?: string | null;
+  notes?: string | null;
+  createTransaction?: boolean;
+}): Promise<OwnerLoan> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+
+  const { data, error } = await supabase
+    .from('owner_loans')
+    .insert({
+      user_id: accountId,
+      lender_name: input.lender_name,
+      loan_date: input.loan_date,
+      original_amount: input.original_amount,
+      purpose: input.purpose || null,
+      notes: input.notes || null,
+      status: 'open',
+      updated_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+
+  if (input.createTransaction) {
+    const { error: txError } = await supabase.from('financial_transactions').insert({
+      user_id: accountId,
+      date: input.loan_date,
+      description: `Owner loan from ${input.lender_name}`,
+      amount: Math.abs(input.original_amount),
+      type: 'transfer',
+      category: 'Owner Loan',
+      source: 'manual',
+      reference_id: `owner_loan_${data.id}`,
+      notes: input.purpose || input.notes || null,
+      is_reconciled: false,
+      updated_at: new Date().toISOString(),
+    });
+    if (txError) throw new Error(txError.message);
+  }
+
+  return data;
+}
+
+export async function addOwnerLoanPayment(input: {
+  loan_id: string;
+  payment_date: string;
+  amount: number;
+  transaction_id?: string | null;
+  notes?: string | null;
+  createTransaction?: boolean;
+}): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+
+  let transactionId = input.transaction_id || null;
+  if (input.createTransaction && !transactionId) {
+    const { data: tx, error: txError } = await supabase
+      .from('financial_transactions')
+      .insert({
+        user_id: accountId,
+        date: input.payment_date,
+        description: 'Owner loan repayment',
+        amount: -Math.abs(input.amount),
+        type: 'transfer',
+        category: 'Owner Loan Repayment',
+        source: 'manual',
+        reference_id: `owner_loan_repayment_${input.loan_id}_${Date.now()}`,
+        notes: input.notes || null,
+        is_reconciled: false,
+        updated_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+    if (txError) throw new Error(txError.message);
+    transactionId = tx.id;
+  }
+
+  const { error } = await supabase.from('owner_loan_payments').insert({
+    user_id: accountId,
+    loan_id: input.loan_id,
+    payment_date: input.payment_date,
+    amount: Math.abs(input.amount),
+    transaction_id: transactionId,
+    notes: input.notes || null,
+  });
+  if (error) throw new Error(error.message);
+
+  const loans = await getOwnerLoans();
+  const loan = loans.find((entry) => entry.id === input.loan_id);
+  if (loan && loan.balance <= 0.01) {
+    await supabase
+      .from('owner_loans')
+      .update({ status: 'paid', updated_at: new Date().toISOString() })
+      .eq('id', input.loan_id)
+      .eq('user_id', accountId);
+  }
 }
 
 export async function getLotCostSummaries(): Promise<LotCostSummary[]> {
@@ -551,6 +729,8 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
       if (tx.category === 'Inventory Purchase') {
         // Inventory purchases are cash-out when bought, but COGS belongs on the
         // P&L only when the item sells. Sold inventory rows above carry that cost.
+        continue;
+      } else if (tx.category === 'Owner Loan Repayment' || tx.category === 'Owner Loan') {
         continue;
       } else {
         operatingExpenses += expense;

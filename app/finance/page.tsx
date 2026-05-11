@@ -9,13 +9,15 @@ import { PLTab } from './pl-tab';
 import { TaxesTab } from './taxes-tab';
 import { BanksTab } from './banks-tab';
 import { LotsTab } from './lots-tab';
+import { LoansTab } from './loans-tab';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, ReceiptText, TrendingUp, FileText, Building2, Layers } from 'lucide-react';
+import { LayoutDashboard, ReceiptText, TrendingUp, FileText, Building2, Layers, WalletCards } from 'lucide-react';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'transactions', label: 'Transactions', icon: ReceiptText },
   { id: 'lots', label: 'Lots', icon: Layers },
+  { id: 'loans', label: 'Loans', icon: WalletCards },
   { id: 'pl', label: 'P&L', icon: TrendingUp },
   { id: 'taxes', label: 'Taxes', icon: FileText },
   { id: 'banks', label: 'Banks', icon: Building2 },
@@ -66,6 +68,7 @@ export default function FinancePage() {
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'transactions' && <TransactionsTab />}
           {activeTab === 'lots' && <LotsTab />}
+          {activeTab === 'loans' && <LoansTab />}
           {activeTab === 'pl' && <PLTab />}
           {activeTab === 'taxes' && <TaxesTab />}
           {activeTab === 'banks' && <BanksTab />}
