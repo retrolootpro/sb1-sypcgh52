@@ -36,6 +36,7 @@ const SOURCE_COLORS: Record<string, string> = {
 type ParsedStatementTransaction = {
   id: string;
   date: string;
+  itemName: string;
   description: string;
   amount: number;
   type: Transaction['type'];
@@ -59,6 +60,12 @@ function normalizeHeader(value: string) {
 
 function normalizeDescription(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function extractItemNameFromTransaction(tx: Pick<Transaction, 'description' | 'merchant_name' | 'notes'>) {
+  const listingMatch = tx.notes?.match(/Listing:\s*([^|]+)/i);
+  if (listingMatch?.[1]?.trim()) return listingMatch[1].trim();
+  return tx.description || tx.merchant_name || '';
 }
 
 function parseCurrency(value: string) {
@@ -127,10 +134,12 @@ function parseWhatnotCsv(lines: string[], headers: string[]): ParsedStatementTra
     const transactionType = cell(cells, transactionTypeIndex);
     const amount = parseCurrency(cell(cells, amountIndex));
     const listingTitle = cell(cells, listingTitleIndex);
+    const listingDescription = cell(cells, listingDescriptionIndex);
     const message = cell(cells, messageIndex);
     const orderId = cell(cells, orderIdIndex);
     const ledgerId = cell(cells, ledgerIdIndex);
-    const description = message || listingTitle || `Whatnot ${transactionType || 'transaction'}${orderId ? ` ${orderId}` : ''}`;
+    const itemName = listingTitle || listingDescription || message || `Whatnot item ${orderId || ledgerId || index + 1}`;
+    const description = `${itemName}${transactionType ? ` - ${transactionType.replace(/_/g, ' ')}` : ''}`;
     const date = formatDateCell(cell(cells, completedIndex) || cell(cells, placedIndex));
     const type: Transaction['type'] =
       transactionType.includes('REFUND') || amount < 0
@@ -138,11 +147,12 @@ function parseWhatnotCsv(lines: string[], headers: string[]): ParsedStatementTra
         : transactionType.includes('PAYOUT') || transactionType.includes('TRANSFER')
           ? 'transfer'
           : 'income';
+    const signedAmount = type === 'refund' ? -Math.abs(amount) : amount;
     const feeDetails = [
       `Order ${orderId || 'n/a'}`,
       `Ledger ${ledgerId || 'n/a'}`,
       `Listing: ${listingTitle || 'n/a'}`,
-      `Description: ${cell(cells, listingDescriptionIndex) || 'n/a'}`,
+      `Description: ${listingDescription || 'n/a'}`,
       `Show: ${cell(cells, livestreamIndex) || 'n/a'}`,
       `Buyer paid: ${cell(cells, buyerPaidIndex) || '0.00'}`,
       `Item price: ${cell(cells, itemPriceIndex) || '0.00'}`,
@@ -156,8 +166,9 @@ function parseWhatnotCsv(lines: string[], headers: string[]): ParsedStatementTra
     return {
       id: ledgerId || orderId || `whatnot-${Date.now()}-${index}`,
       date,
+      itemName,
       description,
-      amount,
+      amount: signedAmount,
       type,
       category: type === 'income' ? 'Sales - Whatnot' : type === 'transfer' ? 'Transfer' : 'Refund Received',
       source: 'whatnot' as const,
@@ -202,6 +213,7 @@ function parseStatementCsv(text: string): ParsedStatementTransaction[] {
     return {
       id: `statement-${Date.now()}-${index}`,
       date: isoDate,
+      itemName: description,
       description,
       amount: signedAmount,
       type,
@@ -216,18 +228,31 @@ function parseStatementCsv(text: string): ParsedStatementTransaction[] {
 }
 
 function isLikelyDuplicate(incoming: ParsedStatementTransaction, existing: Transaction[]) {
-  const incomingDesc = normalizeDescription(incoming.description);
+  const incomingItemName = normalizeDescription(incoming.itemName || incoming.description);
   return existing.filter((tx) => {
     if (incoming.reference_id && tx.reference_id === incoming.reference_id) return true;
     const sameDate = tx.date === incoming.date;
-    const sameAmount = Math.abs(Number(tx.amount) - incoming.amount) < 0.01;
-    const existingDesc = normalizeDescription(tx.description || tx.merchant_name || '');
-    const similarDescription =
-      incomingDesc.length > 8 &&
-      existingDesc.length > 8 &&
-      (incomingDesc.includes(existingDesc.slice(0, 18)) || existingDesc.includes(incomingDesc.slice(0, 18)));
-    return sameDate && sameAmount && similarDescription;
+    const sameType = tx.type === incoming.type;
+    const sameAmount = Math.abs(Math.abs(Number(tx.amount)) - Math.abs(incoming.amount)) < 0.01;
+    const existingItemName = normalizeDescription(extractItemNameFromTransaction(tx));
+    const similarItemName =
+      incomingItemName.length > 8 &&
+      existingItemName.length > 8 &&
+      (incomingItemName.includes(existingItemName.slice(0, 18)) || existingItemName.includes(incomingItemName.slice(0, 18)));
+    return sameDate && sameType && sameAmount && similarItemName;
   });
+}
+
+function amountTextClass(type: Transaction['type']) {
+  if (type === 'income') return 'text-emerald-400';
+  if (type === 'transfer') return 'text-blue-400';
+  return 'text-red-400';
+}
+
+function amountPrefix(tx: Transaction) {
+  if (tx.type === 'income') return '+';
+  if (tx.type === 'expense' || tx.type === 'refund') return '-';
+  return Number(tx.amount) < 0 ? '-' : '';
 }
 
 function AddTransactionDialog({ open, onOpenChange, onAdded }: {
@@ -255,7 +280,7 @@ function AddTransactionDialog({ open, onOpenChange, onAdded }: {
       await createTransaction({
         date: form.date,
         description: form.description.trim(),
-        amount: form.type === 'expense' ? -Math.abs(amt) : Math.abs(amt),
+        amount: form.type === 'expense' || form.type === 'refund' ? -Math.abs(amt) : Math.abs(amt),
         type: form.type,
         category: form.category,
         source: 'manual',
@@ -498,8 +523,8 @@ export function TransactionsTab() {
   };
 
   const totals = txns.reduce((acc, t) => {
-    if (t.type === 'income' || t.type === 'refund') acc.income += Math.abs(t.amount);
-    else if (t.type === 'expense') acc.expense += Math.abs(t.amount);
+    if (t.type === 'income') acc.income += Math.abs(t.amount);
+    else if (t.type === 'expense' || t.type === 'refund') acc.expense += Math.abs(t.amount);
     return acc;
   }, { income: 0, expense: 0 });
 
@@ -608,10 +633,8 @@ export function TransactionsTab() {
                   <td className="py-3 px-4 hidden md:table-cell">
                     <span className={`capitalize text-[11px] ${SOURCE_COLORS[tx.source] || 'text-muted-foreground'}`}>{tx.source}</span>
                   </td>
-                  <td className={`py-3 px-4 text-right font-medium tabular-nums ${
-                    tx.type === 'income' || tx.type === 'refund' ? 'text-emerald-400' : 'text-red-400'
-                  }`}>
-                    {tx.type === 'income' || tx.type === 'refund' ? '+' : ''}{formatCurrency(Math.abs(tx.amount))}
+                  <td className={`py-3 px-4 text-right font-medium tabular-nums ${amountTextClass(tx.type)}`}>
+                    {amountPrefix(tx)}{formatCurrency(Math.abs(tx.amount))}
                   </td>
                   <td className="py-3 px-4 text-center">
                     <Badge variant="outline" className={`text-[9px] px-1.5 py-0.5 capitalize ${TYPE_COLORS[tx.type] || ''}`}>
