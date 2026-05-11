@@ -410,6 +410,20 @@ function outputTextFromResponse(data: any) {
   return chunks.join('\n').trim();
 }
 
+function openAIErrorMessage(status: number, errorText: string) {
+  try {
+    const parsed = JSON.parse(errorText);
+    const message = parsed?.error?.message || 'OpenAI request failed';
+    const code = parsed?.error?.code || '';
+    if (status === 429 && code === 'insufficient_quota') {
+      return 'OpenAI quota exceeded. Check your OpenAI billing plan, credits, or usage limits, then try again.';
+    }
+    return `${message}${code ? ` (${code})` : ''}`;
+  } catch {
+    return `OpenAI request failed (${status})${errorText ? `: ${errorText.slice(0, 180)}` : ''}`;
+  }
+}
+
 function buildExternalLookupAnswer(lookup: ExternalLookup) {
   if (lookup.provider === 'ebay_sold') {
     if (lookup.sampleSize === 0) {
@@ -580,7 +594,7 @@ async function askOpenAI(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      return { answer: null, error: `OpenAI request failed (${response.status}): ${errorText.slice(0, 300)}`, model };
+      return { answer: null, error: openAIErrorMessage(response.status, errorText), model };
     }
     const data = await response.json();
     return { answer: outputTextFromResponse(data) || null, error: null, model };

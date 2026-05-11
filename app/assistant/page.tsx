@@ -143,7 +143,7 @@ export default function AssistantPage() {
       const statusPrefix = result.usedAI
         ? ''
         : result.aiError
-          ? `OpenAI is not connected, so I used the calculated fallback.\n\n`
+          ? `OpenAI could not answer this request, so I used the calculated fallback.\n\n`
           : '';
       setMessages((prev) => [...prev, { role: 'assistant', content: `${statusPrefix}${result.answer}` }]);
     } catch (error: any) {
@@ -212,7 +212,7 @@ export default function AssistantPage() {
             </p>
           </div>
           <Badge variant="outline" className={usedAI ? 'w-fit border-primary/30 text-primary' : 'w-fit border-amber-500/30 text-amber-300'}>
-            {usedAI ? `OpenAI ${aiModel || ''}` : openAIConfigured ? 'OpenAI fallback' : 'OpenAI not connected'}
+            {usedAI ? `OpenAI ${aiModel || ''}` : openAIConfigured ? 'OpenAI unavailable' : 'OpenAI not connected'}
           </Badge>
         </div>
 
@@ -314,8 +314,8 @@ export default function AssistantPage() {
               <div className="space-y-2 text-xs text-muted-foreground">
                 <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/30 px-3 py-2">
                   <span>OpenAI</span>
-                  <span className={openAIConfigured ? 'text-emerald-400' : 'text-amber-300'}>
-                    {openAIConfigured ? 'Connected' : 'Missing key'}
+                  <span className={usedAI ? 'text-emerald-400' : openAIConfigured ? 'text-amber-300' : 'text-amber-300'}>
+                    {usedAI ? 'Connected' : openAIConfigured ? 'Key found' : 'Missing key'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-3 rounded-lg bg-secondary/30 px-3 py-2">
@@ -326,6 +326,11 @@ export default function AssistantPage() {
                   <span>Last answer</span>
                   <span className={usedAI ? 'text-primary' : 'text-amber-300'}>{usedAI ? 'LLM' : 'Fallback'}</span>
                 </div>
+                {openAIConfigured && aiError && (
+                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-amber-100/85">
+                    {aiError}
+                  </div>
+                )}
               </div>
             </section>
 
