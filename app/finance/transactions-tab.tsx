@@ -107,6 +107,12 @@ function cell(cells: string[], index: number) {
   return index >= 0 ? (cells[index] || '').trim() : '';
 }
 
+function getReportEndDate(lines: string[]) {
+  const reportLine = lines.find((line) => /report for .* to /i.test(line));
+  const match = reportLine?.match(/to\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})/i);
+  return match?.[1] ? formatDateCell(match[1]) : new Date().toISOString().slice(0, 10);
+}
+
 function parseWhatnotCsv(lines: string[], headers: string[]): ParsedStatementTransaction[] {
   const indexFor = (...names: string[]) => headers.findIndex((header) => names.includes(header));
   const completedIndex = indexFor('transactioncompletedatutc');
@@ -180,13 +186,87 @@ function parseWhatnotCsv(lines: string[], headers: string[]): ParsedStatementTra
   }).filter((tx) => tx.date && tx.description && tx.amount !== 0);
 }
 
+function parseEbayListingSalesCsv(lines: string[], headers: string[], headerIndex: number): ParsedStatementTransaction[] {
+  const indexFor = (...names: string[]) => headers.findIndex((header) => names.includes(header));
+  const titleIndex = indexFor('listingtitle');
+  const itemIdIndex = indexFor('ebayitemid');
+  const quantityIndex = indexFor('quantitysold');
+  const totalSalesIndex = indexFor('totalsalesincludestaxes');
+  const itemSalesIndex = indexFor('itemsales');
+  const shippingIndex = indexFor('shippingandhandlingpaidbybuyertoyou');
+  const costsIndex = indexFor('totalsellingcosts');
+  const finalValueIndex = indexFor('finalvaluefees');
+  const promotedIndex = indexFor('promotedlistingsgeneralfees');
+  const labelIndex = indexFor('shippinglabelscostamountyoupaidtobuyshippinglabelsonebay');
+  const netSalesIndex = indexFor('netsalesnetoftaxesandsellingcosts');
+  const averageIndex = indexFor('averagesellingprice');
+  const bestOfferIndex = indexFor('quantitysoldviabestoffers');
+  const sellerOfferIndex = indexFor('quantitysoldviasellerinitiatedoffers');
+  const date = getReportEndDate(lines.slice(0, headerIndex));
+
+  return lines.slice(headerIndex + 1).map((line, index) => {
+    const cells = splitCsvLine(line);
+    const itemName = cell(cells, titleIndex);
+    const itemId = cell(cells, itemIdIndex);
+    const quantity = cell(cells, quantityIndex) || '1';
+    const netSales = parseCurrency(cell(cells, netSalesIndex));
+    const amount = netSales;
+    const notes = [
+      'eBay listing sales report',
+      `eBay item ID ${itemId || 'n/a'}`,
+      `Quantity sold ${quantity}`,
+      `Total sales ${cell(cells, totalSalesIndex) || '0.00'}`,
+      `Item sales ${cell(cells, itemSalesIndex) || '0.00'}`,
+      `Shipping paid by buyer ${cell(cells, shippingIndex) || '0.00'}`,
+      `Total selling costs ${cell(cells, costsIndex) || '0.00'}`,
+      `Final value fees ${cell(cells, finalValueIndex) || '0.00'}`,
+      `Promoted listing fees ${cell(cells, promotedIndex) || '0.00'}`,
+      `Shipping label cost ${cell(cells, labelIndex) || '0.00'}`,
+      `Average selling price ${cell(cells, averageIndex) || '0.00'}`,
+      `Best offers ${cell(cells, bestOfferIndex) || '0'}`,
+      `Seller offers ${cell(cells, sellerOfferIndex) || '0'}`,
+    ].join(' | ');
+
+    return {
+      id: itemId || `ebay-listing-${Date.now()}-${index}`,
+      date,
+      itemName,
+      description: itemName ? `${itemName} - eBay listing sales` : `eBay listing sales ${itemId || index + 1}`,
+      amount,
+      type: (amount < 0 ? 'refund' : 'income') as Transaction['type'],
+      category: amount < 0 ? 'Refund Received' : 'Sales - eBay',
+      source: 'ebay' as const,
+      platform: 'ebay',
+      reference_id: itemId || null,
+      merchant_name: 'eBay',
+      notes,
+    };
+  }).filter((tx) => tx.date && tx.itemName && tx.amount !== 0);
+}
+
 function parseStatementCsv(text: string): ParsedStatementTransaction[] {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim());
   if (lines.length < 2) return [];
 
-  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
+  const headerIndex = lines.findIndex((line) => {
+    const headers = splitCsvLine(line).map(normalizeHeader);
+    return (
+      (headers.includes('ledgertransactionid') && headers.includes('transactiontype') && headers.includes('transactionamount')) ||
+      (headers.includes('listingtitle') && headers.includes('ebayitemid') && headers.includes('netsalesnetoftaxesandsellingcosts')) ||
+      (headers.some((header) => ['date', 'transactiondate', 'posteddate', 'postingdate'].includes(header)) &&
+        headers.some((header) => ['amount', 'transactionamount', 'debit', 'credit'].includes(header)))
+    );
+  });
+  if (headerIndex < 0) {
+    throw new Error('CSV needs recognizable transaction columns. Supported uploads include bank CSVs, Whatnot earnings CSVs, and eBay listing sales reports.');
+  }
+
+  const headers = splitCsvLine(lines[headerIndex]).map(normalizeHeader);
   if (headers.includes('ledgertransactionid') && headers.includes('transactiontype') && headers.includes('transactionamount')) {
-    return parseWhatnotCsv(lines, headers);
+    return parseWhatnotCsv(lines.slice(headerIndex), headers);
+  }
+  if (headers.includes('listingtitle') && headers.includes('ebayitemid') && headers.includes('netsalesnetoftaxesandsellingcosts')) {
+    return parseEbayListingSalesCsv(lines, headers, headerIndex);
   }
 
   const indexFor = (...names: string[]) => headers.findIndex((header) => names.includes(header));
@@ -200,7 +280,7 @@ function parseStatementCsv(text: string): ParsedStatementTransaction[] {
     throw new Error('CSV needs Date, Description, and Amount columns. Bank exports with Debit/Credit columns also work.');
   }
 
-  return lines.slice(1).map((line, index) => {
+  return lines.slice(headerIndex + 1).map((line, index) => {
     const cells = splitCsvLine(line);
     const isoDate = formatDateCell(cells[dateIndex] || '');
     const description = (cells[descriptionIndex] || 'Imported transaction').trim();
@@ -230,7 +310,7 @@ function parseStatementCsv(text: string): ParsedStatementTransaction[] {
 function isLikelyDuplicate(incoming: ParsedStatementTransaction, existing: Transaction[]) {
   const incomingItemName = normalizeDescription(incoming.itemName || incoming.description);
   return existing.filter((tx) => {
-    if (incoming.reference_id && tx.reference_id === incoming.reference_id) return true;
+    const sameReference = Boolean(incoming.reference_id && tx.reference_id === incoming.reference_id);
     const sameDate = tx.date === incoming.date;
     const sameType = tx.type === incoming.type;
     const sameAmount = Math.abs(Math.abs(Number(tx.amount)) - Math.abs(incoming.amount)) < 0.01;
@@ -239,7 +319,7 @@ function isLikelyDuplicate(incoming: ParsedStatementTransaction, existing: Trans
       incomingItemName.length > 8 &&
       existingItemName.length > 8 &&
       (incomingItemName.includes(existingItemName.slice(0, 18)) || existingItemName.includes(incomingItemName.slice(0, 18)));
-    return sameDate && sameType && sameAmount && similarItemName;
+    return sameDate && sameType && sameAmount && (similarItemName || sameReference);
   });
 }
 
