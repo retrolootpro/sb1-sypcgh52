@@ -40,6 +40,9 @@ type ParsedStatementTransaction = {
   amount: number;
   type: Transaction['type'];
   category: string;
+  source: Transaction['source'];
+  platform: string | null;
+  reference_id: string | null;
   merchant_name: string | null;
   notes: string | null;
 };
@@ -62,6 +65,11 @@ function parseCurrency(value: string) {
   const cleaned = value.replace(/[$,\s]/g, '').replace(/^\((.*)\)$/, '-$1');
   const parsed = Number.parseFloat(cleaned);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatDateCell(value: string) {
+  const date = new Date(value || '');
+  return Number.isNaN(date.getTime()) ? value.slice(0, 10) : date.toISOString().slice(0, 10);
 }
 
 function splitCsvLine(line: string) {
@@ -88,11 +96,88 @@ function splitCsvLine(line: string) {
   return cells;
 }
 
+function cell(cells: string[], index: number) {
+  return index >= 0 ? (cells[index] || '').trim() : '';
+}
+
+function parseWhatnotCsv(lines: string[], headers: string[]): ParsedStatementTransaction[] {
+  const indexFor = (...names: string[]) => headers.findIndex((header) => names.includes(header));
+  const completedIndex = indexFor('transactioncompletedatutc');
+  const placedIndex = indexFor('orderplacedatutc');
+  const transactionTypeIndex = indexFor('transactiontype');
+  const messageIndex = indexFor('transactionmessage');
+  const orderIdIndex = indexFor('orderid');
+  const listingTitleIndex = indexFor('listingtitle');
+  const listingDescriptionIndex = indexFor('listingdescription');
+  const categoryIndex = indexFor('productcategory');
+  const amountIndex = indexFor('transactionamount');
+  const buyerPaidIndex = indexFor('buyerpaid');
+  const itemPriceIndex = indexFor('originalitemprice');
+  const shippingIndex = indexFor('shippingfee');
+  const commissionIndex = indexFor('commissionfee');
+  const processingIndex = indexFor('paymentprocessingfee');
+  const ledgerIdIndex = indexFor('ledgertransactionid');
+  const buyerIndex = indexFor('buyername');
+  const livestreamIndex = indexFor('livestreamtitle');
+  const shipmentIndex = indexFor('shipmentid');
+  const cogsIndex = indexFor('costofgoods');
+
+  return lines.slice(1).map((line, index) => {
+    const cells = splitCsvLine(line);
+    const transactionType = cell(cells, transactionTypeIndex);
+    const amount = parseCurrency(cell(cells, amountIndex));
+    const listingTitle = cell(cells, listingTitleIndex);
+    const message = cell(cells, messageIndex);
+    const orderId = cell(cells, orderIdIndex);
+    const ledgerId = cell(cells, ledgerIdIndex);
+    const description = message || listingTitle || `Whatnot ${transactionType || 'transaction'}${orderId ? ` ${orderId}` : ''}`;
+    const date = formatDateCell(cell(cells, completedIndex) || cell(cells, placedIndex));
+    const type: Transaction['type'] =
+      transactionType.includes('REFUND') || amount < 0
+        ? 'refund'
+        : transactionType.includes('PAYOUT') || transactionType.includes('TRANSFER')
+          ? 'transfer'
+          : 'income';
+    const feeDetails = [
+      `Order ${orderId || 'n/a'}`,
+      `Ledger ${ledgerId || 'n/a'}`,
+      `Listing: ${listingTitle || 'n/a'}`,
+      `Description: ${cell(cells, listingDescriptionIndex) || 'n/a'}`,
+      `Show: ${cell(cells, livestreamIndex) || 'n/a'}`,
+      `Buyer paid: ${cell(cells, buyerPaidIndex) || '0.00'}`,
+      `Item price: ${cell(cells, itemPriceIndex) || '0.00'}`,
+      `Shipping fee: ${cell(cells, shippingIndex) || '0.00'}`,
+      `Commission fee: ${cell(cells, commissionIndex) || '0.00'}`,
+      `Processing fee: ${cell(cells, processingIndex) || '0.00'}`,
+      `COGS: ${cell(cells, cogsIndex) || '0.00'}`,
+      `Shipment ${cell(cells, shipmentIndex) || 'n/a'}`,
+    ].join(' | ');
+
+    return {
+      id: ledgerId || orderId || `whatnot-${Date.now()}-${index}`,
+      date,
+      description,
+      amount,
+      type,
+      category: type === 'income' ? 'Sales - Whatnot' : type === 'transfer' ? 'Transfer' : 'Refund Received',
+      source: 'whatnot' as const,
+      platform: 'whatnot',
+      reference_id: ledgerId || orderId || null,
+      merchant_name: cell(cells, buyerIndex) || 'Whatnot',
+      notes: `${transactionType || 'Whatnot transaction'} | ${cell(cells, categoryIndex) || 'Uncategorized'} | ${feeDetails}`,
+    };
+  }).filter((tx) => tx.date && tx.description && tx.amount !== 0);
+}
+
 function parseStatementCsv(text: string): ParsedStatementTransaction[] {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim());
   if (lines.length < 2) return [];
 
   const headers = splitCsvLine(lines[0]).map(normalizeHeader);
+  if (headers.includes('ledgertransactionid') && headers.includes('transactiontype') && headers.includes('transactionamount')) {
+    return parseWhatnotCsv(lines, headers);
+  }
+
   const indexFor = (...names: string[]) => headers.findIndex((header) => names.includes(header));
   const dateIndex = indexFor('date', 'transactiondate', 'posteddate', 'postingdate');
   const descriptionIndex = indexFor('description', 'name', 'merchant', 'payee', 'details', 'memo');
@@ -106,8 +191,7 @@ function parseStatementCsv(text: string): ParsedStatementTransaction[] {
 
   return lines.slice(1).map((line, index) => {
     const cells = splitCsvLine(line);
-    const date = new Date(cells[dateIndex] || '');
-    const isoDate = Number.isNaN(date.getTime()) ? cells[dateIndex] : date.toISOString().slice(0, 10);
+    const isoDate = formatDateCell(cells[dateIndex] || '');
     const description = (cells[descriptionIndex] || 'Imported transaction').trim();
     const debit = debitIndex >= 0 ? Math.abs(parseCurrency(cells[debitIndex] || '')) : 0;
     const credit = creditIndex >= 0 ? Math.abs(parseCurrency(cells[creditIndex] || '')) : 0;
@@ -122,6 +206,9 @@ function parseStatementCsv(text: string): ParsedStatementTransaction[] {
       amount: signedAmount,
       type,
       category: type === 'income' ? 'Sales - Other' : 'Uncategorized',
+      source: 'import' as const,
+      platform: null,
+      reference_id: null,
       merchant_name: description,
       notes: 'Imported from statement upload',
     };
@@ -131,6 +218,7 @@ function parseStatementCsv(text: string): ParsedStatementTransaction[] {
 function isLikelyDuplicate(incoming: ParsedStatementTransaction, existing: Transaction[]) {
   const incomingDesc = normalizeDescription(incoming.description);
   return existing.filter((tx) => {
+    if (incoming.reference_id && tx.reference_id === incoming.reference_id) return true;
     const sameDate = tx.date === incoming.date;
     const sameAmount = Math.abs(Number(tx.amount) - incoming.amount) < 0.01;
     const existingDesc = normalizeDescription(tx.description || tx.merchant_name || '');
@@ -289,7 +377,9 @@ export function TransactionsTab() {
         amount: row.amount,
         type: row.type,
         category: row.category,
-        source: 'import',
+        source: row.source,
+        platform: row.platform,
+        reference_id: row.reference_id,
         merchant_name: row.merchant_name,
         notes: row.notes,
         is_reconciled: false,
@@ -326,7 +416,9 @@ export function TransactionsTab() {
             amount: row.amount,
             type: row.type,
             category: row.category,
-            source: 'import',
+            source: row.source,
+            platform: row.platform,
+            reference_id: row.reference_id,
             merchant_name: row.merchant_name,
             notes: row.notes,
             is_reconciled: false,
