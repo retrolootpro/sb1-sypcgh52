@@ -157,9 +157,9 @@ export function OverviewTab() {
                     <div className="text-[10px] text-muted-foreground">{format(new Date(tx.date), 'MMM d')} · {tx.category}</div>
                   </div>
                   <span className={`text-xs font-medium tabular-nums ml-3 shrink-0 ${
-                    tx.type === 'income' || tx.type === 'refund' ? 'text-emerald-400' : 'text-red-400'
+                    tx.type === 'income' ? 'text-emerald-400' : tx.type === 'transfer' ? 'text-blue-400' : 'text-red-400'
                   }`}>
-                    {tx.type === 'income' || tx.type === 'refund' ? '+' : ''}{formatCurrency(Math.abs(tx.amount))}
+                    {tx.type === 'income' ? '+' : tx.type === 'transfer' && Number(tx.amount) >= 0 ? '' : '-'}{formatCurrency(Math.abs(tx.amount))}
                   </span>
                 </div>
               ))}

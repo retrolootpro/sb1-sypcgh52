@@ -503,7 +503,7 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
 
   const { data: txns, error } = await supabase
     .from('financial_transactions')
-    .select('type, amount, category, platform, source')
+    .select('type, amount, category, platform, source, reference_id')
     .gte('date', startDate)
     .lte('date', endDate);
 
@@ -511,7 +511,7 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
 
   const { data: soldItems } = await supabase
     .from('inventory_items')
-    .select('sell_price, purchase_price, sold_at, sold_via')
+    .select('id, sell_price, purchase_price, sold_at, sold_via')
     .eq('status', 'sold')
     .gte('sold_at', startDate + 'T00:00:00Z')
     .lte('sold_at', endDate + 'T23:59:59Z');
@@ -521,22 +521,31 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
   let operatingExpenses = 0;
   const revenueByPlatform: Record<string, number> = {};
   const expensesByCategory: Record<string, number> = {};
+  const generatedSaleRefs = new Set((txns || []).map((tx) => tx.reference_id).filter(Boolean));
 
   for (const item of (soldItems || [])) {
     const sp = parseFloat(item.sell_price) || 0;
     const pp = parseFloat(item.purchase_price) || 0;
-    revenue += sp;
     cogs += pp;
-    const platform = item.sold_via || 'Other';
-    revenueByPlatform[platform] = (revenueByPlatform[platform] || 0) + sp;
+    const generatedRef = `inv_sale_${item.id}`;
+    if (!generatedSaleRefs.has(generatedRef)) {
+      revenue += sp;
+      const platform = item.sold_via || 'Other';
+      revenueByPlatform[platform] = (revenueByPlatform[platform] || 0) + sp;
+    }
   }
 
   for (const tx of (txns || [])) {
     const amt = parseFloat(String(tx.amount));
-    if (tx.type === 'income' && !tx.category?.startsWith('Sales -')) {
+    if (tx.type === 'income') {
       revenue += Math.abs(amt);
       const platform = tx.platform || 'Other';
       revenueByPlatform[platform] = (revenueByPlatform[platform] || 0) + Math.abs(amt);
+    } else if (tx.type === 'refund') {
+      const refund = Math.abs(amt);
+      revenue -= refund;
+      const platform = tx.platform || 'Other';
+      revenueByPlatform[platform] = (revenueByPlatform[platform] || 0) - refund;
     } else if (tx.type === 'expense') {
       const expense = Math.abs(amt);
       if (tx.category === 'Inventory Purchase') {
