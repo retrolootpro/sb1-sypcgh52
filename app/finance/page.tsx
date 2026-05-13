@@ -12,6 +12,7 @@ import { LotsTab } from './lots-tab';
 import { LoansTab } from './loans-tab';
 import { cn } from '@/lib/utils';
 import { LayoutDashboard, ReceiptText, TrendingUp, FileText, Building2, Layers, WalletCards } from 'lucide-react';
+import { ContextHelp } from '@/components/context-help';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -38,8 +39,13 @@ export default function FinancePage() {
     <DashboardLayout>
       <div className="p-4 lg:p-6 max-w-6xl mx-auto space-y-5">
         <div>
-          <h1 className="heading-xl text-white/90">Finance</h1>
-          <p className="text-xs text-muted-foreground mt-1">Transactions, P&amp;L statements, tax guidance, and bank reconciliation</p>
+          <div className="flex items-center gap-2">
+            <h1 className="heading-xl text-white/90">Finance</h1>
+            <ContextHelp href="/help#finance-overview" label="Open finance help">
+              Finance should answer cash available, inventory cash lock, break-even, debt, tax reserve, and true profit.
+            </ContextHelp>
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">Money in, money out, lot break-even, loans, tax guidance, and bank reconciliation.</p>
         </div>
 
         <div className="flex gap-0.5 border-b border-border/40 overflow-x-auto no-scrollbar">

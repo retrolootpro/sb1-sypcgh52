@@ -25,6 +25,7 @@ import {
 import { Check, ClipboardList, Clock, Loader2, Plus, RefreshCw, ShieldCheck, Sparkles, UserRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
+import { ContextHelp } from '@/components/context-help';
 
 type TaskFilter = 'active' | 'completed' | 'approved' | 'all';
 
@@ -325,7 +326,12 @@ export default function TasksPage() {
       <div className="max-w-7xl space-y-6 p-4 sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="label-caps mb-1">Operations</div>
+            <div className="mb-1 flex items-center gap-2">
+              <div className="label-caps">Operations</div>
+              <ContextHelp href="/help#tasks-prep-workflow" label="Open task workflow help">
+                Tasks keep prep work clear: assign, checklist, complete, and approve without guessing what is next.
+              </ContextHelp>
+            </div>
             <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight text-white/90">
               <ClipboardList className="h-5 w-5 text-primary" />
               Tasks

@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,7 @@ import {
 } from '@/lib/resale-planning-service';
 import { Archive, Boxes, Gavel, Loader2, Plus, ShieldAlert, ShoppingBasket, Target } from 'lucide-react';
 import { toast } from 'sonner';
+import { ContextHelp } from '@/components/context-help';
 
 type Tab = 'analyzer' | 'bundles' | 'buylist' | 'disputes';
 
@@ -66,7 +68,10 @@ function parseLotItems(raw: string): PrebuyLotItem[] {
 }
 
 export default function PlanningPage() {
-  const [tab, setTab] = useState<Tab>('analyzer');
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTab = (searchParams.get('tab') as Tab) || 'analyzer';
+  const [tab, setTab] = useState<Tab>(['analyzer', 'bundles', 'buylist', 'disputes'].includes(initialTab) ? initialTab : 'analyzer');
   const [loading, setLoading] = useState(true);
   const [disputes, setDisputes] = useState<DisputeCase[]>([]);
   const [bundles, setBundles] = useState<InventoryBundle[]>([]);
@@ -134,6 +139,11 @@ export default function PlanningPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleTabChange = (nextTab: Tab) => {
+    setTab(nextTab);
+    router.replace(nextTab === 'analyzer' ? '/planning' : `/planning?tab=${nextTab}`, { scroll: false });
+  };
 
   const lotPreview = useMemo(() => {
     return analyzePrebuyLot(
@@ -236,7 +246,12 @@ export default function PlanningPage() {
     <DashboardLayout>
       <div className="max-w-7xl space-y-6 p-4 sm:p-6">
         <div>
-          <div className="label-caps mb-1">Operations</div>
+          <div className="mb-1 flex items-center gap-2">
+            <div className="label-caps">Operations</div>
+            <ContextHelp href="/help#lot-analyzer" label="Open sourcing and planning help">
+              Use this page for pre-buy lot decisions, bundles, buy guide rules, and dispute records.
+            </ContextHelp>
+          </div>
           <h1 className="text-xl font-bold tracking-tight text-white/90">Planning</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Pre-buy analysis, bundle planning, buy guide rules, and dispute evidence.
@@ -249,7 +264,7 @@ export default function PlanningPage() {
             return (
               <button
                 key={item.id}
-                onClick={() => setTab(item.id)}
+                onClick={() => handleTabChange(item.id)}
                 className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-2.5 text-xs font-medium transition-colors ${
                   tab === item.id ? 'border-primary text-primary' : 'border-transparent text-white/40 hover:text-white/70'
                 }`}

@@ -29,6 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { ContextHelp } from '@/components/context-help';
 
 type InventoryItem = {
   id: string;
@@ -536,7 +537,12 @@ export default function InventoryPage() {
       <div className="p-6 sm:p-8 lg:p-10 max-w-7xl space-y-8">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
-            <div className="label-caps mb-1">Catalog</div>
+            <div className="mb-1 flex items-center gap-2">
+              <div className="label-caps">Catalog</div>
+              <ContextHelp href="/help#inventory-management" label="Open inventory management help">
+                Inventory is the source of truth for item status, cost, price, condition, location, and next action.
+              </ContextHelp>
+            </div>
             <h1 className="heading-lg text-[22px]">
               {activeCollection ? activeCollection.name : 'Inventory'}
             </h1>
@@ -573,7 +579,12 @@ export default function InventoryPage() {
                 <DollarSign className="w-5 h-5 text-amber-400" />
               </div>
               <div>
-                <div className="label-caps">Total Cost</div>
+                <div className="flex items-center gap-1">
+                  <div className="label-caps">Total Cost</div>
+                  <ContextHelp href="/help#lot-cost-allocation" label="Open cost basis help">
+                    Cost basis is what the item effectively cost the business, including lot allocation when used.
+                  </ContextHelp>
+                </div>
                 <div className="text-[22px] font-bold stat-number mt-0.5">${totalCost.toFixed(2)}</div>
               </div>
             </div>
@@ -582,7 +593,12 @@ export default function InventoryPage() {
                 <TrendingUp className="w-5 h-5 text-emerald-400" />
               </div>
               <div>
-                <div className="label-caps">Market Value</div>
+                <div className="flex items-center gap-1">
+                  <div className="label-caps">Market Value</div>
+                  <ContextHelp href="/help#pricing-engine" label="Open pricing engine help">
+                    Market value comes from refreshed pricing data and the selected condition.
+                  </ContextHelp>
+                </div>
                 <div className={`text-[22px] font-bold stat-number mt-0.5 ${totalMarketValue > totalCost ? 'text-emerald-400' : totalMarketValue > 0 ? 'text-red-400' : ''}`}>
                   {totalMarketValue > 0 ? `$${totalMarketValue.toFixed(2)}` : '--'}
                 </div>
@@ -603,7 +619,12 @@ export default function InventoryPage() {
                 <Bell className={`w-5 h-5 ${agingSummary.staleCount > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
               </div>
               <div>
-                <div className="label-caps">Aging Alerts</div>
+                <div className="flex items-center gap-1">
+                  <div className="label-caps">Aging Alerts</div>
+                  <ContextHelp href="/help#dashboard-overview" label="Open dead inventory help">
+                    Review aging items for price changes, new photos, channel changes, bundling, or clearance.
+                  </ContextHelp>
+                </div>
                 <div className={`text-[22px] font-bold stat-number mt-0.5 ${agingSummary.staleCount > 0 ? 'text-red-300' : ''}`}>
                   {agingSummary.staleCount}
                 </div>

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getAgeStatus, getInventoryAgeDays, normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds, type AgingThresholds } from '@/lib/inventory-aging';
 import { toast } from 'sonner';
+import { ContextHelp } from '@/components/context-help';
 
 type InventoryItem = {
   id: string;
@@ -34,6 +35,9 @@ type InventoryItem = {
     cib_price: number;
     new_price: number;
   }[];
+  listed_ebay_at?: string | null;
+  listed_amazon_at?: string | null;
+  listed_whatnot_at?: string | null;
 };
 
 function getDashboardMarketValue(item: InventoryItem) {
@@ -188,7 +192,12 @@ export default function DashboardPage() {
       <div className="p-6 sm:p-8 lg:p-10 max-w-6xl space-y-10">
 
         <div className="space-y-1">
-          <div className="label-caps">Portfolio Overview</div>
+          <div className="flex items-center gap-2">
+            <div className="label-caps">Daily Command</div>
+            <ContextHelp href="/help#daily-workflow" label="Open daily workflow help">
+              Start here each day: review cash, tasks, aging inventory, priority listing work, and sales.
+            </ContextHelp>
+          </div>
           <div className="flex items-end gap-4">
             <div className="heading-display text-[52px] stat-number text-foreground">
               ${stats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -208,6 +217,21 @@ export default function DashboardPage() {
               </span>
             )}
           </p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: 'Inventory Needing Action', value: agingAlerts.count, detail: agingAlerts.count > 0 ? `Past ${agingThresholds.reviewDays} days` : 'No aging alerts', href: '/inventory?age=stale' },
+            { label: 'Items To List Today', value: items.filter((item) => !item.listed_ebay_at && !item.listed_amazon_at && !item.listed_whatnot_at && (item.status || 'available') !== 'sold').length, detail: 'Unlisted inventory', href: '/inventory' },
+            { label: 'Show Prep Status', value: topDeals.length, detail: 'High-score candidates', href: '/shows' },
+            { label: 'Safe Buying Check', value: profitPositive ? 'Review' : 'Hold', detail: 'Open finance before buying', href: '/finance' },
+          ].map((card) => (
+            <Link key={card.label} href={card.href} className="rounded-2xl border border-border/40 bg-card p-4 transition-colors hover:border-primary/25 hover:bg-primary/[0.04]">
+              <div className="text-xs text-muted-foreground">{card.label}</div>
+              <div className="mt-2 text-2xl font-bold text-white/90">{card.value}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{card.detail}</div>
+            </Link>
+          ))}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -311,7 +335,12 @@ export default function DashboardPage() {
                   <Bell className={`h-4 w-4 ${agingAlerts.count > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-base font-semibold">Aging Inventory</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-base font-semibold">Aging Inventory</div>
+                    <ContextHelp href="/help#dashboard-overview" label="Open aging inventory help">
+                      Aging alerts remind you to revise price, photos, sales channel, or bundle strategy.
+                    </ContextHelp>
+                  </div>
                   <div className="mt-0.5 text-sm text-muted-foreground">
                     {agingAlerts.count > 0
                       ? `${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${agingThresholds.reviewDays} days`

@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/lib/auth-context';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,6 +23,9 @@ import {
   Bot,
   ChevronRight,
   Target,
+  BookOpen,
+  Gavel,
+  Boxes,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -30,29 +33,37 @@ import { QuickDealScannerLauncher } from '@/components/quick-deal-scanner-launch
 
 const navGroups = [
   {
-    label: 'Command',
+    label: 'Daily Command',
     items: [
       { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/assistant', label: 'AI Assistant', icon: Bot, featured: true },
     ],
   },
   {
-    label: 'Inventory',
+    label: 'Inventory Flow',
     items: [
       { href: '/inventory', label: 'Inventory', icon: Package },
-      { href: '/scan', label: 'Scan', icon: ScanBarcode },
-      { href: '/prep', label: 'Prep', icon: ClipboardList },
+      { href: '/scan', label: 'Scan Intake', icon: ScanBarcode },
+      { href: '/prep', label: 'Prep Workflow', icon: ClipboardList },
       { href: '/tasks', label: 'Tasks', icon: ClipboardCheck },
       { href: '/review', label: 'Review', icon: ClipboardCheck },
     ],
   },
   {
-    label: 'Sales',
+    label: 'Sourcing & Sales',
     items: [
-      { href: '/shows', label: 'Shows', icon: ListChecks },
+      { href: '/planning', label: 'Lot Analyzer', icon: Target },
+      { href: '/shows', label: 'Whatnot Shows', icon: ListChecks },
+      { href: '/planning?tab=bundles', label: 'Bundles', icon: Boxes },
+      { href: '/planning?tab=disputes', label: 'Disputes', icon: Gavel },
+    ],
+  },
+  {
+    label: 'Money & Reports',
+    items: [
       { href: '/finance', label: 'Finance', icon: DollarSign },
-      { href: '/planning', label: 'Planning', icon: Target },
-      { href: '/insights', label: 'Insights', icon: Lightbulb },
+      { href: '/insights', label: 'Reports', icon: Lightbulb },
+      { href: '/shipping', label: 'Shipping', icon: Truck },
     ],
   },
   {
@@ -60,7 +71,12 @@ const navGroups = [
     adminOnly: true,
     items: [
       { href: '/employees', label: 'Team', icon: Users },
-      { href: '/shipping', label: 'Shipping', icon: Truck },
+    ],
+  },
+  {
+    label: 'Guidance',
+    items: [
+      { href: '/help', label: 'Help / Manual', icon: BookOpen },
     ],
   },
 ];
@@ -78,13 +94,27 @@ type NavGroup = {
   items: NavItem[];
 };
 
-function NavLink({ item, pathname, onNavClick }: {
+type SearchParamReader = {
+  get: (key: string) => string | null;
+};
+
+function NavLink({ item, pathname, searchParams, onNavClick }: {
   item: NavItem;
   pathname: string;
+  searchParams?: SearchParamReader;
   onNavClick?: () => void;
 }) {
   const Icon = item.icon;
-  const isActive = pathname === item.href || (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
+  const itemPath = item.href.split('?')[0];
+  const hrefQuery = item.href.includes('?') ? new URLSearchParams(item.href.split('?')[1]) : null;
+  const isQueryMatch = hrefQuery
+    ? Array.from(hrefQuery.entries()).every(([key, value]) => searchParams?.get(key) === value)
+    : true;
+  const isActive = hrefQuery
+    ? pathname === itemPath && isQueryMatch
+    : item.href === '/planning'
+    ? pathname === '/planning' && !searchParams?.get('tab')
+    : pathname === itemPath || (itemPath !== '/dashboard' && pathname.startsWith(itemPath + '/'));
 
   if (item.featured) {
     return (
@@ -136,8 +166,9 @@ function NavLink({ item, pathname, onNavClick }: {
   );
 }
 
-function SidebarContent({ pathname, user, signOut, isAdmin, accountRole, onNavClick }: {
+function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accountRole, onNavClick }: {
   pathname: string;
+  searchParams?: SearchParamReader;
   user: any;
   signOut: () => void;
   isAdmin?: boolean;
@@ -179,6 +210,7 @@ function SidebarContent({ pathname, user, signOut, isAdmin, accountRole, onNavCl
                   key={item.href}
                   item={item}
                   pathname={pathname}
+                  searchParams={searchParams}
                   onNavClick={onNavClick}
                 />
               ))}
@@ -234,6 +266,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut, isAdmin, accountRole } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
@@ -263,7 +296,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex bg-black">
       <aside className="hidden w-60 flex-shrink-0 flex-col border-r border-white/[0.06] lg:flex">
-        <SidebarContent pathname={pathname} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} />
+        <SidebarContent pathname={pathname} searchParams={searchParams} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} />
       </aside>
 
       <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b border-white/[0.06] bg-black/95 backdrop-blur-sm flex items-center justify-between px-4">
@@ -280,7 +313,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         <>
           <div className="lg:hidden fixed inset-0 z-40 bg-black/80 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
           <div className="fixed bottom-0 left-0 top-0 z-50 w-72 border-r border-white/[0.06] lg:hidden">
-            <SidebarContent pathname={pathname} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} onNavClick={() => setMobileOpen(false)} />
+            <SidebarContent pathname={pathname} searchParams={searchParams} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} onNavClick={() => setMobileOpen(false)} />
           </div>
         </>
       )}

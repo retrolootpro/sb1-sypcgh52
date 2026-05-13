@@ -26,6 +26,7 @@ import {
 import { toast } from 'sonner';
 import { CONDITIONS, CONSOLES, REGIONS } from '@/lib/constants';
 import { buildItemBusinessPlan } from '@/lib/business-rules';
+import { ContextHelp } from '@/components/context-help';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -566,7 +567,12 @@ export default function ItemDetailPage() {
             {editingMetadata && (
               <Card className="border-border/40 bg-card/40">
                 <CardHeader className="pb-3 flex flex-row items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Edit Item Metadata</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-sm font-medium">Edit Item Metadata</CardTitle>
+                    <ContextHelp href="/help#inventory-management" label="Open item metadata help">
+                      Correct title, platform, condition, region, image, and notes here. Title or platform changes reset stale pricing matches.
+                    </ContextHelp>
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -753,7 +759,12 @@ export default function ItemDetailPage() {
             <Card className="border-border/40 bg-card/40">
               <CardHeader className="pb-3 flex flex-row items-center justify-between">
                 <div>
-                  <CardTitle className="text-sm font-medium">Current Market Value</CardTitle>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-sm font-medium">Current Market Value</CardTitle>
+                    <ContextHelp href="/help#pricing-engine" label="Open pricing help">
+                      Refresh pricing before listing. Condition values drive market value, profit, margin, and sell plan recommendations.
+                    </ContextHelp>
+                  </div>
                   <p className="text-[10px] text-muted-foreground/50 mt-0.5">
                     {diagData?.pcApiUsed
                       ? 'Sourced from PriceCharting API + eBay fallback'
@@ -960,7 +971,12 @@ export default function ItemDetailPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <CardTitle className="text-sm font-medium">Sell Plan</CardTitle>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-sm font-medium">Sell Plan</CardTitle>
+                      <ContextHelp href="/help#sell-channel-recommendations" label="Open sell plan help">
+                        Sell Plan suggests ask, quick-sale price, floor, emergency floor, and best sales channel.
+                      </ContextHelp>
+                    </div>
                     <p className="text-[10px] text-muted-foreground/50 mt-0.5">
                       Rule-based recommendation from current item data.
                     </p>
