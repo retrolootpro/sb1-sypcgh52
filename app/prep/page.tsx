@@ -202,6 +202,12 @@ export default function PrepPage() {
               <FolderOpen className="w-3.5 h-3.5 mr-1.5" />
               New Lot
             </Button>
+            <Button variant="outline" size="sm" className="h-8 text-xs border-border/60" asChild>
+              <Link href="/tasks">
+                <ClipboardList className="w-3.5 h-3.5 mr-1.5" />
+                Tasks
+              </Link>
+            </Button>
             <Button size="sm" className="h-8 text-xs" asChild>
               <Link href="/scan">
                 <ScanBarcode className="w-3.5 h-3.5 mr-1.5" />

@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Bot,
   ChevronRight,
+  Target,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -41,6 +42,7 @@ const navGroups = [
       { href: '/inventory', label: 'Inventory', icon: Package },
       { href: '/scan', label: 'Scan', icon: ScanBarcode },
       { href: '/prep', label: 'Prep', icon: ClipboardList },
+      { href: '/tasks', label: 'Tasks', icon: ClipboardCheck },
       { href: '/review', label: 'Review', icon: ClipboardCheck },
     ],
   },
@@ -49,6 +51,7 @@ const navGroups = [
     items: [
       { href: '/shows', label: 'Shows', icon: ListChecks },
       { href: '/finance', label: 'Finance', icon: DollarSign },
+      { href: '/planning', label: 'Planning', icon: Target },
       { href: '/insights', label: 'Insights', icon: Lightbulb },
     ],
   },

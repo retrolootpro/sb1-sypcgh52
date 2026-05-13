@@ -25,6 +25,7 @@ import {
 } from '@/lib/pricing-service';
 import { toast } from 'sonner';
 import { CONDITIONS, CONSOLES, REGIONS } from '@/lib/constants';
+import { buildItemBusinessPlan } from '@/lib/business-rules';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,6 +60,9 @@ type InventoryItem = {
   pricing_attempted_at?: string;
   pc_source_product_id?: string;
   pricing_diagnostics?: Record<string, unknown>;
+  selected_market_value?: number;
+  estimated_profit?: number;
+  estimated_margin_percent?: number;
   sorted_at?: string | null;
   cleaned_at?: string | null;
   tested_at?: string | null;
@@ -430,6 +434,15 @@ export default function ItemDetailPage() {
   const dealScore = marketValue > 0
     ? calculateDealScore(item.purchase_price, marketValue, 0, 0, inventoryAgeDays)
     : { score: 0, label: 'No Data', emoji: '', color: 'text-gray-400', breakdown: undefined };
+  const businessPlan = buildItemBusinessPlan({
+    ...item,
+    selected_market_value: marketValue,
+    purchase_price: item.purchase_price,
+    price_loose: loosePrice,
+    price_cib: cibPrice,
+    price_new: newPrice,
+    price_graded: gradedPrice,
+  });
 
   const hasPricing = marketValue > 0;
   const imageUrl   = item.image_url || item.thumbnail_url;
@@ -941,6 +954,117 @@ export default function ItemDetailPage() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Sell plan */}
+            <Card className="border-border/40 bg-card/40">
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-sm font-medium">Sell Plan</CardTitle>
+                    <p className="text-[10px] text-muted-foreground/50 mt-0.5">
+                      Rule-based recommendation from current item data.
+                    </p>
+                  </div>
+                  <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                    {businessPlan.recommendation.channel}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-border/30 bg-secondary/20 p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Ask</div>
+                    <div className="mt-1 text-lg font-bold">${businessPlan.pricePlan.recommendedAskingPrice.toFixed(2)}</div>
+                  </div>
+                  <div className="rounded-lg border border-border/30 bg-secondary/20 p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Quick Sale</div>
+                    <div className="mt-1 text-lg font-bold">${businessPlan.pricePlan.quickSalePrice.toFixed(2)}</div>
+                  </div>
+                  <div className="rounded-lg border border-border/30 bg-secondary/20 p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Floor</div>
+                    <div className="mt-1 text-lg font-bold">${businessPlan.pricePlan.floorPrice.toFixed(2)}</div>
+                  </div>
+                  <div className="rounded-lg border border-border/30 bg-secondary/20 p-3">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Emergency</div>
+                    <div className="mt-1 text-lg font-bold">${businessPlan.pricePlan.emergencyFloorPrice.toFixed(2)}</div>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border/30 bg-secondary/20 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold">{businessPlan.recommendation.summary}</div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Best as {businessPlan.recommendation.singleOrBundle === 'either' ? 'single item or bundle support' : `${businessPlan.recommendation.singleOrBundle} item`}.
+                      </div>
+                    </div>
+                    <div className="text-right text-xs text-muted-foreground">
+                      <div>Profit ${businessPlan.pricePlan.expectedProfit.toFixed(2)}</div>
+                      <div>{businessPlan.pricePlan.marginPercent.toFixed(0)}% margin</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Why</div>
+                      {businessPlan.recommendation.reasons.length > 0 ? (
+                        businessPlan.recommendation.reasons.map((reason) => (
+                          <div key={reason} className="text-xs text-muted-foreground">{reason}</div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-muted-foreground">No special warnings from current data.</div>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60">Watch</div>
+                      {businessPlan.recommendation.cautions.length > 0 ? (
+                        businessPlan.recommendation.cautions.map((caution) => (
+                          <div key={caution} className="text-xs text-amber-300/80">{caution}</div>
+                        ))
+                      ) : (
+                        <div className="text-xs text-muted-foreground">No extra cautions from current data.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-medium">Listing Draft</div>
+                    <Badge variant="outline" className="border-border/50 text-xs">
+                      {businessPlan.listingDraft.suggestedCategory}
+                    </Badge>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Title</Label>
+                    <Input defaultValue={businessPlan.listingDraft.title} className="h-9 bg-secondary/30" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Description</Label>
+                    <Textarea defaultValue={businessPlan.listingDraft.description} rows={5} className="bg-secondary/30" />
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Condition Notes</Label>
+                      <Textarea defaultValue={businessPlan.listingDraft.conditionNotes} rows={3} className="bg-secondary/30" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Whatnot Notes</Label>
+                      <Textarea defaultValue={businessPlan.listingDraft.whatnotNotes} rows={3} className="bg-secondary/30" />
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {businessPlan.listingDraft.tags.map((tag) => (
+                      <Badge key={tag} variant="outline" className="border-border/50 text-[10px] text-muted-foreground">
+                        {tag}
+                      </Badge>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {businessPlan.listingDraft.shippingNotes}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Notes */}
             {item.notes && (
