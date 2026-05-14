@@ -7,11 +7,22 @@ import { Toaster } from '@/components/ui/sonner';
 const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], weight: ['400', '500', '600', '700'] });
 
 export const metadata: Metadata = {
-  title: 'RetroLoot Pro - Premium Game Reseller Platform',
+  title: {
+    default: 'RetroLootPro',
+    template: '%s | RetroLootPro',
+  },
   description: 'Professional inventory and deal analysis platform for video game resellers',
+  applicationName: 'RetroLootPro',
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'RetroLootPro',
+    statusBarStyle: 'black-translucent',
+  },
   icons: {
     icon: '/icon.svg',
     shortcut: '/icon.svg',
+    apple: '/icons/apple-touch-icon.png',
   },
 };
 
