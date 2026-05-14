@@ -9,6 +9,10 @@ const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], weight: ['400', '500', 
 export const metadata: Metadata = {
   title: 'RetroLoot Pro - Premium Game Reseller Platform',
   description: 'Professional inventory and deal analysis platform for video game resellers',
+  icons: {
+    icon: '/icon.svg',
+    shortcut: '/icon.svg',
+  },
 };
 
 export default function RootLayout({
