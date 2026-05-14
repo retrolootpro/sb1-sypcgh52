@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     if (membershipError) throw membershipError;
 
     const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(inviteEmail, {
-      redirectTo: `${siteUrl(req)}/dashboard`,
+      redirectTo: `${siteUrl(req)}/auth/callback?next=/dashboard`,
       data: {
         account_owner_id: account.accountId,
         account_role: inviteRole,

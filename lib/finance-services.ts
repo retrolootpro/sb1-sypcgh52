@@ -82,6 +82,41 @@ export type OwnerLoanSummary = OwnerLoan & {
   payments: OwnerLoanPayment[];
 };
 
+export type BusinessExpense = {
+  id: string;
+  user_id: string;
+  created_by_user_id: string | null;
+  incurred_by_email: string | null;
+  incurred_by_name: string | null;
+  expense_date: string;
+  merchant: string | null;
+  description: string;
+  amount: number;
+  irs_category: string;
+  business_purpose: string | null;
+  payment_method: string | null;
+  receipt_url: string | null;
+  source_transaction_id: string | null;
+  status: 'draft' | 'ready' | 'reviewed' | 'disallowed';
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExpensePerson = {
+  email: string;
+  name: string;
+  role?: string | null;
+  status?: string | null;
+};
+
+export type ExpensePersonTotal = {
+  email: string;
+  name: string;
+  total: number;
+  count: number;
+};
+
 export type LotCostItem = {
   id: string;
   product_name: string;
@@ -141,6 +176,111 @@ export const TRANSACTION_CATEGORIES = [
   'Uncategorized',
 ];
 
+export const IRS_WRITE_OFF_CATEGORIES = [
+  {
+    value: 'Advertising',
+    label: 'Advertising',
+    scheduleC: 'Advertising',
+    examples: 'Promoted listings, flyers, social media ads, branding, business cards.',
+  },
+  {
+    value: 'Car and Truck',
+    label: 'Car and Truck',
+    scheduleC: 'Car and truck expenses',
+    examples: 'Mileage for sourcing runs, post office trips, storage trips, shows, and supplier pickups.',
+  },
+  {
+    value: 'Commissions and Fees',
+    label: 'Commissions and Fees',
+    scheduleC: 'Commissions and fees',
+    examples: 'Marketplace commissions, payment processor fees, consignment fees, referral fees.',
+  },
+  {
+    value: 'Contract Labor',
+    label: 'Contract Labor',
+    scheduleC: 'Contract labor',
+    examples: 'Paid helpers for cleaning, photographing, listing, packing, or show prep.',
+  },
+  {
+    value: 'Cost of Goods Sold',
+    label: 'Inventory / COGS',
+    scheduleC: 'Cost of goods sold',
+    examples: 'Games, consoles, books, collectibles, lots, inbound shipping, import costs, and purchase fees included in inventory cost.',
+  },
+  {
+    value: 'Insurance',
+    label: 'Insurance',
+    scheduleC: 'Insurance',
+    examples: 'Business property, shipping insurance, liability coverage, and other business policies.',
+  },
+  {
+    value: 'Legal and Professional',
+    label: 'Legal and Professional',
+    scheduleC: 'Legal and professional services',
+    examples: 'CPA, bookkeeping, legal help, tax preparation, entity setup, and compliance support.',
+  },
+  {
+    value: 'Office Expense',
+    label: 'Office Expense',
+    scheduleC: 'Office expense',
+    examples: 'Printer ink, labels, paper, scanners, small office tools, and admin supplies.',
+  },
+  {
+    value: 'Rent or Lease',
+    label: 'Rent or Lease',
+    scheduleC: 'Rent or lease',
+    examples: 'Storage unit, rented equipment, booth space, workspace, or business-use property.',
+  },
+  {
+    value: 'Repairs and Maintenance',
+    label: 'Repairs and Maintenance',
+    scheduleC: 'Repairs and maintenance',
+    examples: 'Business equipment repairs, cleaning machine upkeep, label printer repair.',
+  },
+  {
+    value: 'Supplies',
+    label: 'Supplies',
+    scheduleC: 'Supplies',
+    examples: 'Boxes, tape, bubble wrap, sleeves, protectors, cleaners, batteries used for testing.',
+  },
+  {
+    value: 'Taxes and Licenses',
+    label: 'Taxes and Licenses',
+    scheduleC: 'Taxes and licenses',
+    examples: 'Business licenses, reseller permits, local licenses, some business taxes.',
+  },
+  {
+    value: 'Travel and Meals',
+    label: 'Travel and Meals',
+    scheduleC: 'Travel and meals',
+    examples: 'Sourcing trips, show travel, hotels, parking, tolls, and eligible business meals.',
+  },
+  {
+    value: 'Utilities',
+    label: 'Utilities',
+    scheduleC: 'Utilities',
+    examples: 'Business phone, internet, electricity portion for business space, app-connected devices.',
+  },
+  {
+    value: 'Software and Subscriptions',
+    label: 'Software and Subscriptions',
+    scheduleC: 'Other expenses',
+    examples: 'RetroLootPro, pricing tools, accounting software, cloud storage, listing tools.',
+  },
+  {
+    value: 'Home Office',
+    label: 'Home Office',
+    scheduleC: 'Business use of home',
+    examples: 'Dedicated regular business space, calculated with actual expenses or simplified method.',
+  },
+  {
+    value: 'Other',
+    label: 'Other',
+    scheduleC: 'Other expenses',
+    examples: 'Business expenses that do not fit another category. Add a clear business purpose.',
+  },
+];
+
 export const INCOME_CATEGORIES = [
   'Sales - eBay',
   'Sales - Amazon',
@@ -189,6 +329,124 @@ export async function createTransaction(tx: Omit<Transaction, 'id' | 'user_id' |
     .single();
   if (error) throw new Error(error.message);
   return data;
+}
+
+export async function getExpensePeople(): Promise<ExpensePerson[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+
+  const { data, error } = await supabase
+    .from('user_account_memberships')
+    .select('email, role, status')
+    .eq('account_owner_id', accountId)
+    .neq('status', 'revoked')
+    .order('email', { ascending: true });
+  if (error) throw new Error(error.message);
+
+  const people = ((data || []) as Array<{ email: string; role: string | null; status: string | null }>).map((entry) => ({
+    email: entry.email,
+    name: entry.email,
+    role: entry.role,
+    status: entry.status,
+  }));
+
+  if (user.email && !people.some((person) => person.email.toLowerCase() === user.email!.toLowerCase())) {
+    people.unshift({ email: user.email.toLowerCase(), name: user.email.toLowerCase(), role: 'admin', status: 'active' });
+  }
+
+  return people;
+}
+
+export async function getBusinessExpenses(filters?: {
+  startDate?: string;
+  endDate?: string;
+  category?: string;
+  person?: string;
+  status?: string;
+  search?: string;
+}): Promise<BusinessExpense[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  let query = supabase
+    .from('business_expenses')
+    .select('*')
+    .eq('user_id', await getActiveAccountId(user))
+    .order('expense_date', { ascending: false })
+    .order('created_at', { ascending: false });
+
+  if (filters?.startDate) query = query.gte('expense_date', filters.startDate);
+  if (filters?.endDate) query = query.lte('expense_date', filters.endDate);
+  if (filters?.category && filters.category !== 'all') query = query.eq('irs_category', filters.category);
+  if (filters?.person && filters.person !== 'all') query = query.eq('incurred_by_email', filters.person);
+  if (filters?.status && filters.status !== 'all') query = query.eq('status', filters.status);
+  if (filters?.search) query = query.or(`description.ilike.%${filters.search}%,merchant.ilike.%${filters.search}%`);
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data || []) as BusinessExpense[];
+}
+
+export async function createBusinessExpense(input: Omit<BusinessExpense, 'id' | 'user_id' | 'created_by_user_id' | 'created_at' | 'updated_at'>): Promise<BusinessExpense> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+
+  const { data, error } = await supabase
+    .from('business_expenses')
+    .insert({
+      ...input,
+      user_id: accountId,
+      created_by_user_id: user.id,
+      amount: Math.abs(Number(input.amount) || 0),
+      incurred_by_email: (input.incurred_by_email || user.email || '').toLowerCase(),
+      updated_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as BusinessExpense;
+}
+
+export async function updateBusinessExpense(id: string, updates: Partial<BusinessExpense>): Promise<void> {
+  const payload = {
+    ...updates,
+    amount: updates.amount == null ? undefined : Math.abs(Number(updates.amount) || 0),
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase
+    .from('business_expenses')
+    .update(payload)
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteBusinessExpense(id: string): Promise<void> {
+  const { error } = await supabase.from('business_expenses').delete().eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+export async function getExpenseTotalsByPerson(year?: number): Promise<ExpensePersonTotal[]> {
+  const startDate = year ? `${year}-01-01` : undefined;
+  const endDate = year ? `${year}-12-31` : undefined;
+  const expenses = await getBusinessExpenses({ startDate, endDate });
+  const totals = new Map<string, ExpensePersonTotal>();
+
+  for (const expense of expenses) {
+    if (expense.status === 'disallowed') continue;
+    const email = (expense.incurred_by_email || 'Unassigned').toLowerCase();
+    const current = totals.get(email) || {
+      email,
+      name: expense.incurred_by_name || email,
+      total: 0,
+      count: 0,
+    };
+    current.total += Math.abs(Number(expense.amount) || 0);
+    current.count += 1;
+    totals.set(email, current);
+  }
+
+  return Array.from(totals.values()).sort((a, b) => b.total - a.total);
 }
 
 export async function updateTransaction(id: string, updates: Partial<Transaction>): Promise<void> {

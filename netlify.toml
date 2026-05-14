@@ -7,3 +7,17 @@ package = "@netlify/plugin-nextjs"
 
 [context.production.environment]
 NODE_VERSION = "20"
+
+[[headers]]
+for = "/*"
+[headers.values]
+  X-Frame-Options = "DENY"
+  X-Content-Type-Options = "nosniff"
+  Referrer-Policy = "strict-origin-when-cross-origin"
+  Permissions-Policy = "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+  Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+
+[[headers]]
+for = "/api/*"
+[headers.values]
+  Cache-Control = "no-store"

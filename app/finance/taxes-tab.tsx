@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { getTaxProfile, upsertTaxProfile, getPLStatement, formatCurrency, type TaxProfile } from '@/lib/finance-services';
+import { getTaxProfile, upsertTaxProfile, getPLStatement, formatCurrency, IRS_WRITE_OFF_CATEGORIES, type TaxProfile } from '@/lib/finance-services';
 import { toast } from 'sonner';
 
 const US_STATES = [
@@ -532,23 +532,30 @@ export function TaxesTab() {
             <Step num={4} title="Economic Nexus Thresholds" description="Most states require you to register for sales tax if you exceed $100,000 in sales OR 200 transactions in that state per year. Keep track of show sales by state." />
           </GuidanceCard>
 
-          <GuidanceCard title="Schedule C Deductions (What You Can Write Off)" icon={CheckCircle2}>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                ['Inventory Cost', 'Cost of games/items purchased for resale (COGS)'],
-                ['Shipping & Postage', 'Boxes, tape, labels, postage, USPS/UPS/FedEx'],
-                ['Platform Fees', 'eBay, Amazon, Whatnot, PayPal fees'],
-                ['Home Office', 'Dedicated space used for your reselling business'],
-                ['Vehicle Mileage', 'Trips to thrift stores, post offices, shows (67 cents/mile in 2024)'],
-                ['Software & Tools', 'RetroLoot Pro, listing tools, price guides, subscriptions'],
-                ['Protective Materials', 'Sleeves, cases, cleaning supplies for inventory'],
-                ['Show & Market Fees', 'Table/booth fees, admission costs for sourcing shows'],
-              ].map(([title, desc]) => (
-                <div key={title} className="rounded-lg border border-border/30 bg-secondary/20 p-2.5">
-                  <div className="text-xs font-medium text-white/70 mb-0.5">{title}</div>
-                  <div className="text-[10px] text-muted-foreground leading-relaxed">{desc}</div>
+          <GuidanceCard title="Write-Off Categories to Track" icon={CheckCircle2} defaultOpen>
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
+              <p className="text-xs text-primary/90 leading-relaxed">
+                IRS guidance generally starts with whether an expense is ordinary and necessary for your business. Use the Expenses tab to keep the date, amount, person, receipt link, category, and business purpose together before tax time.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {IRS_WRITE_OFF_CATEGORIES.map((category) => (
+                <div key={category.value} className="rounded-lg border border-border/30 bg-secondary/20 p-2.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="text-xs font-medium text-white/70 mb-0.5">{category.label}</div>
+                    <Badge variant="outline" className="text-[9px] border-white/10 text-white/40 shrink-0">{category.scheduleC}</Badge>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground leading-relaxed">{category.examples}</div>
                 </div>
               ))}
+            </div>
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+              <div className="flex gap-2">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
+                <p className="text-[11px] text-amber-200/75 leading-relaxed">
+                  Some costs are deducted immediately, while inventory and equipment may need to be capitalized, depreciated, or included in cost of goods sold. When unsure, mark the expense as Draft or Ready and review it with your CPA.
+                </p>
+              </div>
             </div>
           </GuidanceCard>
         </div>

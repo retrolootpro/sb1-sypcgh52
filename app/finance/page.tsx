@@ -5,18 +5,20 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { OverviewTab } from './overview-tab';
 import { TransactionsTab } from './transactions-tab';
+import { ExpensesTab } from './expenses-tab';
 import { PLTab } from './pl-tab';
 import { TaxesTab } from './taxes-tab';
 import { BanksTab } from './banks-tab';
 import { LotsTab } from './lots-tab';
 import { LoansTab } from './loans-tab';
 import { cn } from '@/lib/utils';
-import { LayoutDashboard, ReceiptText, TrendingUp, FileText, Building2, Layers, WalletCards } from 'lucide-react';
+import { LayoutDashboard, ReceiptText, TrendingUp, FileText, Building2, Layers, WalletCards, ClipboardList } from 'lucide-react';
 import { ContextHelp } from '@/components/context-help';
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'transactions', label: 'Transactions', icon: ReceiptText },
+  { id: 'expenses', label: 'Expenses', icon: ClipboardList },
   { id: 'lots', label: 'Lots', icon: Layers },
   { id: 'loans', label: 'Loans', icon: WalletCards },
   { id: 'pl', label: 'P&L', icon: TrendingUp },
@@ -45,7 +47,7 @@ export default function FinancePage() {
               Finance should answer cash available, inventory cash lock, break-even, debt, tax reserve, and true profit.
             </ContextHelp>
           </div>
-          <p className="text-xs text-muted-foreground mt-1">Money in, money out, lot break-even, loans, tax guidance, and bank reconciliation.</p>
+          <p className="text-xs text-muted-foreground mt-1">Money in, money out, expense write-off tracking, lot break-even, loans, tax guidance, and bank reconciliation.</p>
         </div>
 
         <div className="flex gap-0.5 border-b border-border/40 overflow-x-auto no-scrollbar">
@@ -73,6 +75,7 @@ export default function FinancePage() {
         <div>
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'transactions' && <TransactionsTab />}
+          {activeTab === 'expenses' && <ExpensesTab />}
           {activeTab === 'lots' && <LotsTab />}
           {activeTab === 'loans' && <LoansTab />}
           {activeTab === 'pl' && <PLTab />}

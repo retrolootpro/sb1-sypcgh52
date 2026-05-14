@@ -2,10 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
-import { Lightbulb, TrendingUp, TrendingDown, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, DollarSign, Package, Target, CalendarClock, ArrowUpRight, ArrowDownRight, Minus, BookOpen, ShieldCheck, Zap } from 'lucide-react';
+import { Lightbulb, TrendingUp, TrendingDown, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock, DollarSign, Package, Target, CalendarClock, ArrowUpRight, ArrowDownRight, Minus, BookOpen, ShieldCheck, Zap, ReceiptText } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { getPLStatement, getTaxProfile, formatCurrency } from '@/lib/finance-services';
+import { getExpenseTotalsByPerson, getPLStatement, getTaxProfile, formatCurrency, type ExpensePersonTotal } from '@/lib/finance-services';
 import { format, differenceInDays, startOfYear, endOfYear } from 'date-fns';
 
 type InventoryItem = {
@@ -121,14 +121,16 @@ export default function InsightsPage() {
   const [ytdPL, setYtdPL] = useState<Awaited<ReturnType<typeof getPLStatement>> | null>(null);
   const [taxProfile, setTaxProfile] = useState<Awaited<ReturnType<typeof getTaxProfile>> | null>(null);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [expensePeople, setExpensePeople] = useState<ExpensePersonTotal[]>([]);
 
   const load = useCallback(async () => {
     if (!user || !accountId) return;
     setLoading(true);
     try {
-      const [pl, tax, inv] = await Promise.all([
+      const [pl, tax, expenseTotals, inv] = await Promise.all([
         getPLStatement(year),
         getTaxProfile(),
+        getExpenseTotalsByPerson(year),
         supabase
           .from('inventory_items')
           .select('id, product_name, console, condition, purchase_price, sell_price, status, created_at, sold_at')
@@ -137,10 +139,11 @@ export default function InsightsPage() {
       ]);
       setYtdPL(pl);
       setTaxProfile(tax);
+      setExpensePeople(expenseTotals);
       setInventoryItems((inv.data as InventoryItem[]) || []);
     } catch { /* silent */ }
     finally { setLoading(false); }
-  }, [user, year]);
+  }, [accountId, user, year]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -481,6 +484,30 @@ export default function InsightsPage() {
               </div>
             )}
           </div>
+        </div>
+
+        <div className="rounded-2xl border border-border/40 bg-card p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <ReceiptText className="w-4 h-4 text-primary" />
+            <span className="text-sm font-semibold text-white/80">Expense Totals by Person</span>
+            <span className="text-[10px] text-muted-foreground ml-auto">Finance → Expenses</span>
+          </div>
+          {expensePeople.length === 0 ? (
+            <div className="rounded-xl border border-border/30 bg-secondary/20 p-4 text-center">
+              <div className="text-sm text-white/70">No tracked expenses yet</div>
+              <div className="text-xs text-muted-foreground mt-1">Add business expenses in Finance to see who paid what this year.</div>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {expensePeople.slice(0, 6).map((person) => (
+                <div key={person.email} className="rounded-xl border border-border/30 bg-secondary/20 p-4">
+                  <div className="text-xs font-semibold text-white/75 truncate">{person.name}</div>
+                  <div className="text-lg font-bold text-red-300 mt-1 tabular-nums">{formatCurrency(person.total)}</div>
+                  <div className="text-[10px] text-muted-foreground mt-1">{person.count} expense{person.count === 1 ? '' : 's'} tracked</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="rounded-2xl border border-border/40 bg-card p-5 space-y-4">

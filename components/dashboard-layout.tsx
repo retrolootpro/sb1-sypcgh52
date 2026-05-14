@@ -26,10 +26,12 @@ import {
   BookOpen,
   Gavel,
   Boxes,
+  FileLock2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { QuickDealScannerLauncher } from '@/components/quick-deal-scanner-launcher';
+import { getAccountSecuritySettings, isMfaSatisfied } from '@/lib/security-services';
 
 const navGroups = [
   {
@@ -63,6 +65,7 @@ const navGroups = [
     items: [
       { href: '/finance', label: 'Finance', icon: DollarSign },
       { href: '/insights', label: 'Reports', icon: Lightbulb },
+      { href: '/documents', label: 'Documents', icon: FileLock2 },
       { href: '/shipping', label: 'Shipping', icon: Truck },
     ],
   },
@@ -274,6 +277,25 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       router.push('/');
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (loading || !user || !pathname) return;
+    if (pathname === '/settings' || pathname.startsWith('/auth/')) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const settings = await getAccountSecuritySettings();
+        if (!cancelled && settings?.require_mfa && !(await isMfaSatisfied())) {
+          router.push('/settings?security=mfa');
+        }
+      } catch {
+        // If security settings cannot load, keep the existing route guard behavior.
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [loading, pathname, router, user]);
 
   useEffect(() => {
     setMobileOpen(false);

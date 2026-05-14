@@ -7,13 +7,14 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Key, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Plus, Trash2, Eye, EyeOff, ShieldCheck, Image, Plug, Bell, Save } from 'lucide-react';
+import { Key, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Plus, Trash2, Eye, EyeOff, ShieldCheck, Image, Plug, Bell, Save, KeyRound, QrCode, Smartphone } from 'lucide-react';
 import { EbayConnectCard } from '@/components/ebay-connect-card';
 import { AmazonConnectCard } from '@/components/amazon-connect-card';
 import { WhatnotConnectCard } from '@/components/whatnot-connect-card';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds } from '@/lib/inventory-aging';
+import { getAccountSecuritySettings, getAssuranceLevel, upsertAccountSecuritySettings, type AccountSecuritySettings } from '@/lib/security-services';
 
 type ApiKey = {
   id: string;
@@ -75,6 +76,16 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [watchDaysInput, setWatchDaysInput] = useState('45');
   const [reviewDaysInput, setReviewDaysInput] = useState('60');
+  const [securitySettings, setSecuritySettings] = useState<AccountSecuritySettings | null>(null);
+  const [currentAal, setCurrentAal] = useState<string | null>(null);
+  const [mfaFactors, setMfaFactors] = useState<any[]>([]);
+  const [totpQr, setTotpQr] = useState('');
+  const [totpFactorId, setTotpFactorId] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [phoneFactorId, setPhoneFactorId] = useState('');
+  const [phoneCode, setPhoneCode] = useState('');
+  const [mfaChallengeCode, setMfaChallengeCode] = useState('');
   const toastShown = useRef(false);
 
   useEffect(() => {
@@ -127,6 +138,29 @@ export default function SettingsPage() {
       loadApiKeys();
     }
   }, [user, accountId, loadApiKeys]);
+
+  const loadSecurity = useCallback(async () => {
+    if (!user || !accountId) return;
+    try {
+      const [settings, aal, factors] = await Promise.all([
+        getAccountSecuritySettings(),
+        getAssuranceLevel(),
+        supabase.auth.mfa.listFactors(),
+      ]);
+      setSecuritySettings(settings);
+      setCurrentAal(aal);
+      setMfaFactors([
+        ...((factors.data as any)?.totp || []),
+        ...((factors.data as any)?.phone || []),
+      ]);
+    } catch (error) {
+      console.warn('Failed to load security settings', error);
+    }
+  }, [accountId, user]);
+
+  useEffect(() => {
+    loadSecurity();
+  }, [loadSecurity]);
 
   useEffect(() => {
     const thresholds = readAgingThresholds();
@@ -199,6 +233,116 @@ export default function SettingsPage() {
     }
   };
 
+  const saveSecuritySettings = async (updates: Partial<AccountSecuritySettings>) => {
+    if (!isAdmin) return;
+    try {
+      const next = {
+        require_mfa: updates.require_mfa ?? securitySettings?.require_mfa ?? false,
+        allowed_mfa_methods: updates.allowed_mfa_methods ?? securitySettings?.allowed_mfa_methods ?? ['totp'],
+        passkeys_enabled: updates.passkeys_enabled ?? securitySettings?.passkeys_enabled ?? false,
+      };
+      await upsertAccountSecuritySettings(next);
+      toast.success('Security settings saved');
+      loadSecurity();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save security settings');
+    }
+  };
+
+  const beginTotpEnroll = async () => {
+    try {
+      const { data, error } = await supabase.auth.mfa.enroll({
+        factorType: 'totp',
+        issuer: 'RetroLootPro',
+        friendlyName: 'RetroLootPro app',
+      } as any);
+      if (error) throw error;
+      setTotpFactorId(data.id);
+      setTotpQr((data as any).totp?.qr_code || (data as any).totp?.qrCode || '');
+      toast.success('Scan the QR code, then enter the 6-digit code.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not start authenticator setup');
+    }
+  };
+
+  const verifyTotpEnroll = async () => {
+    try {
+      const challenge = await supabase.auth.mfa.challenge({ factorId: totpFactorId });
+      if (challenge.error) throw challenge.error;
+      const verified = await supabase.auth.mfa.verify({
+        factorId: totpFactorId,
+        challengeId: challenge.data.id,
+        code: totpCode.trim(),
+      });
+      if (verified.error) throw verified.error;
+      toast.success('Authenticator app enabled');
+      setTotpQr('');
+      setTotpFactorId('');
+      setTotpCode('');
+      loadSecurity();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Verification failed');
+    }
+  };
+
+  const beginPhoneEnroll = async () => {
+    try {
+      const { data, error } = await supabase.auth.mfa.enroll({
+        factorType: 'phone',
+        phone: phoneNumber.trim(),
+        friendlyName: 'RetroLootPro phone',
+      } as any);
+      if (error) throw error;
+      setPhoneFactorId(data.id);
+      toast.success('SMS code sent. Enter it to verify this phone.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not start SMS setup. Confirm Phone MFA/SMS is enabled in Supabase.');
+    }
+  };
+
+  const verifyPhoneEnroll = async () => {
+    try {
+      const challenge = await supabase.auth.mfa.challenge({ factorId: phoneFactorId });
+      if (challenge.error) throw challenge.error;
+      const verified = await supabase.auth.mfa.verify({
+        factorId: phoneFactorId,
+        challengeId: challenge.data.id,
+        code: phoneCode.trim(),
+      });
+      if (verified.error) throw verified.error;
+      toast.success('SMS MFA enabled');
+      setPhoneNumber('');
+      setPhoneFactorId('');
+      setPhoneCode('');
+      loadSecurity();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'SMS verification failed');
+    }
+  };
+
+  const verifyExistingMfa = async () => {
+    const factor = mfaFactors.find((entry) => entry.status === 'verified');
+    if (!factor) {
+      toast.error('No verified MFA factor found. Enroll one first.');
+      return;
+    }
+    try {
+      const challenge = await supabase.auth.mfa.challenge({ factorId: factor.id });
+      if (challenge.error) throw challenge.error;
+      const verified = await supabase.auth.mfa.verify({
+        factorId: factor.id,
+        challengeId: challenge.data.id,
+        code: mfaChallengeCode.trim(),
+      });
+      if (verified.error) throw verified.error;
+      toast.success('MFA verified for this session');
+      setMfaChallengeCode('');
+      loadSecurity();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'MFA verification failed');
+    }
+  };
+
   const toggleKeyVisibility = (keyId: string) => {
     setShowKey(prev => ({ ...prev, [keyId]: !prev[keyId] }));
   };
@@ -212,6 +356,107 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
+          <div className="px-6 py-4 border-b border-border/40">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-primary" />
+              <h3 className="font-semibold text-[15px]">Security Controls</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Require MFA, review your current assurance level, and enroll authenticator app or SMS factors.
+            </p>
+          </div>
+          <div className="p-5 space-y-5">
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-border/30 bg-secondary/20 p-4">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Current Session</div>
+                <div className="text-sm font-semibold text-white/80 mt-1">{currentAal === 'aal2' ? 'MFA verified' : 'Password only'}</div>
+              </div>
+              <div className="rounded-xl border border-border/30 bg-secondary/20 p-4">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Account Requirement</div>
+                <div className="text-sm font-semibold text-white/80 mt-1">{securitySettings?.require_mfa ? 'MFA required' : 'MFA optional'}</div>
+              </div>
+              <div className="rounded-xl border border-border/30 bg-secondary/20 p-4">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Enrolled Factors</div>
+                <div className="text-sm font-semibold text-white/80 mt-1">{mfaFactors.filter((f) => f.status === 'verified').length}</div>
+              </div>
+            </div>
+
+            {isAdmin && (
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-white/85">Require MFA for the business account</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">When enabled, team members must complete MFA before using protected app areas.</div>
+                </div>
+                <Button
+                  variant={securitySettings?.require_mfa ? 'outline' : 'default'}
+                  onClick={() => saveSecuritySettings({ require_mfa: !securitySettings?.require_mfa })}
+                >
+                  {securitySettings?.require_mfa ? 'Disable Requirement' : 'Require MFA'}
+                </Button>
+              </div>
+            )}
+
+            {currentAal !== 'aal2' && mfaFactors.some((factor) => factor.status === 'verified') && (
+              <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-amber-200">Verify MFA for this session</div>
+                  <div className="text-xs text-amber-200/70 mt-0.5">Enter a code from your enrolled factor to unlock protected areas.</div>
+                </div>
+                <div className="flex gap-2">
+                  <Input value={mfaChallengeCode} onChange={(e) => setMfaChallengeCode(e.target.value)} placeholder="6-digit code" className="h-9 w-36 text-xs bg-black/30" />
+                  <Button size="sm" onClick={verifyExistingMfa}>Verify</Button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="rounded-xl border border-border/30 bg-secondary/20 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <QrCode className="w-4 h-4 text-primary" />
+                  <div className="text-sm font-semibold text-white/80">Authenticator App</div>
+                </div>
+                <p className="text-xs text-muted-foreground">Use 1Password, Google Authenticator, Microsoft Authenticator, Authy, or Apple Passwords.</p>
+                {!totpQr ? (
+                  <Button size="sm" onClick={beginTotpEnroll}>Set Up App MFA</Button>
+                ) : (
+                  <div className="space-y-2">
+                    <img src={totpQr} alt="Authenticator QR code" className="w-36 h-36 rounded-lg bg-white p-2" />
+                    <Input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="6-digit code" className="h-9 text-xs bg-black/30" />
+                    <Button size="sm" onClick={verifyTotpEnroll}>Verify App</Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border/30 bg-secondary/20 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-primary" />
+                  <div className="text-sm font-semibold text-white/80">SMS</div>
+                </div>
+                <p className="text-xs text-muted-foreground">Phone MFA requires SMS/Phone MFA provider configuration in Supabase Auth.</p>
+                <Input value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="+15555555555" className="h-9 text-xs bg-black/30" />
+                {!phoneFactorId ? (
+                  <Button size="sm" onClick={beginPhoneEnroll}>Send SMS Code</Button>
+                ) : (
+                  <div className="space-y-2">
+                    <Input value={phoneCode} onChange={(e) => setPhoneCode(e.target.value)} placeholder="SMS code" className="h-9 text-xs bg-black/30" />
+                    <Button size="sm" onClick={verifyPhoneEnroll}>Verify SMS</Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-border/30 bg-secondary/20 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="w-4 h-4 text-primary" />
+                  <div className="text-sm font-semibold text-white/80">Passkey</div>
+                </div>
+                <p className="text-xs text-muted-foreground">Passkey/WebAuthn is prepared as a security target, but first-class Supabase app auth support is not enabled in this app yet.</p>
+                <Badge variant="outline" className="w-fit border-amber-500/25 text-amber-300 bg-amber-500/10">Planned</Badge>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {isAdmin && <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
           <div className="px-6 py-4 border-b border-border/40">
             <div className="flex items-center gap-2">
               <Bell className="w-4 h-4 text-primary" />
@@ -276,9 +521,9 @@ export default function SettingsPage() {
               ))}
             </div>
           </div>
-        </div>
+        </div>}
 
-        <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
+        {isAdmin && <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
           <div className="px-6 py-4 border-b border-border/40">
             <div className="flex items-center gap-2">
               <Key className="w-4 h-4 text-primary" />
@@ -413,9 +658,9 @@ export default function SettingsPage() {
               );
             })}
           </div>
-        </div>
+        </div>}
 
-        <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
+        {isAdmin && <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
           <div className="px-6 py-4 border-b border-border/40">
             <div className="flex items-center gap-2">
               <Plug className="w-4 h-4 text-primary" />
@@ -432,7 +677,7 @@ export default function SettingsPage() {
             <div className="border-t border-border/30" />
             <WhatnotConnectCard />
           </div>
-        </div>
+        </div>}
 
         <div className="rounded-2xl border border-border/40 bg-card p-5">
           <div className="flex items-center gap-2 mb-2">
