@@ -12,6 +12,25 @@ function siteUrl(req: NextRequest) {
   return process.env.NEXT_PUBLIC_SITE_URL || process.env.URL || req.nextUrl.origin;
 }
 
+function isAlreadyRegisteredError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /already.*registered|already.*exists|user.*exists/i.test(message);
+}
+
+async function findAuthUserByEmail(admin: any, email: string) {
+  const normalizedEmail = email.toLowerCase();
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+
+    const match = data.users.find((candidate: { email?: string | null }) => candidate.email?.toLowerCase() === normalizedEmail);
+    if (match) return match;
+    if (data.users.length < 1000) break;
+  }
+
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization') ?? '';
@@ -53,11 +72,28 @@ export async function POST(req: NextRequest) {
 
     const { data: existingMembership } = await admin
       .from('user_account_memberships')
-      .select('id')
+      .select('id, status, user_id')
       .eq('account_owner_id', account.accountId)
       .eq('email', inviteEmail)
       .neq('status', 'revoked')
       .maybeSingle();
+
+    if (existingMembership?.status === 'active') {
+      const { error: roleUpdateError } = await admin
+        .from('user_account_memberships')
+        .update({
+          role: inviteRole,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', existingMembership.id);
+
+      if (roleUpdateError) throw roleUpdateError;
+
+      return json({
+        success: true,
+        message: `${inviteEmail} already has active access. Role updated to ${inviteRole}.`,
+      });
+    }
 
     const membershipWrite = existingMembership
       ? admin
@@ -95,7 +131,32 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    if (inviteError) throw inviteError;
+    if (inviteError) {
+      if (!isAlreadyRegisteredError(inviteError)) throw inviteError;
+
+      const existingUser = await findAuthUserByEmail(admin, inviteEmail);
+      if (!existingUser) throw inviteError;
+
+      const { error: activateError } = await admin
+        .from('user_account_memberships')
+        .update({
+          user_id: existingUser.id,
+          role: inviteRole,
+          status: 'active',
+          accepted_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('account_owner_id', account.accountId)
+        .eq('email', inviteEmail)
+        .neq('status', 'revoked');
+
+      if (activateError) throw activateError;
+
+      return json({
+        success: true,
+        message: `${inviteEmail} already has a login, so team access was activated. They can sign in normally.`,
+      });
+    }
 
     return json({
       success: true,
