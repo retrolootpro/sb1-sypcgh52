@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
     const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(inviteEmail, {
       redirectTo: `${siteUrl(req)}/auth/callback?next=/dashboard`,
       data: {
+        app_name: 'RetroLootPro',
         account_owner_id: account.accountId,
         account_role: inviteRole,
       },
@@ -104,6 +105,65 @@ export async function POST(req: NextRequest) {
     return json({
       success: false,
       message: error instanceof Error ? error.message : 'Invite failed',
+    }, 500);
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const authHeader = req.headers.get('authorization') ?? '';
+    if (!authHeader) return json({ success: false, message: 'Missing authorization' }, 401);
+
+    const { membershipId } = await req.json().catch(() => ({}));
+    const inviteId = String(membershipId || '').trim();
+    if (!inviteId) return json({ success: false, message: 'Missing invitation id.' }, 400);
+
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { global: { headers: { Authorization: authHeader } } }
+    );
+
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    if (userError || !user) return json({ success: false, message: 'Auth failed' }, 401);
+
+    const account = await getServerAccountContext(supabase, user);
+    if (account.role !== 'admin') {
+      return json({ success: false, message: 'Only admins can delete invitations.' }, 403);
+    }
+
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!serviceRoleKey) {
+      return json({
+        success: false,
+        message: 'SUPABASE_SERVICE_ROLE_KEY is required on Netlify before invitations can be changed.',
+      }, 500);
+    }
+
+    const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { error: revokeError } = await admin
+      .from('user_account_memberships')
+      .update({
+        status: 'revoked',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', inviteId)
+      .eq('account_owner_id', account.accountId)
+      .eq('status', 'invited');
+
+    if (revokeError) throw revokeError;
+
+    return json({
+      success: true,
+      message: 'Invitation deleted.',
+    });
+  } catch (error) {
+    return json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Delete invitation failed',
     }, 500);
   }
 }

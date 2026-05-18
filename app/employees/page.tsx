@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { UserPlus, Target, DollarSign, Package, ShoppingCart, Calendar, ShoppingBag, ExternalLink, ShieldCheck, Mail, Users } from 'lucide-react';
+import { UserPlus, Target, DollarSign, Package, ShoppingCart, Calendar, ShoppingBag, ExternalLink, ShieldCheck, Mail, Users, RefreshCw, Trash2, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { getAllEnhancedEmployeePerformances, type EnhancedEmployeePerformance } from '@/lib/api-services';
 import { AddEmployeeDialog } from '@/components/add-employee-dialog';
@@ -25,6 +25,7 @@ export default function EmployeesPage() {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<AccountRole>('user');
   const [inviteSending, setInviteSending] = useState(false);
+  const [inviteActionId, setInviteActionId] = useState<string | null>(null);
   const [addEmployeeOpen, setAddEmployeeOpen] = useState(false);
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
@@ -88,21 +89,26 @@ export default function EmployeesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId]);
 
+  const sendInviteRequest = async (email: string, role: AccountRole) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch('/api/team/invite', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${session?.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, role }),
+    });
+    const result = await response.json();
+    if (!response.ok || result.success === false) throw new Error(result.message || 'Invite failed');
+    return result;
+  };
+
   const handleInvite = async () => {
     if (!inviteEmail.trim()) return;
     setInviteSending(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/team/invite', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${session?.access_token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email: inviteEmail.trim(), role: inviteRole }),
-      });
-      const result = await response.json();
-      if (!response.ok || result.success === false) throw new Error(result.message || 'Invite failed');
+      const result = await sendInviteRequest(inviteEmail.trim(), inviteRole);
       toast.success(result.message || 'Invitation sent');
       setInviteEmail('');
       setInviteRole('user');
@@ -111,6 +117,43 @@ export default function EmployeesPage() {
       toast.error(error.message || 'Invite failed');
     } finally {
       setInviteSending(false);
+    }
+  };
+
+  const handleResendInvite = async (member: AccountMembership) => {
+    setInviteActionId(member.id);
+    try {
+      const result = await sendInviteRequest(member.email, member.role);
+      toast.success(result.message || 'Invitation resent');
+      loadMemberships();
+    } catch (error: any) {
+      toast.error(error.message || 'Resend invite failed');
+    } finally {
+      setInviteActionId(null);
+    }
+  };
+
+  const handleDeleteInvite = async (member: AccountMembership) => {
+    if (!window.confirm(`Delete the pending invitation for ${member.email}?`)) return;
+    setInviteActionId(member.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/team/invite', {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ membershipId: member.id }),
+      });
+      const result = await response.json();
+      if (!response.ok || result.success === false) throw new Error(result.message || 'Delete invitation failed');
+      toast.success(result.message || 'Invitation deleted');
+      loadMemberships();
+    } catch (error: any) {
+      toast.error(error.message || 'Delete invitation failed');
+    } finally {
+      setInviteActionId(null);
     }
   };
 
@@ -190,11 +233,44 @@ export default function EmployeesPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{member.email}</div>
-                    <div className="mt-1 text-[11px] text-muted-foreground">
-                      {member.status === 'active' ? 'Active login' : 'Invitation pending'}
+                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      {member.status === 'active' ? (
+                        'Active login'
+                      ) : (
+                        <>
+                          <Clock className="h-3 w-3" />
+                          Invitation pending
+                        </>
+                      )}
                     </div>
                   </div>
-                  <Badge variant="outline" className="text-[10px] uppercase">{member.role}</Badge>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Badge variant="outline" className="text-[10px] uppercase">{member.role}</Badge>
+                    {isAdmin && member.status === 'invited' && (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => handleResendInvite(member)}
+                          disabled={inviteActionId === member.id}
+                        >
+                          <RefreshCw className="mr-1 h-3 w-3" />
+                          Resend
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2 text-[11px] text-red-300 hover:text-red-200"
+                          onClick={() => handleDeleteInvite(member)}
+                          disabled={inviteActionId === member.id}
+                        >
+                          <Trash2 className="mr-1 h-3 w-3" />
+                          Delete
+                        </Button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             ))}
