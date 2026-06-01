@@ -339,13 +339,14 @@ export interface EmployeeInventorySpend {
   line_item_amount?: number;
   shipping_amount?: number;
   tax_amount?: number;
+  tax_rate?: number;
   fulfillment_method?: 'pickup' | 'shipping';
   purchase_type?: 'manual' | 'inventory_cart';
   allowance_month: string;
   vendor?: string;
   item_summary: string;
   inventory_item_id?: string | null;
-  status: 'pending' | 'approved' | 'reimbursed' | 'rejected';
+  status: 'pending_admin' | 'pending_employee' | 'pending' | 'approved' | 'reimbursed' | 'rejected';
   notes?: string;
   created_at: string;
   updated_at: string;
@@ -392,6 +393,7 @@ export interface EmployeePayout {
 export interface EmployeePayrollSummary {
   employee: Employee;
   monthSpend: number;
+  monthPurchaseTotal: number;
   remainingAllowance: number;
   unpaidWorkTotal: number;
   unpaidSpendTotal: number;
@@ -421,6 +423,7 @@ export interface EmployeeCartPurchaseLine {
   line_item_amount: number;
   shipping_amount: number;
   tax_amount: number;
+  tax_rate?: number;
   fulfillment_method: 'pickup' | 'shipping';
   notes?: string;
 }
@@ -432,8 +435,11 @@ export function calculateWorkLogAmount(log: Pick<EmployeeWorkLog, 'minutes_worke
 }
 
 export function calculateEmployeePurchaseAmount(entry: Pick<EmployeeInventorySpend, 'amount' | 'line_item_amount' | 'shipping_amount' | 'tax_amount'>) {
-  const detailedTotal = Number(entry.line_item_amount || 0) + Number(entry.shipping_amount || 0) + Number(entry.tax_amount || 0);
-  return detailedTotal > 0 ? detailedTotal : Number(entry.amount || 0);
+  return Number(entry.line_item_amount || entry.amount || 0);
+}
+
+export function calculateEmployeePurchaseTotal(entry: Pick<EmployeeInventorySpend, 'amount' | 'line_item_amount' | 'shipping_amount' | 'tax_amount'>) {
+  return calculateEmployeePurchaseAmount(entry) + Number(entry.shipping_amount || 0) + Number(entry.tax_amount || 0);
 }
 
 function monthStart(date = new Date()) {
@@ -495,6 +501,9 @@ export async function getEmployeePayrollSummaries(options?: { weekStart?: string
     const monthSpend = employeeSpend
       .filter((entry) => entry.status !== 'rejected')
       .reduce((sum, entry) => sum + calculateEmployeePurchaseAmount(entry), 0);
+    const monthPurchaseTotal = employeeSpend
+      .filter((entry) => entry.status !== 'rejected')
+      .reduce((sum, entry) => sum + calculateEmployeePurchaseTotal(entry), 0);
     const unpaidWorkTotal = employeeWork
       .filter((entry) => entry.payout_status === 'unpaid' || entry.payout_status === 'approved')
       .reduce((sum, entry) => sum + calculateWorkLogAmount(entry), 0);
@@ -515,6 +524,7 @@ export async function getEmployeePayrollSummaries(options?: { weekStart?: string
     return {
       employee,
       monthSpend,
+      monthPurchaseTotal,
       remainingAllowance: Math.max(0, 500 - monthSpend),
       unpaidWorkTotal,
       unpaidSpendTotal,
@@ -589,7 +599,7 @@ export async function createEmployeeCartPurchase(input: {
   const accountId = await getActiveAccountId(session.user);
 
   const rows = input.lines.map((line) => {
-    const amount = Number(line.line_item_amount || 0) + Number(line.shipping_amount || 0) + Number(line.tax_amount || 0);
+    const amount = Number(line.line_item_amount || 0);
     return {
       user_id: accountId,
       employee_id: input.employee_id,
@@ -599,6 +609,7 @@ export async function createEmployeeCartPurchase(input: {
       line_item_amount: Number(line.line_item_amount || 0),
       shipping_amount: Number(line.shipping_amount || 0),
       tax_amount: Number(line.tax_amount || 0),
+      tax_rate: Number(line.tax_rate || 0),
       fulfillment_method: line.fulfillment_method,
       purchase_type: 'inventory_cart',
       vendor: 'RetroLootPro Inventory',
@@ -618,15 +629,13 @@ export async function createEmployeeCartPurchase(input: {
 
   if (input.status === 'approved') {
     await Promise.all(input.lines.map(async (line) => {
-      const total = Number(line.line_item_amount || 0) + Number(line.shipping_amount || 0) + Number(line.tax_amount || 0);
       const { error: updateError } = await supabase
         .from('inventory_items')
         .update({
           status: 'sold',
-          sell_price: total,
+          sell_price: Number(line.line_item_amount || 0),
           sold_at: new Date().toISOString(),
           sold_by_employee_id: input.employee_id,
-          sold_via: 'employee_purchase',
         })
         .eq('id', line.inventory_item_id)
         .eq('user_id', accountId);
@@ -635,6 +644,60 @@ export async function createEmployeeCartPurchase(input: {
   }
 
   return (data || []) as EmployeeInventorySpend[];
+}
+
+export async function updateEmployeePurchaseLine(input: {
+  id: string;
+  shipping_amount?: number;
+  tax_amount?: number;
+  tax_rate?: number;
+  status?: EmployeeInventorySpend['status'];
+  notes?: string;
+}): Promise<EmployeeInventorySpend> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const { data, error } = await supabase
+    .from('employee_inventory_spend')
+    .update({
+      shipping_amount: input.shipping_amount,
+      tax_amount: input.tax_amount,
+      tax_rate: input.tax_rate,
+      status: input.status,
+      notes: input.notes,
+    })
+    .eq('id', input.id)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as EmployeeInventorySpend;
+}
+
+export async function approveEmployeePurchaseLine(entry: EmployeeInventorySpend): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { error } = await supabase
+    .from('employee_inventory_spend')
+    .update({ status: 'approved' })
+    .eq('id', entry.id);
+  if (error) throw error;
+
+  if (entry.inventory_item_id) {
+    const { error: updateError } = await supabase
+      .from('inventory_items')
+      .update({
+        status: 'sold',
+        sell_price: calculateEmployeePurchaseAmount(entry),
+        sold_at: new Date().toISOString(),
+        sold_by_employee_id: entry.employee_id,
+      })
+      .eq('id', entry.inventory_item_id)
+      .eq('user_id', accountId);
+    if (updateError) throw updateError;
+  }
 }
 
 export async function createEmployeeWorkLog(input: Omit<EmployeeWorkLog, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<EmployeeWorkLog> {

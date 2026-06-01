@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   calculateEmployeePurchaseAmount,
+  calculateEmployeePurchaseTotal,
   calculateWorkLogAmount,
   createEmployeeCartPurchase,
   createEmployeeInventorySpend,
@@ -19,7 +20,9 @@ import {
   getCurrentEmployeeProfile,
   getEmployeePayrollSummaries,
   getEmployeePurchasableInventory,
+  approveEmployeePurchaseLine,
   markEmployeePayoutPaid,
+  updateEmployeePurchaseLine,
   type Employee,
   type EmployeePurchasableInventoryItem,
   type EmployeeInventorySpend,
@@ -64,7 +67,9 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   const [cart, setCart] = useState<CartItem[]>([]);
   const [fulfillmentMethod, setFulfillmentMethod] = useState<'pickup' | 'shipping'>('pickup');
   const [shippingCharge, setShippingCharge] = useState('');
-  const [taxCharge, setTaxCharge] = useState('');
+  const [taxRate, setTaxRate] = useState('7');
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, { shipping: string; taxRate: string }>>({});
+  const [showAllTransactions, setShowAllTransactions] = useState(false);
 
   const [spendForm, setSpendForm] = useState<{
     amount: string;
@@ -115,7 +120,8 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   });
   const cartSubtotal = cart.reduce((sum, item) => sum + Number(item.cartPrice || 0), 0);
   const cartShipping = Number(shippingCharge || 0);
-  const cartTax = Number(taxCharge || 0);
+  const cartTaxRate = Math.max(0, Number(taxRate || 0)) / 100;
+  const cartTax = cartSubtotal * cartTaxRate;
   const cartTotal = cartSubtotal + cartShipping + cartTax;
   const filteredInventoryItems = inventoryItems
     .filter((item) => !cart.some((cartItem) => cartItem.id === item.id))
@@ -125,17 +131,20 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
       return `${item.title} ${item.platform || ''} ${item.condition || ''}`.toLowerCase().includes(search);
     })
     .slice(0, 24);
+  const selectedSpendRows = selectedSummary?.spend || [];
+  const visibleSpendRows = showAllTransactions ? selectedSpendRows : selectedSpendRows.slice(0, 6);
 
   const totals = useMemo(() => {
     return summaries.reduce(
       (acc, summary) => {
         acc.monthSpend += summary.monthSpend;
+        acc.monthPurchaseTotal += summary.monthPurchaseTotal;
         acc.unpaidWork += summary.unpaidWorkTotal;
         acc.unpaidSpend += summary.unpaidSpendTotal;
         acc.weekPayout += summary.weeklyPayoutTotal;
         return acc;
       },
-      { monthSpend: 0, unpaidWork: 0, unpaidSpend: 0, weekPayout: 0 }
+      { monthSpend: 0, monthPurchaseTotal: 0, unpaidWork: 0, unpaidSpend: 0, weekPayout: 0 }
     );
   }, [summaries]);
 
@@ -156,6 +165,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
           setSummaries(employeeData.map((employee) => ({
             employee,
             monthSpend: 0,
+            monthPurchaseTotal: 0,
             remainingAllowance: 500,
             unpaidWorkTotal: 0,
             unpaidSpendTotal: 0,
@@ -206,6 +216,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         line_item_amount: Number(spendForm.amount || 0),
         shipping_amount: 0,
         tax_amount: 0,
+        tax_rate: 0,
         fulfillment_method: 'pickup',
         purchase_type: 'manual',
         spend_date: spendForm.spend_date,
@@ -246,7 +257,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         employee_id: employeeId,
         spend_date: today(),
         allowance_month: selectedMonth,
-        status: isAdmin ? 'approved' : 'pending',
+        status: isAdmin ? 'pending_employee' : 'pending_admin',
         lines: cart.map((item) => {
           const ratio = cartSubtotal > 0 ? Number(item.cartPrice || 0) / lineTotal : 1 / cart.length;
           const shipping = fulfillmentMethod === 'shipping' ? cartShipping * ratio : 0;
@@ -257,15 +268,17 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
             line_item_amount: Number(item.cartPrice || 0),
             shipping_amount: shipping,
             tax_amount: tax,
+            tax_rate: cartTaxRate,
             fulfillment_method: fulfillmentMethod,
-            notes: fulfillmentMethod === 'shipping' ? 'Employee inventory purchase with shipping.' : 'Employee inventory purchase for pickup.',
+            notes: isAdmin
+              ? 'Admin reviewed employee purchase. Awaiting employee final approval.'
+              : 'Employee inventory purchase request. Awaiting admin shipping review.',
           };
         }),
       });
-      toast.success(isAdmin ? 'Employee purchase added and inventory marked sold' : 'Purchase request added for admin review');
+      toast.success(isAdmin ? 'Purchase sent for employee final approval' : 'Purchase request sent for admin review');
       setCart([]);
       setShippingCharge('');
-      setTaxCharge('');
       setInventorySearch('');
       load();
     } catch (error: any) {
@@ -350,6 +363,58 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
     }
   };
 
+  const handleSendPurchaseForApproval = async (entry: EmployeeInventorySpend) => {
+    const draft = reviewDrafts[entry.id] || {};
+    const shipping = Number(draft.shipping ?? entry.shipping_amount ?? 0);
+    const defaultTaxRate = Number(entry.tax_rate || 0) > 0 ? Number(entry.tax_rate || 0) * 100 : Number(taxRate || 0);
+    const rate = Math.max(0, Number(draft.taxRate ?? defaultTaxRate)) / 100;
+    const itemAmount = calculateEmployeePurchaseAmount(entry);
+
+    setSaving(true);
+    try {
+      await updateEmployeePurchaseLine({
+        id: entry.id,
+        shipping_amount: shipping,
+        tax_rate: rate,
+        tax_amount: itemAmount * rate,
+        status: 'pending_employee',
+        notes: 'Admin reviewed shipping and tax. Awaiting employee final approval.',
+      });
+      toast.success('Purchase sent back for employee approval');
+      load();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update purchase');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleApprovePurchase = async (entry: EmployeeInventorySpend) => {
+    setSaving(true);
+    try {
+      await approveEmployeePurchaseLine(entry);
+      toast.success('Purchase approved and added to employee spend');
+      load();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to approve purchase');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRejectPurchase = async (entry: EmployeeInventorySpend) => {
+    setSaving(true);
+    try {
+      await updateEmployeePurchaseLine({ id: entry.id, status: 'rejected', notes: 'Employee purchase rejected.' });
+      toast.success('Purchase rejected');
+      load();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to reject purchase');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleMarkPaid = async (payoutId: string) => {
     setSaving(true);
     try {
@@ -395,10 +460,11 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         </Button>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard icon={ReceiptText} label="Monthly employee spend" value={money(totals.monthSpend)} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <SummaryCard icon={ReceiptText} label="Allowance used" value={money(totals.monthSpend)} />
+        <SummaryCard icon={ShoppingCart} label="Employee total due" value={money(totals.monthPurchaseTotal)} />
         <SummaryCard icon={BriefcaseBusiness} label="Unpaid work" value={money(totals.unpaidWork)} />
-        <SummaryCard icon={DollarSign} label="Employee purchases owed" value={money(totals.unpaidSpend)} />
+        <SummaryCard icon={DollarSign} label="Approved allowance deductions" value={money(totals.unpaidSpend)} />
         <SummaryCard icon={CalendarDays} label="Payouts this week" value={money(totals.weekPayout)} />
       </div>
 
@@ -444,7 +510,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
             <div>
               <div className="text-base font-semibold">{selectedSummary.employee.name}</div>
               <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                {money(selectedSummary.monthSpend)} used of $500 monthly employee purchase allowance. {money(selectedSummary.remainingAllowance)} remaining.
+                {money(selectedSummary.monthSpend)} used of $500 monthly item-cost allowance. {money(selectedSummary.remainingAllowance)} remaining. Employee total due with tax/shipping is {money(selectedSummary.monthPurchaseTotal)}.
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[440px]">
@@ -491,9 +557,12 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
                     <ShoppingCart className="h-4 w-4 text-primary" />
                     Inventory Purchase Cart
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">Browse available inventory, add items at company cost, then apply shipping and tax.</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">Browse available inventory and submit a cart for approval. Tax is calculated automatically; shipping can be added after admin review.</p>
                 </div>
-                <div className="text-right text-sm font-semibold">{money(cartTotal)}</div>
+                <div className="text-right text-sm">
+                  <div className="font-semibold">{money(cartTotal)}</div>
+                  <div className="text-xs text-muted-foreground">Allowance {money(cartSubtotal)}</div>
+                </div>
               </div>
               <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
                 <div className="space-y-3">
@@ -555,16 +624,17 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
                     <FormField label="Shipping">
                       <Input type="number" min="0" step="0.01" value={shippingCharge} onChange={(event) => setShippingCharge(event.target.value)} disabled={fulfillmentMethod === 'pickup'} placeholder="0.00" />
                     </FormField>
-                    <FormField label="Tax">
-                      <Input type="number" min="0" step="0.01" value={taxCharge} onChange={(event) => setTaxCharge(event.target.value)} placeholder="0.00" />
+                    <FormField label="Tax rate %">
+                      <Input type="number" min="0" step="0.01" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} placeholder="7.00" />
                     </FormField>
                     <div className="rounded-lg border border-primary/20 bg-primary/10 p-3">
-                      <div className="text-xs text-muted-foreground">Cart total</div>
+                      <div className="text-xs text-muted-foreground">Employee total due</div>
                       <div className="mt-1 text-lg font-semibold">{money(cartTotal)}</div>
+                      <div className="mt-1 text-[11px] text-muted-foreground">Allowance: {money(cartSubtotal)} • Tax: {money(cartTax)}</div>
                     </div>
                   </div>
                   <Button type="button" className="w-full" disabled={saving || cart.length === 0} onClick={handleCheckout}>
-                    Add Purchase to Current Spend
+                    Submit Cart for Approval
                   </Button>
                 </div>
               </div>
@@ -599,12 +669,65 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
               </div>
             )}
           </PanelSection>
-          <RecentList empty="No employee purchases recorded for this month." rows={(selectedSummary?.spend || []).slice(0, 6).map((entry) => ({
-            id: entry.id,
-            title: entry.item_summary,
-            meta: `${entry.spend_date} • ${entry.vendor || 'No vendor'} • ${entry.status}${entry.fulfillment_method ? ` • ${entry.fulfillment_method}` : ''}`,
-            amount: money(calculateEmployeePurchaseAmount(entry)),
-          }))} />
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold">Monthly Transactions</div>
+              <p className="mt-1 text-xs text-muted-foreground">Allowance spend excludes tax and shipping. Total due includes all employee-paid charges.</p>
+            </div>
+            {selectedSpendRows.length > 6 && (
+              <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowAllTransactions((value) => !value)}>
+                {showAllTransactions ? 'Show Recent' : `Show All ${selectedSpendRows.length}`}
+              </Button>
+            )}
+          </div>
+          <RecentList empty="No employee purchases recorded for this month." rows={visibleSpendRows.map((entry) => {
+            const draft = reviewDrafts[entry.id] || {
+              shipping: String(Number(entry.shipping_amount || 0)),
+              taxRate: String(Number(entry.tax_rate || 0) * 100 || Number(taxRate || 0)),
+            };
+            const draftShipping = Number(draft.shipping || 0);
+            const draftTaxRate = Math.max(0, Number(draft.taxRate || 0)) / 100;
+            const draftTax = calculateEmployeePurchaseAmount(entry) * draftTaxRate;
+            const reviewControls = isAdmin && (entry.status === 'pending_admin' || entry.status === 'pending') ? (
+              <div className="grid gap-2 sm:grid-cols-[90px_80px_auto]">
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="h-8 text-xs"
+                  value={draft.shipping}
+                  onChange={(event) => setReviewDrafts((current) => ({ ...current, [entry.id]: { ...draft, shipping: event.target.value } }))}
+                  placeholder="Ship"
+                />
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="h-8 text-xs"
+                  value={draft.taxRate}
+                  onChange={(event) => setReviewDrafts((current) => ({ ...current, [entry.id]: { ...draft, taxRate: event.target.value } }))}
+                  placeholder="Tax %"
+                />
+                <Button size="sm" className="h-8 text-xs" disabled={saving} onClick={() => handleSendPurchaseForApproval(entry)}>
+                  Send Final
+                </Button>
+              </div>
+            ) : null;
+            const employeeControls = !isAdmin && entry.status === 'pending_employee' ? (
+              <div className="flex gap-2">
+                <Button size="sm" className="h-8 text-xs" disabled={saving} onClick={() => handleApprovePurchase(entry)}>Approve</Button>
+                <Button size="sm" variant="outline" className="h-8 text-xs" disabled={saving} onClick={() => handleRejectPurchase(entry)}>Reject</Button>
+              </div>
+            ) : null;
+            return {
+              id: entry.id,
+              title: entry.item_summary,
+              meta: `${entry.spend_date} • ${entry.vendor || 'No vendor'} • ${entry.status.replaceAll('_', ' ')}${entry.fulfillment_method ? ` • ${entry.fulfillment_method}` : ''}`,
+              amount: `Allowance ${money(calculateEmployeePurchaseAmount(entry))}`,
+              detail: `Total due ${money(calculateEmployeePurchaseTotal({ ...entry, shipping_amount: reviewControls ? draftShipping : entry.shipping_amount, tax_amount: reviewControls ? draftTax : entry.tax_amount }))} • tax ${money(reviewControls ? draftTax : Number(entry.tax_amount || 0))} • shipping ${money(reviewControls ? draftShipping : Number(entry.shipping_amount || 0))}`,
+              action: reviewControls || employeeControls || undefined,
+            };
+          })} />
         </TabsContent>
 
         <TabsContent value="work" className="mt-0">
@@ -723,7 +846,7 @@ function PanelSection({ title, description, children }: { title: string; descrip
   );
 }
 
-function RecentList({ rows, empty }: { rows: Array<{ id: string; title: string; meta: string; amount: string; action?: React.ReactNode }>; empty: string }) {
+function RecentList({ rows, empty }: { rows: Array<{ id: string; title: string; meta: string; amount: string; detail?: string; action?: React.ReactNode }>; empty: string }) {
   if (rows.length === 0) {
     return <div className="mt-4 rounded-lg border border-dashed border-border/50 bg-background/20 p-5 text-sm text-muted-foreground">{empty}</div>;
   }
@@ -735,8 +858,9 @@ function RecentList({ rows, empty }: { rows: Array<{ id: string; title: string; 
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{row.title}</div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">{row.meta}</div>
+            {row.detail && <div className="mt-1 text-xs leading-5 text-muted-foreground">{row.detail}</div>}
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 flex-col items-start gap-2 sm:items-end">
             <div className="text-base font-semibold">{row.amount}</div>
             {row.action}
           </div>
