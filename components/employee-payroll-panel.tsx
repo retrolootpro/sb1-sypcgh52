@@ -294,86 +294,94 @@ export function EmployeePayrollPanel() {
   }
 
   return (
-    <div className="rounded-2xl border border-border/40 bg-card p-5 space-y-5">
+    <div className="rounded-2xl border border-border/40 bg-card/95 p-5 shadow-sm space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <Banknote className="h-4 w-4 text-primary" />
-            <h2 className="font-semibold text-[15px]">Admin Payroll & Spend</h2>
+            <h2 className="font-semibold text-base">Admin Payroll & Spend</h2>
             <Badge variant="outline" className="text-[10px] uppercase">Admin only</Badge>
           </div>
-          <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
             Track employee inventory purchasing allowance, Whatnot moderation time, eBay commission, additional funds, and weekly payouts.
           </p>
         </div>
-        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={load}>
+        <Button variant="outline" size="sm" className="h-9 text-xs" onClick={load}>
           <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
           Refresh
         </Button>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard icon={ReceiptText} label="Monthly employee spend" value={money(totals.monthSpend)} />
         <SummaryCard icon={BriefcaseBusiness} label="Unpaid work" value={money(totals.unpaidWork)} />
         <SummaryCard icon={DollarSign} label="Approved spend owed" value={money(totals.unpaidSpend)} />
         <SummaryCard icon={CalendarDays} label="Payouts this week" value={money(totals.weekPayout)} />
       </div>
 
-      <div className="grid gap-3 md:grid-cols-[1.4fr_1fr_1fr]">
-        <div className="space-y-2">
-          <Label>Employee</Label>
-          <Select value={selectedEmployee?.id || ''} onValueChange={setSelectedEmployeeId}>
-            <SelectTrigger className="h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {employees.map((employee) => (
-                <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <div className="rounded-xl border border-border/40 bg-background/35 p-4">
+        <div className="mb-4">
+          <div className="text-sm font-semibold">Review Window</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Choose the employee, allowance month, and payout week before adding spend or work.</p>
         </div>
-        <div className="space-y-2">
-          <Label>Allowance month</Label>
-          <Input type="date" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="h-9" />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-4 md:grid-cols-[1.4fr_1fr_1fr]">
           <div className="space-y-2">
-            <Label>Week start</Label>
-            <Input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="h-9" />
+            <Label>Employee</Label>
+            <Select value={selectedEmployee?.id || ''} onValueChange={setSelectedEmployeeId}>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {employees.map((employee) => (
+                  <SelectItem key={employee.id} value={employee.id}>{employee.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
-            <Label>Week end</Label>
-            <Input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="h-9" />
+            <Label>Allowance month</Label>
+            <Input type="date" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="h-9" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-2">
+              <Label>Week start</Label>
+              <Input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="h-9" />
+            </div>
+            <div className="space-y-2">
+              <Label>Week end</Label>
+              <Input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="h-9" />
+            </div>
           </div>
         </div>
       </div>
 
       {selectedSummary && (
-        <div className="rounded-xl border border-border/40 bg-background/40 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="rounded-xl border border-primary/15 bg-primary/5 p-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <div className="text-sm font-semibold">{selectedSummary.employee.name}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
+              <div className="text-base font-semibold">{selectedSummary.employee.name}</div>
+              <div className="mt-1 text-sm leading-6 text-muted-foreground">
                 {money(selectedSummary.monthSpend)} used of $500 monthly buying allowance. {money(selectedSummary.remainingAllowance)} remaining.
               </div>
             </div>
-            <div className="flex flex-wrap gap-2 text-xs">
-              <Badge variant="outline">Unpaid work {money(selectedSummary.unpaidWorkTotal)}</Badge>
-              <Badge variant="outline">Spend owed {money(selectedSummary.unpaidSpendTotal)}</Badge>
-              <Badge variant={selectedSummary.taxWatchMonthlyPayout >= 1000 ? 'destructive' : 'outline'}>
-                Month payouts {money(selectedSummary.taxWatchMonthlyPayout)}
-              </Badge>
+            <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[440px]">
+              <MiniMetric label="Unpaid work" value={money(selectedSummary.unpaidWorkTotal)} />
+              <MiniMetric label="Spend owed" value={money(selectedSummary.unpaidSpendTotal)} />
+              <MiniMetric
+                label="Month payouts"
+                value={money(selectedSummary.taxWatchMonthlyPayout)}
+                warning={selectedSummary.taxWatchMonthlyPayout >= 1000}
+              />
             </div>
           </div>
           {selectedSummary.monthSpend > 500 && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+            <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-100">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               This employee is over the $500 company-cost inventory purchasing allowance for this month.
             </div>
           )}
           {selectedSummary.taxWatchMonthlyPayout >= 1000 && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
+            <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm leading-6 text-red-100">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               This employee is at or above $1,000 in monthly payouts. Review tax/compliance handling before continuing.
             </div>
@@ -381,35 +389,40 @@ export function EmployeePayrollPanel() {
         </div>
       )}
 
-      <Tabs defaultValue="spend">
-        <TabsList className="h-9 text-xs">
-          <TabsTrigger value="spend" className="text-xs">Inventory Spend</TabsTrigger>
-          <TabsTrigger value="work" className="text-xs">Work & Commission</TabsTrigger>
-          <TabsTrigger value="payouts" className="text-xs">Weekly Payouts</TabsTrigger>
+      <Tabs defaultValue="spend" className="space-y-4">
+        <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-background/40 p-1 text-xs sm:grid-cols-3">
+          <TabsTrigger value="spend" className="h-10 text-xs">Inventory Spend</TabsTrigger>
+          <TabsTrigger value="work" className="h-10 text-xs">Work & Commission</TabsTrigger>
+          <TabsTrigger value="payouts" className="h-10 text-xs">Weekly Payouts</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="spend" className="mt-4">
-          <form onSubmit={handleSpendSubmit} className="grid gap-3 lg:grid-cols-5">
-            <FormField label="Date"><Input type="date" value={spendForm.spend_date} onChange={(event) => setSpendForm({ ...spendForm, spend_date: event.target.value })} /></FormField>
-            <FormField label="Amount"><Input type="number" min="0" step="0.01" value={spendForm.amount} onChange={(event) => setSpendForm({ ...spendForm, amount: event.target.value })} placeholder="0.00" /></FormField>
-            <FormField label="Vendor"><Input value={spendForm.vendor} onChange={(event) => setSpendForm({ ...spendForm, vendor: event.target.value })} placeholder="Yard sale, GameStop..." /></FormField>
-            <FormField label="Status">
-              <Select value={spendForm.status} onValueChange={(value: 'pending' | 'approved' | 'reimbursed' | 'rejected') => setSpendForm({ ...spendForm, status: value })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="reimbursed">Reimbursed</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </FormField>
-            <div className="lg:col-span-5 grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
-              <FormField label="Items purchased"><Input value={spendForm.item_summary} onChange={(event) => setSpendForm({ ...spendForm, item_summary: event.target.value })} placeholder="3 Wii games, PS2 lot..." /></FormField>
-              <FormField label="Notes"><Input value={spendForm.notes} onChange={(event) => setSpendForm({ ...spendForm, notes: event.target.value })} placeholder="Receipt, approval, condition..." /></FormField>
-              <Button type="submit" className="self-end" disabled={saving}>Add Spend</Button>
-            </div>
-          </form>
+        <TabsContent value="spend" className="mt-0">
+          <PanelSection
+            title="Add Inventory Spend"
+            description="Use this when an employee buys inventory at company cost or needs reimbursement approval."
+          >
+            <form onSubmit={handleSpendSubmit} className="grid gap-4 lg:grid-cols-5">
+              <FormField label="Date"><Input type="date" value={spendForm.spend_date} onChange={(event) => setSpendForm({ ...spendForm, spend_date: event.target.value })} /></FormField>
+              <FormField label="Amount"><Input type="number" min="0" step="0.01" value={spendForm.amount} onChange={(event) => setSpendForm({ ...spendForm, amount: event.target.value })} placeholder="0.00" /></FormField>
+              <FormField label="Vendor"><Input value={spendForm.vendor} onChange={(event) => setSpendForm({ ...spendForm, vendor: event.target.value })} placeholder="Yard sale, GameStop..." /></FormField>
+              <FormField label="Status">
+                <Select value={spendForm.status} onValueChange={(value: 'pending' | 'approved' | 'reimbursed' | 'rejected') => setSpendForm({ ...spendForm, status: value })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="reimbursed">Reimbursed</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </FormField>
+              <div className="lg:col-span-5 grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+                <FormField label="Items purchased"><Input value={spendForm.item_summary} onChange={(event) => setSpendForm({ ...spendForm, item_summary: event.target.value })} placeholder="3 Wii games, PS2 lot..." /></FormField>
+                <FormField label="Notes"><Input value={spendForm.notes} onChange={(event) => setSpendForm({ ...spendForm, notes: event.target.value })} placeholder="Receipt, approval, condition..." /></FormField>
+                <Button type="submit" className="self-end" disabled={saving}>Add Spend</Button>
+              </div>
+            </form>
+          </PanelSection>
           <RecentList empty="No spend recorded for this month." rows={(selectedSummary?.spend || []).slice(0, 6).map((entry) => ({
             id: entry.id,
             title: entry.item_summary,
@@ -418,42 +431,47 @@ export function EmployeePayrollPanel() {
           }))} />
         </TabsContent>
 
-        <TabsContent value="work" className="mt-4">
-          <form onSubmit={handleWorkSubmit} className="space-y-3">
-            <div className="grid gap-3 md:grid-cols-4">
-              <FormField label="Date"><Input type="date" value={workForm.work_date} onChange={(event) => setWorkForm({ ...workForm, work_date: event.target.value })} /></FormField>
-              <FormField label="Type">
-                <Select value={workForm.work_type} onValueChange={(value: typeof workForm.work_type) => {
-                  const isEbay = value === 'ebay_listing_commission';
-                  setWorkForm({ ...workForm, work_type: value, hourly_rate: isEbay ? '0' : '12', commission_rate: isEbay ? '0.10' : '0' });
-                }}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="whatnot_moderation">Whatnot moderation</SelectItem>
-                    <SelectItem value="ebay_listing_commission">eBay commission</SelectItem>
-                    <SelectItem value="inventory_buying">Inventory buying</SelectItem>
-                    <SelectItem value="shipping">Shipping</SelectItem>
-                    <SelectItem value="prep">Prep</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormField>
-              <FormField label="15-min increments"><Input type="number" min="0" step="15" value={workForm.minutes_worked} onChange={(event) => setWorkForm({ ...workForm, minutes_worked: event.target.value })} /></FormField>
-              <FormField label="Hourly rate"><Input type="number" min="0" step="0.01" value={workForm.hourly_rate} onChange={(event) => setWorkForm({ ...workForm, hourly_rate: event.target.value })} /></FormField>
-            </div>
-            <div className="grid gap-3 md:grid-cols-4">
-              <FormField label="Sale amount"><Input type="number" min="0" step="0.01" value={workForm.sale_amount} onChange={(event) => setWorkForm({ ...workForm, sale_amount: event.target.value })} placeholder="eBay sale" /></FormField>
-              <FormField label="Commission rate"><Input type="number" min="0" max="1" step="0.01" value={workForm.commission_rate} onChange={(event) => setWorkForm({ ...workForm, commission_rate: event.target.value })} placeholder="0.10" /></FormField>
-              <FormField label="Additional funds"><Input type="number" min="0" step="0.01" value={workForm.additional_amount} onChange={(event) => setWorkForm({ ...workForm, additional_amount: event.target.value })} /></FormField>
-              <div className="rounded-lg border border-border/40 bg-background/40 p-3">
-                <div className="text-[11px] text-muted-foreground">Calculated pay</div>
-                <div className="mt-1 text-lg font-semibold">{money(projectedWorkAmount)}</div>
+        <TabsContent value="work" className="mt-0">
+          <PanelSection
+            title="Add Work or Commission"
+            description="Track hourly work, eBay commission, and one-off additions in one place."
+          >
+            <form onSubmit={handleWorkSubmit} className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-4">
+                <FormField label="Date"><Input type="date" value={workForm.work_date} onChange={(event) => setWorkForm({ ...workForm, work_date: event.target.value })} /></FormField>
+                <FormField label="Type">
+                  <Select value={workForm.work_type} onValueChange={(value: typeof workForm.work_type) => {
+                    const isEbay = value === 'ebay_listing_commission';
+                    setWorkForm({ ...workForm, work_type: value, hourly_rate: isEbay ? '0' : '12', commission_rate: isEbay ? '0.10' : '0' });
+                  }}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="whatnot_moderation">Whatnot moderation</SelectItem>
+                      <SelectItem value="ebay_listing_commission">eBay commission</SelectItem>
+                      <SelectItem value="inventory_buying">Inventory buying</SelectItem>
+                      <SelectItem value="shipping">Shipping</SelectItem>
+                      <SelectItem value="prep">Prep</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <FormField label="15-min increments"><Input type="number" min="0" step="15" value={workForm.minutes_worked} onChange={(event) => setWorkForm({ ...workForm, minutes_worked: event.target.value })} /></FormField>
+                <FormField label="Hourly rate"><Input type="number" min="0" step="0.01" value={workForm.hourly_rate} onChange={(event) => setWorkForm({ ...workForm, hourly_rate: event.target.value })} /></FormField>
               </div>
-            </div>
-            <FormField label="Description"><Input value={workForm.description} onChange={(event) => setWorkForm({ ...workForm, description: event.target.value })} placeholder="Moderated Friday Whatnot show, listed item on eBay..." /></FormField>
-            <FormField label="Notes"><Textarea value={workForm.notes} onChange={(event) => setWorkForm({ ...workForm, notes: event.target.value })} placeholder="Optional payout notes" /></FormField>
-            <Button type="submit" disabled={saving}>Add Work Log</Button>
-          </form>
+              <div className="grid gap-4 md:grid-cols-4">
+                <FormField label="Sale amount"><Input type="number" min="0" step="0.01" value={workForm.sale_amount} onChange={(event) => setWorkForm({ ...workForm, sale_amount: event.target.value })} placeholder="eBay sale" /></FormField>
+                <FormField label="Commission rate"><Input type="number" min="0" max="1" step="0.01" value={workForm.commission_rate} onChange={(event) => setWorkForm({ ...workForm, commission_rate: event.target.value })} placeholder="0.10" /></FormField>
+                <FormField label="Additional funds"><Input type="number" min="0" step="0.01" value={workForm.additional_amount} onChange={(event) => setWorkForm({ ...workForm, additional_amount: event.target.value })} /></FormField>
+                <div className="rounded-lg border border-primary/20 bg-primary/10 p-3">
+                  <div className="text-xs text-muted-foreground">Calculated pay</div>
+                  <div className="mt-1 text-xl font-semibold">{money(projectedWorkAmount)}</div>
+                </div>
+              </div>
+              <FormField label="Description"><Input value={workForm.description} onChange={(event) => setWorkForm({ ...workForm, description: event.target.value })} placeholder="Moderated Friday Whatnot show, listed item on eBay..." /></FormField>
+              <FormField label="Notes"><Textarea value={workForm.notes} onChange={(event) => setWorkForm({ ...workForm, notes: event.target.value })} placeholder="Optional payout notes" /></FormField>
+              <Button type="submit" disabled={saving}>Add Work Log</Button>
+            </form>
+          </PanelSection>
           <RecentList empty="No work logs yet." rows={(selectedSummary?.workLogs || []).slice(0, 6).map((entry) => ({
             id: entry.id,
             title: entry.description,
@@ -462,11 +480,11 @@ export function EmployeePayrollPanel() {
           }))} />
         </TabsContent>
 
-        <TabsContent value="payouts" className="mt-4 space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-background/40 p-4">
+        <TabsContent value="payouts" className="mt-0 space-y-4">
+          <div className="flex flex-col gap-4 rounded-xl border border-border/40 bg-background/35 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-sm font-semibold">Create weekly payout for {selectedEmployee?.name}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
+              <div className="text-base font-semibold">Create weekly payout for {selectedEmployee?.name}</div>
+              <div className="mt-1 text-sm leading-6 text-muted-foreground">
                 Work {money(selectedSummary?.unpaidWorkTotal || 0)} + approved inventory spend {money(selectedSummary?.unpaidSpendTotal || 0)}
               </div>
             </div>
@@ -489,18 +507,41 @@ export function EmployeePayrollPanel() {
 
 function SummaryCard({ icon: Icon, label, value }: { icon: any; label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-border/40 bg-background/40 p-4">
-      <Icon className="mb-3 h-4 w-4 text-primary" />
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="mt-1 text-lg font-semibold">{value}</div>
+    <div className="rounded-xl border border-border/40 bg-background/35 p-4">
+      <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg border border-primary/20 bg-primary/10">
+        <Icon className="h-4 w-4 text-primary" />
+      </div>
+      <div className="text-xs leading-5 text-muted-foreground">{label}</div>
+      <div className="mt-1 text-xl font-semibold">{value}</div>
     </div>
   );
 }
 
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1.5">
-      <Label className="text-[11px] text-muted-foreground">{label}</Label>
+    <div className="space-y-2">
+      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+function MiniMetric({ label, value, warning = false }: { label: string; value: string; warning?: boolean }) {
+  return (
+    <div className={`rounded-lg border p-3 ${warning ? 'border-amber-500/30 bg-amber-500/10' : 'border-border/40 bg-background/45'}`}>
+      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={`mt-1 text-sm font-semibold ${warning ? 'text-amber-100' : ''}`}>{value}</div>
+    </div>
+  );
+}
+
+function PanelSection({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-border/40 bg-background/35 p-4">
+      <div className="mb-4">
+        <div className="text-sm font-semibold">{title}</div>
+        <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
       {children}
     </div>
   );
@@ -508,19 +549,19 @@ function FormField({ label, children }: { label: string; children: React.ReactNo
 
 function RecentList({ rows, empty }: { rows: Array<{ id: string; title: string; meta: string; amount: string; action?: React.ReactNode }>; empty: string }) {
   if (rows.length === 0) {
-    return <div className="mt-4 rounded-lg border border-border/40 bg-background/30 p-4 text-xs text-muted-foreground">{empty}</div>;
+    return <div className="mt-4 rounded-lg border border-dashed border-border/50 bg-background/20 p-5 text-sm text-muted-foreground">{empty}</div>;
   }
 
   return (
-    <div className="mt-4 divide-y divide-border/40 rounded-lg border border-border/40 bg-background/30">
+    <div className="mt-4 overflow-hidden rounded-lg border border-border/40 bg-background/25">
       {rows.map((row) => (
-        <div key={row.id} className="flex items-center justify-between gap-3 p-3">
+        <div key={row.id} className="flex flex-col gap-3 border-b border-border/35 p-4 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="truncate text-sm font-medium">{row.title}</div>
-            <div className="mt-0.5 text-[11px] text-muted-foreground">{row.meta}</div>
+            <div className="mt-1 text-xs leading-5 text-muted-foreground">{row.meta}</div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <div className="text-sm font-semibold">{row.amount}</div>
+            <div className="text-base font-semibold">{row.amount}</div>
             {row.action}
           </div>
         </div>
