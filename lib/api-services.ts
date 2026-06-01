@@ -336,6 +336,11 @@ export interface EmployeeInventorySpend {
   employee_id: string;
   spend_date: string;
   amount: number;
+  line_item_amount?: number;
+  shipping_amount?: number;
+  tax_amount?: number;
+  fulfillment_method?: 'pickup' | 'shipping';
+  purchase_type?: 'manual' | 'inventory_cart';
   allowance_month: string;
   vendor?: string;
   item_summary: string;
@@ -397,10 +402,38 @@ export interface EmployeePayrollSummary {
   payouts: EmployeePayout[];
 }
 
+export interface EmployeePurchasableInventoryItem {
+  id: string;
+  title: string;
+  platform?: string | null;
+  condition?: string | null;
+  image_url?: string | null;
+  thumbnail_url?: string | null;
+  purchase_price?: number | null;
+  selected_market_value?: number | null;
+  sell_price?: number | null;
+  status: string;
+}
+
+export interface EmployeeCartPurchaseLine {
+  inventory_item_id: string;
+  item_summary: string;
+  line_item_amount: number;
+  shipping_amount: number;
+  tax_amount: number;
+  fulfillment_method: 'pickup' | 'shipping';
+  notes?: string;
+}
+
 export function calculateWorkLogAmount(log: Pick<EmployeeWorkLog, 'minutes_worked' | 'hourly_rate' | 'sale_amount' | 'commission_rate' | 'additional_amount'>) {
   const hourly = (Number(log.minutes_worked) / 60) * Number(log.hourly_rate || 0);
   const commission = Number(log.sale_amount || 0) * Number(log.commission_rate || 0);
   return hourly + commission + Number(log.additional_amount || 0);
+}
+
+export function calculateEmployeePurchaseAmount(entry: Pick<EmployeeInventorySpend, 'amount' | 'line_item_amount' | 'shipping_amount' | 'tax_amount'>) {
+  const detailedTotal = Number(entry.line_item_amount || 0) + Number(entry.shipping_amount || 0) + Number(entry.tax_amount || 0);
+  return detailedTotal > 0 ? detailedTotal : Number(entry.amount || 0);
 }
 
 function monthStart(date = new Date()) {
@@ -461,13 +494,13 @@ export async function getEmployeePayrollSummaries(options?: { weekStart?: string
     const employeePayouts = payouts.filter((entry) => entry.employee_id === employee.id);
     const monthSpend = employeeSpend
       .filter((entry) => entry.status !== 'rejected')
-      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      .reduce((sum, entry) => sum + calculateEmployeePurchaseAmount(entry), 0);
     const unpaidWorkTotal = employeeWork
       .filter((entry) => entry.payout_status === 'unpaid' || entry.payout_status === 'approved')
       .reduce((sum, entry) => sum + calculateWorkLogAmount(entry), 0);
     const unpaidSpendTotal = employeeSpend
       .filter((entry) => entry.status === 'approved')
-      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      .reduce((sum, entry) => sum + calculateEmployeePurchaseAmount(entry), 0);
     const weeklyPayoutTotal = employeePayouts
       .filter((payout) => {
         if (!weekStart || !weekEndExclusive) return true;
@@ -507,6 +540,101 @@ export async function createEmployeeInventorySpend(input: Omit<EmployeeInventory
 
   if (error) throw error;
   return data;
+}
+
+export async function getCurrentEmployeeProfile(): Promise<Employee | null> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+  const email = session.user.email;
+  if (!email) return null;
+
+  const { data, error } = await supabase
+    .from('employees')
+    .select('*')
+    .eq('user_id', accountId)
+    .ilike('email', email)
+    .eq('is_active', true)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as Employee | null;
+}
+
+export async function getEmployeePurchasableInventory(): Promise<EmployeePurchasableInventoryItem[]> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('id, title:product_name, platform:console, condition, image_url, thumbnail_url, purchase_price, selected_market_value, sell_price, status')
+    .eq('user_id', await getActiveAccountId(session.user))
+    .in('status', ['available', 'ready_to_list', 'listed'])
+    .order('product_name', { ascending: true })
+    .limit(300);
+
+  if (error) throw error;
+  return (data || []) as EmployeePurchasableInventoryItem[];
+}
+
+export async function createEmployeeCartPurchase(input: {
+  employee_id: string;
+  spend_date: string;
+  allowance_month: string;
+  status: EmployeeInventorySpend['status'];
+  lines: EmployeeCartPurchaseLine[];
+}): Promise<EmployeeInventorySpend[]> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const rows = input.lines.map((line) => {
+    const amount = Number(line.line_item_amount || 0) + Number(line.shipping_amount || 0) + Number(line.tax_amount || 0);
+    return {
+      user_id: accountId,
+      employee_id: input.employee_id,
+      spend_date: input.spend_date,
+      allowance_month: input.allowance_month,
+      amount,
+      line_item_amount: Number(line.line_item_amount || 0),
+      shipping_amount: Number(line.shipping_amount || 0),
+      tax_amount: Number(line.tax_amount || 0),
+      fulfillment_method: line.fulfillment_method,
+      purchase_type: 'inventory_cart',
+      vendor: 'RetroLootPro Inventory',
+      item_summary: line.item_summary,
+      inventory_item_id: line.inventory_item_id,
+      status: input.status,
+      notes: line.notes || '',
+    };
+  });
+
+  const { data, error } = await supabase
+    .from('employee_inventory_spend')
+    .insert(rows)
+    .select();
+
+  if (error) throw error;
+
+  if (input.status === 'approved') {
+    await Promise.all(input.lines.map(async (line) => {
+      const total = Number(line.line_item_amount || 0) + Number(line.shipping_amount || 0) + Number(line.tax_amount || 0);
+      const { error: updateError } = await supabase
+        .from('inventory_items')
+        .update({
+          status: 'sold',
+          sell_price: total,
+          sold_at: new Date().toISOString(),
+          sold_by_employee_id: input.employee_id,
+          sold_via: 'employee_purchase',
+        })
+        .eq('id', line.inventory_item_id)
+        .eq('user_id', accountId);
+      if (updateError) throw updateError;
+    }));
+  }
+
+  return (data || []) as EmployeeInventorySpend[];
 }
 
 export async function createEmployeeWorkLog(input: Omit<EmployeeWorkLog, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<EmployeeWorkLog> {

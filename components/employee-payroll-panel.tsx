@@ -9,19 +9,24 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
+  calculateEmployeePurchaseAmount,
   calculateWorkLogAmount,
+  createEmployeeCartPurchase,
   createEmployeeInventorySpend,
   createEmployeePayout,
   createEmployeeWorkLog,
   getActiveEmployees,
+  getCurrentEmployeeProfile,
   getEmployeePayrollSummaries,
+  getEmployeePurchasableInventory,
   markEmployeePayoutPaid,
   type Employee,
+  type EmployeePurchasableInventoryItem,
   type EmployeeInventorySpend,
   type EmployeePayrollSummary,
   type EmployeeWorkLog,
 } from '@/lib/api-services';
-import { AlertTriangle, Banknote, BriefcaseBusiness, CalendarDays, DollarSign, ReceiptText, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Banknote, BriefcaseBusiness, CalendarDays, DollarSign, Package, ReceiptText, RefreshCw, Search, ShoppingCart, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
@@ -43,15 +48,23 @@ const weekEnd = () => {
   return start.toISOString().split('T')[0];
 };
 
-export function EmployeePayrollPanel() {
+type CartItem = EmployeePurchasableInventoryItem & { cartPrice: number };
+
+export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [summaries, setSummaries] = useState<EmployeePayrollSummary[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<EmployeePurchasableInventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(monthStart());
   const [periodStart, setPeriodStart] = useState(weekStart());
   const [periodEnd, setPeriodEnd] = useState(weekEnd());
+  const [inventorySearch, setInventorySearch] = useState('');
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<'pickup' | 'shipping'>('pickup');
+  const [shippingCharge, setShippingCharge] = useState('');
+  const [taxCharge, setTaxCharge] = useState('');
 
   const [spendForm, setSpendForm] = useState<{
     amount: string;
@@ -100,6 +113,18 @@ export function EmployeePayrollPanel() {
     commission_rate: Number(workForm.commission_rate || 0),
     additional_amount: Number(workForm.additional_amount || 0),
   });
+  const cartSubtotal = cart.reduce((sum, item) => sum + Number(item.cartPrice || 0), 0);
+  const cartShipping = Number(shippingCharge || 0);
+  const cartTax = Number(taxCharge || 0);
+  const cartTotal = cartSubtotal + cartShipping + cartTax;
+  const filteredInventoryItems = inventoryItems
+    .filter((item) => !cart.some((cartItem) => cartItem.id === item.id))
+    .filter((item) => {
+      const search = inventorySearch.trim().toLowerCase();
+      if (!search) return true;
+      return `${item.title} ${item.platform || ''} ${item.condition || ''}`.toLowerCase().includes(search);
+    })
+    .slice(0, 24);
 
   const totals = useMemo(() => {
     return summaries.reduce(
@@ -117,11 +142,15 @@ export function EmployeePayrollPanel() {
   const load = async () => {
     setLoading(true);
     try {
-      const employeeData = await getActiveEmployees();
+      const currentEmployee = isAdmin ? null : await getCurrentEmployeeProfile();
+      const employeeData = isAdmin
+        ? await getActiveEmployees()
+        : (currentEmployee ? [currentEmployee] : []);
       setEmployees(employeeData);
+      setInventoryItems(await getEmployeePurchasableInventory());
       try {
         const summaryData = await getEmployeePayrollSummaries({ month: selectedMonth, weekStart: periodStart, weekEnd: periodEnd });
-        setSummaries(summaryData);
+        setSummaries(isAdmin ? summaryData : summaryData.filter((summary) => summary.employee.id === employeeData[0]?.id));
       } catch (summaryError: any) {
         if (summaryError?.message?.includes('employee_inventory_spend') || summaryError?.message?.includes('employee_work_logs') || summaryError?.message?.includes('employee_payouts')) {
           setSummaries(employeeData.map((employee) => ({
@@ -174,6 +203,11 @@ export function EmployeePayrollPanel() {
       await createEmployeeInventorySpend({
         employee_id: employeeId,
         amount: Number(spendForm.amount || 0),
+        line_item_amount: Number(spendForm.amount || 0),
+        shipping_amount: 0,
+        tax_amount: 0,
+        fulfillment_method: 'pickup',
+        purchase_type: 'manual',
         spend_date: spendForm.spend_date,
         allowance_month: selectedMonth,
         vendor: spendForm.vendor.trim(),
@@ -187,6 +221,55 @@ export function EmployeePayrollPanel() {
       load();
     } catch (error: any) {
       toast.error(error.message || 'Failed to save employee spend');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const getInventoryCompanyCost = (item: EmployeePurchasableInventoryItem) => {
+    return Number(item.purchase_price || item.selected_market_value || item.sell_price || 0);
+  };
+
+  const handleAddToCart = (item: EmployeePurchasableInventoryItem) => {
+    setCart((current) => [...current, { ...item, cartPrice: getInventoryCompanyCost(item) }]);
+  };
+
+  const handleCheckout = async () => {
+    const employeeId = requireEmployee();
+    if (!employeeId) return;
+    if (cart.length === 0) return toast.error('Add at least one inventory item to the cart');
+
+    setSaving(true);
+    try {
+      const lineTotal = cartSubtotal || cart.length;
+      await createEmployeeCartPurchase({
+        employee_id: employeeId,
+        spend_date: today(),
+        allowance_month: selectedMonth,
+        status: isAdmin ? 'approved' : 'pending',
+        lines: cart.map((item) => {
+          const ratio = cartSubtotal > 0 ? Number(item.cartPrice || 0) / lineTotal : 1 / cart.length;
+          const shipping = fulfillmentMethod === 'shipping' ? cartShipping * ratio : 0;
+          const tax = cartTax * ratio;
+          return {
+            inventory_item_id: item.id,
+            item_summary: `${item.title}${item.platform ? ` (${item.platform})` : ''}`,
+            line_item_amount: Number(item.cartPrice || 0),
+            shipping_amount: shipping,
+            tax_amount: tax,
+            fulfillment_method: fulfillmentMethod,
+            notes: fulfillmentMethod === 'shipping' ? 'Employee inventory purchase with shipping.' : 'Employee inventory purchase for pickup.',
+          };
+        }),
+      });
+      toast.success(isAdmin ? 'Employee purchase added and inventory marked sold' : 'Purchase request added for admin review');
+      setCart([]);
+      setShippingCharge('');
+      setTaxCharge('');
+      setInventorySearch('');
+      load();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to add employee purchase');
     } finally {
       setSaving(false);
     }
@@ -242,8 +325,8 @@ export function EmployeePayrollPanel() {
     if (!employeeId || !selectedSummary) return;
     const workTotal = selectedSummary.unpaidWorkTotal;
     const spendTotal = selectedSummary.unpaidSpendTotal;
-    const total = workTotal + spendTotal;
-    if (total <= 0) return toast.error('No unpaid work or approved spend to pay out');
+    const total = Math.max(0, workTotal - spendTotal);
+    if (workTotal <= 0 && spendTotal <= 0) return toast.error('No unpaid work or approved employee purchases to settle');
 
     setSaving(true);
     try {
@@ -256,7 +339,7 @@ export function EmployeePayrollPanel() {
         total_amount: total,
         status: 'approved',
         paid_at: null,
-        notes: 'Weekly payout generated from unpaid work and approved inventory spend.',
+        notes: 'Weekly payout generated from unpaid work minus approved employee inventory purchases.',
       });
       toast.success('Weekly payout created');
       load();
@@ -315,7 +398,7 @@ export function EmployeePayrollPanel() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard icon={ReceiptText} label="Monthly employee spend" value={money(totals.monthSpend)} />
         <SummaryCard icon={BriefcaseBusiness} label="Unpaid work" value={money(totals.unpaidWork)} />
-        <SummaryCard icon={DollarSign} label="Approved spend owed" value={money(totals.unpaidSpend)} />
+        <SummaryCard icon={DollarSign} label="Employee purchases owed" value={money(totals.unpaidSpend)} />
         <SummaryCard icon={CalendarDays} label="Payouts this week" value={money(totals.weekPayout)} />
       </div>
 
@@ -361,12 +444,12 @@ export function EmployeePayrollPanel() {
             <div>
               <div className="text-base font-semibold">{selectedSummary.employee.name}</div>
               <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                {money(selectedSummary.monthSpend)} used of $500 monthly buying allowance. {money(selectedSummary.remainingAllowance)} remaining.
+                {money(selectedSummary.monthSpend)} used of $500 monthly employee purchase allowance. {money(selectedSummary.remainingAllowance)} remaining.
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[440px]">
               <MiniMetric label="Unpaid work" value={money(selectedSummary.unpaidWorkTotal)} />
-              <MiniMetric label="Spend owed" value={money(selectedSummary.unpaidSpendTotal)} />
+              <MiniMetric label="Purchase deductions" value={money(selectedSummary.unpaidSpendTotal)} />
               <MiniMetric
                 label="Month payouts"
                 value={money(selectedSummary.taxWatchMonthlyPayout)}
@@ -377,7 +460,7 @@ export function EmployeePayrollPanel() {
           {selectedSummary.monthSpend > 500 && (
             <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm leading-6 text-amber-100">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              This employee is over the $500 company-cost inventory purchasing allowance for this month.
+              This employee is over the $500 company-cost inventory purchase allowance for this month.
             </div>
           )}
           {selectedSummary.taxWatchMonthlyPayout >= 1000 && (
@@ -391,7 +474,7 @@ export function EmployeePayrollPanel() {
 
       <Tabs defaultValue="spend" className="space-y-4">
         <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-background/40 p-1 text-xs sm:grid-cols-3">
-          <TabsTrigger value="spend" className="h-10 text-xs">Inventory Spend</TabsTrigger>
+          <TabsTrigger value="spend" className="h-10 text-xs">Employee Store</TabsTrigger>
           <TabsTrigger value="work" className="h-10 text-xs">Work & Commission</TabsTrigger>
           <TabsTrigger value="payouts" className="h-10 text-xs">Weekly Payouts</TabsTrigger>
         </TabsList>
@@ -399,35 +482,128 @@ export function EmployeePayrollPanel() {
         <TabsContent value="spend" className="mt-0">
           <PanelSection
             title="Add Inventory Spend"
-            description="Use this when an employee buys inventory at company cost or needs reimbursement approval."
+            description="Use this when an employee buys company inventory. These purchases are deducted from payouts."
           >
-            <form onSubmit={handleSpendSubmit} className="grid gap-4 lg:grid-cols-5">
-              <FormField label="Date"><Input type="date" value={spendForm.spend_date} onChange={(event) => setSpendForm({ ...spendForm, spend_date: event.target.value })} /></FormField>
-              <FormField label="Amount"><Input type="number" min="0" step="0.01" value={spendForm.amount} onChange={(event) => setSpendForm({ ...spendForm, amount: event.target.value })} placeholder="0.00" /></FormField>
-              <FormField label="Vendor"><Input value={spendForm.vendor} onChange={(event) => setSpendForm({ ...spendForm, vendor: event.target.value })} placeholder="Yard sale, GameStop..." /></FormField>
-              <FormField label="Status">
-                <Select value={spendForm.status} onValueChange={(value: 'pending' | 'approved' | 'reimbursed' | 'rejected') => setSpendForm({ ...spendForm, status: value })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="approved">Approved</SelectItem>
-                    <SelectItem value="reimbursed">Reimbursed</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                  </SelectContent>
-                </Select>
-              </FormField>
-              <div className="lg:col-span-5 grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
-                <FormField label="Items purchased"><Input value={spendForm.item_summary} onChange={(event) => setSpendForm({ ...spendForm, item_summary: event.target.value })} placeholder="3 Wii games, PS2 lot..." /></FormField>
-                <FormField label="Notes"><Input value={spendForm.notes} onChange={(event) => setSpendForm({ ...spendForm, notes: event.target.value })} placeholder="Receipt, approval, condition..." /></FormField>
-                <Button type="submit" className="self-end" disabled={saving}>Add Spend</Button>
+            <div className="mb-5 rounded-xl border border-border/40 bg-card/60 p-4">
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <ShoppingCart className="h-4 w-4 text-primary" />
+                    Inventory Purchase Cart
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">Browse available inventory, add items at company cost, then apply shipping and tax.</p>
+                </div>
+                <div className="text-right text-sm font-semibold">{money(cartTotal)}</div>
               </div>
-            </form>
+              <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input className="pl-9" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} placeholder="Search inventory by title, platform, or condition..." />
+                  </div>
+                  <div className="max-h-72 overflow-auto rounded-lg border border-border/40">
+                    {filteredInventoryItems.length === 0 ? (
+                      <div className="p-4 text-sm text-muted-foreground">No available inventory matches this search.</div>
+                    ) : filteredInventoryItems.map((item) => (
+                      <div key={item.id} className="flex items-center gap-3 border-b border-border/35 p-3 last:border-b-0">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/40 bg-background/50">
+                          {item.thumbnail_url || item.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={item.thumbnail_url || item.image_url || ''} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <Package className="h-5 w-5 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium">{item.title}</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">{item.platform || 'No platform'} • {item.condition || 'No condition'} • Cost {money(getInventoryCompanyCost(item))}</div>
+                        </div>
+                        <Button type="button" size="sm" variant="outline" className="h-8 text-xs" onClick={() => handleAddToCart(item)}>Add</Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-border/40 bg-background/35">
+                    {cart.length === 0 ? (
+                      <div className="p-4 text-sm text-muted-foreground">Cart is empty.</div>
+                    ) : cart.map((item) => (
+                      <div key={item.id} className="grid gap-2 border-b border-border/35 p-3 last:border-b-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">{item.title}</div>
+                            <div className="text-xs text-muted-foreground">{item.platform || 'No platform'}</div>
+                          </div>
+                          <Button type="button" size="icon" variant="ghost" className="h-7 w-7" onClick={() => setCart((current) => current.filter((cartItem) => cartItem.id !== item.id))}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                        <Input type="number" min="0" step="0.01" value={item.cartPrice} onChange={(event) => setCart((current) => current.map((cartItem) => cartItem.id === item.id ? { ...cartItem, cartPrice: Number(event.target.value || 0) } : cartItem))} />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField label="Fulfillment">
+                      <Select value={fulfillmentMethod} onValueChange={(value: 'pickup' | 'shipping') => setFulfillmentMethod(value)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pickup">Pickup</SelectItem>
+                          <SelectItem value="shipping">Ship to employee</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                    <FormField label="Shipping">
+                      <Input type="number" min="0" step="0.01" value={shippingCharge} onChange={(event) => setShippingCharge(event.target.value)} disabled={fulfillmentMethod === 'pickup'} placeholder="0.00" />
+                    </FormField>
+                    <FormField label="Tax">
+                      <Input type="number" min="0" step="0.01" value={taxCharge} onChange={(event) => setTaxCharge(event.target.value)} placeholder="0.00" />
+                    </FormField>
+                    <div className="rounded-lg border border-primary/20 bg-primary/10 p-3">
+                      <div className="text-xs text-muted-foreground">Cart total</div>
+                      <div className="mt-1 text-lg font-semibold">{money(cartTotal)}</div>
+                    </div>
+                  </div>
+                  <Button type="button" className="w-full" disabled={saving || cart.length === 0} onClick={handleCheckout}>
+                    Add Purchase to Current Spend
+                  </Button>
+                </div>
+              </div>
+            </div>
+            {isAdmin && (
+              <div className="mt-5 border-t border-border/40 pt-5">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold">Manual Employee Purchase Entry</div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">Use this for an item that is not already in inventory or for a correction.</p>
+                </div>
+                <form onSubmit={handleSpendSubmit} className="grid gap-4 lg:grid-cols-5">
+                  <FormField label="Date"><Input type="date" value={spendForm.spend_date} onChange={(event) => setSpendForm({ ...spendForm, spend_date: event.target.value })} /></FormField>
+                  <FormField label="Amount"><Input type="number" min="0" step="0.01" value={spendForm.amount} onChange={(event) => setSpendForm({ ...spendForm, amount: event.target.value })} placeholder="0.00" /></FormField>
+                  <FormField label="Vendor"><Input value={spendForm.vendor} onChange={(event) => setSpendForm({ ...spendForm, vendor: event.target.value })} placeholder="RetroLootPro, correction..." /></FormField>
+                  <FormField label="Status">
+                    <Select value={spendForm.status} onValueChange={(value: 'pending' | 'approved' | 'reimbursed' | 'rejected') => setSpendForm({ ...spendForm, status: value })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="approved">Approved</SelectItem>
+                        <SelectItem value="reimbursed">Settled</SelectItem>
+                        <SelectItem value="rejected">Rejected</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                  <div className="lg:col-span-5 grid gap-4 lg:grid-cols-[1fr_1fr_auto]">
+                    <FormField label="Items purchased"><Input value={spendForm.item_summary} onChange={(event) => setSpendForm({ ...spendForm, item_summary: event.target.value })} placeholder="3 Wii games, PS2 lot..." /></FormField>
+                    <FormField label="Notes"><Input value={spendForm.notes} onChange={(event) => setSpendForm({ ...spendForm, notes: event.target.value })} placeholder="Receipt, approval, condition..." /></FormField>
+                    <Button type="submit" className="self-end" disabled={saving}>Add Manual Purchase</Button>
+                  </div>
+                </form>
+              </div>
+            )}
           </PanelSection>
-          <RecentList empty="No spend recorded for this month." rows={(selectedSummary?.spend || []).slice(0, 6).map((entry) => ({
+          <RecentList empty="No employee purchases recorded for this month." rows={(selectedSummary?.spend || []).slice(0, 6).map((entry) => ({
             id: entry.id,
             title: entry.item_summary,
-            meta: `${entry.spend_date} • ${entry.vendor || 'No vendor'} • ${entry.status}`,
-            amount: money(entry.amount),
+            meta: `${entry.spend_date} • ${entry.vendor || 'No vendor'} • ${entry.status}${entry.fulfillment_method ? ` • ${entry.fulfillment_method}` : ''}`,
+            amount: money(calculateEmployeePurchaseAmount(entry)),
           }))} />
         </TabsContent>
 
@@ -485,7 +661,7 @@ export function EmployeePayrollPanel() {
             <div>
               <div className="text-base font-semibold">Create weekly payout for {selectedEmployee?.name}</div>
               <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                Work {money(selectedSummary?.unpaidWorkTotal || 0)} + approved inventory spend {money(selectedSummary?.unpaidSpendTotal || 0)}
+                Work {money(selectedSummary?.unpaidWorkTotal || 0)} - employee purchases {money(selectedSummary?.unpaidSpendTotal || 0)} = payout {money(Math.max(0, (selectedSummary?.unpaidWorkTotal || 0) - (selectedSummary?.unpaidSpendTotal || 0)))}
               </div>
             </div>
             <Button onClick={handleCreatePayout} disabled={saving}>Create Payout</Button>
@@ -493,7 +669,7 @@ export function EmployeePayrollPanel() {
           <RecentList empty="No payouts yet." rows={(selectedSummary?.payouts || []).slice(0, 8).map((entry) => ({
             id: entry.id,
             title: `${entry.period_start} to ${entry.period_end}`,
-            meta: `${entry.status} • work ${money(entry.work_total)} • spend ${money(entry.spend_total)}`,
+            meta: `${entry.status} • work ${money(entry.work_total)} • purchases deducted ${money(entry.spend_total)}`,
             amount: money(entry.total_amount),
             action: entry.status !== 'paid' && entry.status !== 'cancelled'
               ? <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => handleMarkPaid(entry.id)} disabled={saving}>Mark Paid</Button>

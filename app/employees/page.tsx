@@ -292,7 +292,7 @@ export default function EmployeesPage() {
           ))}
         </div>
 
-        {isAdmin && <EmployeePayrollPanel />}
+        <EmployeePayrollPanel isAdmin={isAdmin} />
 
         {loading ? (
           <div className="flex items-center justify-center py-16">
