@@ -323,6 +323,32 @@ export const manualSections: ManualSection[] = [
     ],
   },
   {
+    id: 'employee-payroll-spend',
+    title: 'Employee Payroll and Inventory Spend',
+    category: 'Admin',
+    icon: WalletCards,
+    summary: 'Admin payroll tracks employee inventory buying allowance, show moderation time, eBay commission, additional funds, and weekly payout records.',
+    why: 'This keeps employee company-cost purchases and weekly payouts organized without mixing them into normal operating expenses or inventory value.',
+    steps: [
+      'Open Team.',
+      'Use Admin Payroll and Spend to choose an employee, allowance month, and payout week.',
+      'Record inventory purchases against the $500 monthly company-cost allowance.',
+      'Record Whatnot moderation in 15-minute increments using the employee hourly rate.',
+      'Record eBay commission by entering the sale amount and commission rate, such as 0.10 for 10%.',
+      'Create a weekly payout after reviewing unpaid work and approved inventory spend.',
+      'Mark the payout paid after cash has actually been sent.',
+    ],
+    fields: [
+      'Inventory spend tracks what an employee bought for the business and how much of the $500 monthly allowance remains.',
+      'Work logs calculate hourly work, commission, and any additional funds.',
+      'Monthly payouts over $1,000 are flagged as a tax/compliance watch item for admin review.',
+    ],
+    warnings: [
+      'This is a payout tracker, not payroll tax advice.',
+      'Review worker classification, 1099, payroll, and withholding rules with a tax professional as payments become consistent.',
+    ],
+  },
+  {
     id: 'finance-overview',
     title: 'Finance Overview',
     category: 'Finance',

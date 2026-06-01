@@ -330,6 +330,224 @@ export async function getAllEmployeesPerformance(startDate?: string, endDate?: s
   return Promise.all(performancePromises);
 }
 
+export interface EmployeeInventorySpend {
+  id: string;
+  user_id: string;
+  employee_id: string;
+  spend_date: string;
+  amount: number;
+  allowance_month: string;
+  vendor?: string;
+  item_summary: string;
+  inventory_item_id?: string | null;
+  status: 'pending' | 'approved' | 'reimbursed' | 'rejected';
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmployeeWorkLog {
+  id: string;
+  user_id: string;
+  employee_id: string;
+  work_date: string;
+  work_type: 'whatnot_moderation' | 'ebay_listing_commission' | 'inventory_buying' | 'shipping' | 'prep' | 'other';
+  description: string;
+  show_id?: string | null;
+  ebay_listing_id?: string | null;
+  inventory_item_id?: string | null;
+  minutes_worked: number;
+  hourly_rate: number;
+  sale_amount: number;
+  commission_rate: number;
+  additional_amount: number;
+  payout_status: 'unpaid' | 'approved' | 'paid' | 'void';
+  payout_id?: string | null;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmployeePayout {
+  id: string;
+  user_id: string;
+  employee_id: string;
+  period_start: string;
+  period_end: string;
+  work_total: number;
+  spend_total: number;
+  total_amount: number;
+  status: 'draft' | 'approved' | 'paid' | 'cancelled';
+  paid_at?: string | null;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EmployeePayrollSummary {
+  employee: Employee;
+  monthSpend: number;
+  remainingAllowance: number;
+  unpaidWorkTotal: number;
+  unpaidSpendTotal: number;
+  weeklyPayoutTotal: number;
+  taxWatchMonthlyPayout: number;
+  workLogs: EmployeeWorkLog[];
+  spend: EmployeeInventorySpend[];
+  payouts: EmployeePayout[];
+}
+
+export function calculateWorkLogAmount(log: Pick<EmployeeWorkLog, 'minutes_worked' | 'hourly_rate' | 'sale_amount' | 'commission_rate' | 'additional_amount'>) {
+  const hourly = (Number(log.minutes_worked) / 60) * Number(log.hourly_rate || 0);
+  const commission = Number(log.sale_amount || 0) * Number(log.commission_rate || 0);
+  return hourly + commission + Number(log.additional_amount || 0);
+}
+
+function monthStart(date = new Date()) {
+  return new Date(date.getFullYear(), date.getMonth(), 1).toISOString().split('T')[0];
+}
+
+function nextDay(dateString: string) {
+  const date = new Date(`${dateString}T00:00:00`);
+  date.setDate(date.getDate() + 1);
+  return date.toISOString().split('T')[0];
+}
+
+export async function getEmployeePayrollSummaries(options?: { weekStart?: string; weekEnd?: string; month?: string }): Promise<EmployeePayrollSummary[]> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const accountId = await getActiveAccountId(session.user);
+  const employees = await getActiveEmployees();
+  const selectedMonth = options?.month || monthStart();
+  const weekStart = options?.weekStart;
+  const weekEnd = options?.weekEnd;
+  const weekEndExclusive = weekEnd ? nextDay(weekEnd) : undefined;
+  const monthEnd = nextDay(new Date(new Date(`${selectedMonth}T00:00:00`).getFullYear(), new Date(`${selectedMonth}T00:00:00`).getMonth() + 1, 0).toISOString().split('T')[0]);
+
+  const [{ data: spendData, error: spendError }, { data: workData, error: workError }, { data: payoutData, error: payoutError }] = await Promise.all([
+    supabase
+      .from('employee_inventory_spend')
+      .select('*')
+      .eq('user_id', accountId)
+      .gte('spend_date', selectedMonth)
+      .lt('spend_date', monthEnd)
+      .order('spend_date', { ascending: false }),
+    supabase
+      .from('employee_work_logs')
+      .select('*')
+      .eq('user_id', accountId)
+      .order('work_date', { ascending: false })
+      .limit(250),
+    supabase
+      .from('employee_payouts')
+      .select('*')
+      .eq('user_id', accountId)
+      .order('period_start', { ascending: false })
+      .limit(100),
+  ]);
+
+  if (spendError) throw spendError;
+  if (workError) throw workError;
+  if (payoutError) throw payoutError;
+
+  const spend = (spendData || []) as EmployeeInventorySpend[];
+  const workLogs = (workData || []) as EmployeeWorkLog[];
+  const payouts = (payoutData || []) as EmployeePayout[];
+
+  return employees.map((employee) => {
+    const employeeSpend = spend.filter((entry) => entry.employee_id === employee.id);
+    const employeeWork = workLogs.filter((entry) => entry.employee_id === employee.id);
+    const employeePayouts = payouts.filter((entry) => entry.employee_id === employee.id);
+    const monthSpend = employeeSpend
+      .filter((entry) => entry.status !== 'rejected')
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const unpaidWorkTotal = employeeWork
+      .filter((entry) => entry.payout_status === 'unpaid' || entry.payout_status === 'approved')
+      .reduce((sum, entry) => sum + calculateWorkLogAmount(entry), 0);
+    const unpaidSpendTotal = employeeSpend
+      .filter((entry) => entry.status === 'approved')
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+    const weeklyPayoutTotal = employeePayouts
+      .filter((payout) => {
+        if (!weekStart || !weekEndExclusive) return true;
+        return payout.period_start >= weekStart && payout.period_start < weekEndExclusive;
+      })
+      .filter((payout) => payout.status !== 'cancelled')
+      .reduce((sum, payout) => sum + Number(payout.total_amount || 0), 0);
+    const taxWatchMonthlyPayout = employeePayouts
+      .filter((payout) => payout.status !== 'cancelled' && payout.period_start >= selectedMonth && payout.period_start < monthEnd)
+      .reduce((sum, payout) => sum + Number(payout.total_amount || 0), 0);
+
+    return {
+      employee,
+      monthSpend,
+      remainingAllowance: Math.max(0, 500 - monthSpend),
+      unpaidWorkTotal,
+      unpaidSpendTotal,
+      weeklyPayoutTotal,
+      taxWatchMonthlyPayout,
+      workLogs: employeeWork,
+      spend: employeeSpend,
+      payouts: employeePayouts,
+    };
+  });
+}
+
+export async function createEmployeeInventorySpend(input: Omit<EmployeeInventorySpend, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<EmployeeInventorySpend> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data, error } = await supabase
+    .from('employee_inventory_spend')
+    .insert({ ...input, user_id: accountId })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function createEmployeeWorkLog(input: Omit<EmployeeWorkLog, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<EmployeeWorkLog> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data, error } = await supabase
+    .from('employee_work_logs')
+    .insert({ ...input, user_id: accountId })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function createEmployeePayout(input: Omit<EmployeePayout, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<EmployeePayout> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data, error } = await supabase
+    .from('employee_payouts')
+    .insert({ ...input, user_id: accountId })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function markEmployeePayoutPaid(payoutId: string): Promise<void> {
+  const { error } = await supabase
+    .from('employee_payouts')
+    .update({ status: 'paid', paid_at: new Date().toISOString() })
+    .eq('id', payoutId);
+
+  if (error) throw error;
+}
+
 export interface EbayListing {
   id: string;
   user_id: string;

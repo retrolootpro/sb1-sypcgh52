@@ -11,6 +11,7 @@ import Link from 'next/link';
 import { getAllEnhancedEmployeePerformances, type EnhancedEmployeePerformance } from '@/lib/api-services';
 import { AddEmployeeDialog } from '@/components/add-employee-dialog';
 import { SetGoalDialog } from '@/components/set-goal-dialog';
+import { EmployeePayrollPanel } from '@/components/employee-payroll-panel';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import { AccountMembership, AccountRole } from '@/lib/account';
@@ -290,6 +291,8 @@ export default function EmployeesPage() {
             </Button>
           ))}
         </div>
+
+        {isAdmin && <EmployeePayrollPanel />}
 
         {loading ? (
           <div className="flex items-center justify-center py-16">
