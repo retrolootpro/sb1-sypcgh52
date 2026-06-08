@@ -51,6 +51,21 @@ function recommendedOffer(marketValue: number, quantity: number, rate: number) {
   return Number((Math.max(0, marketValue) * Math.max(1, quantity || 1) * rate).toFixed(2));
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(fallback), ms);
+    promise
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        window.clearTimeout(timer);
+        resolve(fallback);
+      });
+  });
+}
+
 export default function PosPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -174,7 +189,7 @@ export default function PosPage() {
     }
 
     const quantity = Math.max(1, Number(tradeItemForm.quantity || 1));
-    setTradeItems((current) => [...current, {
+    const newItem: TradeItem = {
       id: uid(),
       title: tradeItemForm.title.trim(),
       platform: tradeItemForm.platform.trim(),
@@ -189,19 +204,24 @@ export default function PosPage() {
       pricing_source: '',
       pricing_notes: '',
       lookup_status: 'idle',
-    }]);
+    };
+    setTradeItems((current) => [...current, newItem]);
     setTradeItemForm({ title: '', platform: '', condition: 'Loose', quantity: '1' });
+    window.setTimeout(() => lookupTradeItemPricing(newItem), 0);
   };
 
   const updateTradeItem = (id: string, updates: Partial<TradeItem>) => {
     setTradeItems((current) => current.map((item) => {
       if (item.id !== id) return item;
       const next = { ...item, ...updates };
-      const marketValue = bestMarketValue(next.pricecharting_value, next.gamestop_value);
+      const marketValue = 'market_value' in updates
+        ? Number(next.market_value || 0)
+        : bestMarketValue(next.pricecharting_value, next.gamestop_value);
       const quantity = Math.max(1, Number(next.quantity || 1));
       if (
         'pricecharting_value' in updates ||
         'gamestop_value' in updates ||
+        'market_value' in updates ||
         'quantity' in updates ||
         'condition' in updates
       ) {
@@ -233,22 +253,38 @@ export default function PosPage() {
     updateTradeItem(item.id, { lookup_status: 'loading' });
 
     try {
-      const [pc, gamestop] = await Promise.all([
-        getCanonicalPricing(item.title, item.platform || 'Unknown', { forceRefresh: true }),
+      const pc = await getCanonicalPricing(item.title, item.platform || 'Unknown', { forceRefresh: true });
+      const key = conditionKey(item.condition || '');
+      const pcValue = pc.status === 'api_error' ? 0 : Number(pc.prices[key]?.value || 0);
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const pcWarnings = pc.status === 'api_error' ? [pc.error || 'PriceCharting lookup failed'] : pc.diagnostics.warnings || [];
+
+      updateTradeItem(item.id, {
+        title: pc.pcMatch?.productName || item.title,
+        platform: pc.pcMatch?.platform || item.platform || '',
+        pricecharting_value: pcValue,
+        market_value: pcValue,
+        recommended_cash_offer: recommendedOffer(pcValue, quantity, CASH_OFFER_RATE),
+        recommended_trade_offer: recommendedOffer(pcValue, quantity, TRADE_OFFER_RATE),
+        accepted_offer: recommendedOffer(pcValue, quantity, buyForm.payout_type === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE),
+        pricing_source: pcValue > 0 ? 'PriceCharting' : '',
+        pricing_notes: pcWarnings.slice(0, 2).join(' '),
+        lookup_status: pcValue > 0 ? 'found' : 'loading',
+      });
+
+      const gamestop = await withTimeout(
         fetch('/api/gamestop-price', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title: item.title, platform: item.platform || '' }),
-        }).then((response) => response.json()).catch(() => null),
-      ]);
-
-      const key = conditionKey(item.condition || '');
-      const pcValue = pc.status === 'api_error' ? 0 : Number(pc.prices[key]?.value || 0);
+        }).then((response) => response.json()),
+        7000,
+        null
+      );
       const gamestopValue = gamestop?.success ? Number(gamestop.price || 0) : 0;
       const marketValue = bestMarketValue(pcValue, gamestopValue);
-      const quantity = Math.max(1, Number(item.quantity || 1));
       const warnings = [
-        ...(pc.status === 'api_error' ? [pc.error || 'PriceCharting lookup failed'] : pc.diagnostics.warnings || []),
+        ...pcWarnings,
         ...(gamestop?.warnings || []),
       ].filter(Boolean);
 
@@ -265,7 +301,7 @@ export default function PosPage() {
           pcValue > 0 ? 'PriceCharting' : '',
           gamestopValue > 0 ? 'GameStop' : '',
         ].filter(Boolean).join(' + '),
-        pricing_notes: warnings.slice(0, 2).join(' '),
+        pricing_notes: warnings.slice(0, 2).join(' ') || (gamestop ? '' : 'GameStop lookup timed out; PriceCharting value was still used.'),
         lookup_status: marketValue > 0 ? 'found' : 'missing',
       });
 
