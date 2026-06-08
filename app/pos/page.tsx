@@ -91,6 +91,7 @@ export default function PosPage() {
   const [cart, setCart] = useState<PosCartLine[]>([]);
   const [taxRate, setTaxRate] = useState('7');
   const [discount, setDiscount] = useState('');
+  const [discountType, setDiscountType] = useState<'percent' | 'amount'>('amount');
   const [paymentMethod, setPaymentMethod] = useState<PosSale['payment_method']>('cash');
   const [cashReceived, setCashReceived] = useState('');
   const [creditToUse, setCreditToUse] = useState('');
@@ -138,7 +139,8 @@ export default function PosPage() {
   };
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.quantity * line.unit_price, 0), [cart]);
-  const discountAmount = Math.min(Number(discount || 0), subtotal);
+  const discountRaw = Math.max(0, Number(discount || 0));
+  const discountAmount = Math.min(discountType === 'percent' ? subtotal * Math.min(discountRaw, 100) / 100 : discountRaw, subtotal);
   const taxable = Math.max(0, subtotal - discountAmount);
   const taxAmount = taxable * (Math.max(0, Number(taxRate || 0)) / 100);
   const total = taxable + taxAmount;
@@ -379,7 +381,7 @@ export default function PosPage() {
       const sale = await completePosSale({
         customer_id: selectedCustomer?.id || null,
         lines: cart,
-        discount_amount: Number(discount || 0),
+        discount_amount: discountAmount,
         tax_rate: Math.max(0, Number(taxRate || 0)) / 100,
         payment_method: paymentMethod,
         trade_credit_used: creditUsed,
@@ -389,6 +391,7 @@ export default function PosPage() {
       toast.success(`Sale complete: ${sale.sale_number}`);
       setCart([]);
       setDiscount('');
+      setDiscountType('amount');
       setCreditToUse('');
       setCashReceived('');
       setProcessorReference('');
@@ -724,7 +727,35 @@ export default function PosPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Discount</Label>
-                <Input className="mt-2 h-11 border-white/10 bg-black/40" type="number" min="0" step="0.01" value={discount} onChange={(event) => setDiscount(event.target.value)} />
+                <div className="mt-2 grid grid-cols-[84px_1fr] gap-2">
+                  <Select value={discountType} onValueChange={(value: 'percent' | 'amount') => setDiscountType(value)}>
+                    <SelectTrigger className="h-11 border-white/10 bg-black/40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="percent">%</SelectItem>
+                      <SelectItem value="amount">$</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <div className="relative">
+                    {discountType === 'amount' && (
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/45">$</span>
+                    )}
+                    <Input
+                      className={`h-11 border-white/10 bg-black/40 ${discountType === 'amount' ? 'pl-7' : ''}`}
+                      type="number"
+                      min="0"
+                      max={discountType === 'percent' ? 100 : undefined}
+                      step="0.01"
+                      value={discount}
+                      onChange={(event) => setDiscount(event.target.value)}
+                      placeholder={discountType === 'percent' ? '10' : '5.00'}
+                    />
+                    {discountType === 'percent' && (
+                      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/45">%</span>
+                    )}
+                  </div>
+                </div>
               </div>
               <div>
                 <Label>Tax %</Label>
