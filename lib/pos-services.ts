@@ -71,6 +71,22 @@ export type PosBuy = {
   bought_at: string;
 };
 
+export type PosBuyItem = {
+  id?: string;
+  title: string;
+  platform?: string;
+  condition?: string;
+  quantity: number;
+  pricecharting_value: number;
+  gamestop_value: number;
+  market_value: number;
+  recommended_cash_offer: number;
+  recommended_trade_offer: number;
+  accepted_offer: number;
+  pricing_source?: string;
+  pricing_notes?: string;
+};
+
 export async function searchPosInventory(search = ''): Promise<PosInventoryItem[]> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
@@ -249,6 +265,7 @@ export async function completePosSale(input: {
 export async function completeCustomerBuy(input: {
   customer_id?: string | null;
   item_summary: string;
+  items?: PosBuyItem[];
   offer_amount: number;
   payout_type: PosBuy['payout_type'];
   cash_paid: number;
@@ -276,6 +293,28 @@ export async function completeCustomerBuy(input: {
     .single();
 
   if (error) throw error;
+
+  if (input.items?.length) {
+    const buyItems = input.items.map((item) => ({
+      user_id: accountId,
+      buy_id: buy.id,
+      title: item.title.trim(),
+      platform: item.platform?.trim() || '',
+      condition: item.condition?.trim() || '',
+      quantity: Number(item.quantity || 1),
+      pricecharting_value: Number(item.pricecharting_value || 0),
+      gamestop_value: Number(item.gamestop_value || 0),
+      market_value: Number(item.market_value || 0),
+      recommended_cash_offer: Number(item.recommended_cash_offer || 0),
+      recommended_trade_offer: Number(item.recommended_trade_offer || 0),
+      accepted_offer: Number(item.accepted_offer || 0),
+      pricing_source: item.pricing_source?.trim() || '',
+      pricing_notes: item.pricing_notes?.trim() || '',
+    }));
+
+    const { error: itemsError } = await supabase.from('pos_customer_buy_items').insert(buyItems);
+    if (itemsError) throw itemsError;
+  }
 
   if (input.customer_id && Number(input.trade_credit_issued || 0) > 0) {
     const { data: customer } = await supabase

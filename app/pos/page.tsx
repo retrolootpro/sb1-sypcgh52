@@ -18,13 +18,38 @@ import {
   searchPosCustomers,
   searchPosInventory,
   type PosCartLine,
+  type PosBuyItem,
   type PosCustomer,
   type PosInventoryItem,
   type PosSale,
 } from '@/lib/pos-services';
+import { getCanonicalPricing } from '@/lib/pricing-service';
 
 const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
+const CASH_OFFER_RATE = 0.35;
+const TRADE_OFFER_RATE = 0.45;
+
+type TradeItem = PosBuyItem & {
+  id: string;
+  lookup_status?: 'idle' | 'loading' | 'found' | 'missing' | 'error';
+};
+
+function conditionKey(condition: string): 'loose' | 'cib' | 'new' | 'graded' {
+  const normalized = condition.toLowerCase();
+  if (normalized.includes('graded')) return 'graded';
+  if (normalized.includes('new') || normalized.includes('sealed')) return 'new';
+  if (normalized.includes('cib') || normalized.includes('complete')) return 'cib';
+  return 'loose';
+}
+
+function bestMarketValue(pricecharting: number, gamestop: number) {
+  return Math.max(Number(pricecharting || 0), Number(gamestop || 0));
+}
+
+function recommendedOffer(marketValue: number, quantity: number, rate: number) {
+  return Number((Math.max(0, marketValue) * Math.max(1, quantity || 1) * rate).toFixed(2));
+}
 
 export default function PosPage() {
   const { user, loading } = useAuth();
@@ -46,6 +71,8 @@ export default function PosPage() {
   const [manualPrice, setManualPrice] = useState('');
   const [saving, setSaving] = useState(false);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '', notes: '' });
+  const [tradeItems, setTradeItems] = useState<TradeItem[]>([]);
+  const [tradeItemForm, setTradeItemForm] = useState({ title: '', platform: '', condition: 'Loose', quantity: '1' });
   const [buyForm, setBuyForm] = useState({
     item_summary: '',
     offer_amount: '',
@@ -89,6 +116,22 @@ export default function PosPage() {
   const total = taxable + taxAmount;
   const creditUsed = Math.min(Number(creditToUse || 0), selectedCustomer?.credit_balance || 0, total);
   const dueAfterCredit = Math.max(0, total - creditUsed);
+  const tradeMarketTotal = useMemo(
+    () => tradeItems.reduce((sum, item) => sum + Number(item.market_value || 0) * Number(item.quantity || 1), 0),
+    [tradeItems]
+  );
+  const tradeCashOfferTotal = useMemo(
+    () => tradeItems.reduce((sum, item) => sum + Number(item.recommended_cash_offer || 0), 0),
+    [tradeItems]
+  );
+  const tradeCreditOfferTotal = useMemo(
+    () => tradeItems.reduce((sum, item) => sum + Number(item.recommended_trade_offer || 0), 0),
+    [tradeItems]
+  );
+  const acceptedTradeOfferTotal = useMemo(
+    () => tradeItems.reduce((sum, item) => sum + Number(item.accepted_offer || 0), 0),
+    [tradeItems]
+  );
 
   const addInventoryItem = (item: PosInventoryItem) => {
     if (cart.some((line) => line.inventory_item_id === item.id)) {
@@ -122,6 +165,116 @@ export default function PosPage() {
 
   const updateLine = (id: string, updates: Partial<PosCartLine>) => {
     setCart((current) => current.map((line) => line.id === id ? { ...line, ...updates } : line));
+  };
+
+  const addTradeItem = () => {
+    if (!tradeItemForm.title.trim()) {
+      toast.error('Enter a trade item title');
+      return;
+    }
+
+    const quantity = Math.max(1, Number(tradeItemForm.quantity || 1));
+    setTradeItems((current) => [...current, {
+      id: uid(),
+      title: tradeItemForm.title.trim(),
+      platform: tradeItemForm.platform.trim(),
+      condition: tradeItemForm.condition,
+      quantity,
+      pricecharting_value: 0,
+      gamestop_value: 0,
+      market_value: 0,
+      recommended_cash_offer: 0,
+      recommended_trade_offer: 0,
+      accepted_offer: 0,
+      pricing_source: '',
+      pricing_notes: '',
+      lookup_status: 'idle',
+    }]);
+    setTradeItemForm({ title: '', platform: '', condition: 'Loose', quantity: '1' });
+  };
+
+  const updateTradeItem = (id: string, updates: Partial<TradeItem>) => {
+    setTradeItems((current) => current.map((item) => {
+      if (item.id !== id) return item;
+      const next = { ...item, ...updates };
+      const marketValue = bestMarketValue(next.pricecharting_value, next.gamestop_value);
+      const quantity = Math.max(1, Number(next.quantity || 1));
+      if (
+        'pricecharting_value' in updates ||
+        'gamestop_value' in updates ||
+        'quantity' in updates ||
+        'condition' in updates
+      ) {
+        next.market_value = marketValue;
+        next.recommended_cash_offer = recommendedOffer(marketValue, quantity, CASH_OFFER_RATE);
+        next.recommended_trade_offer = recommendedOffer(marketValue, quantity, TRADE_OFFER_RATE);
+      }
+      return next;
+    }));
+  };
+
+  const applySuggestedOffer = (type: 'cash' | 'trade') => {
+    const amount = type === 'cash' ? tradeCashOfferTotal : tradeCreditOfferTotal;
+    setTradeItems((current) => current.map((item) => ({
+      ...item,
+      accepted_offer: type === 'cash' ? item.recommended_cash_offer : item.recommended_trade_offer,
+    })));
+    setBuyForm((current) => ({
+      ...current,
+      offer_amount: amount.toFixed(2),
+      payout_type: type === 'cash' ? 'cash' : 'trade_credit',
+      cash_paid: type === 'cash' ? amount.toFixed(2) : '',
+      trade_credit_issued: type === 'trade' ? amount.toFixed(2) : '',
+    }));
+  };
+
+  const lookupTradeItemPricing = async (item: TradeItem) => {
+    if (!item.title.trim()) return;
+    updateTradeItem(item.id, { lookup_status: 'loading' });
+
+    try {
+      const [pc, gamestop] = await Promise.all([
+        getCanonicalPricing(item.title, item.platform || 'Unknown', { forceRefresh: true }),
+        fetch('/api/gamestop-price', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: item.title, platform: item.platform || '' }),
+        }).then((response) => response.json()).catch(() => null),
+      ]);
+
+      const key = conditionKey(item.condition || '');
+      const pcValue = pc.status === 'api_error' ? 0 : Number(pc.prices[key]?.value || 0);
+      const gamestopValue = gamestop?.success ? Number(gamestop.price || 0) : 0;
+      const marketValue = bestMarketValue(pcValue, gamestopValue);
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const warnings = [
+        ...(pc.status === 'api_error' ? [pc.error || 'PriceCharting lookup failed'] : pc.diagnostics.warnings || []),
+        ...(gamestop?.warnings || []),
+      ].filter(Boolean);
+
+      updateTradeItem(item.id, {
+        title: pc.pcMatch?.productName || item.title,
+        platform: pc.pcMatch?.platform || item.platform || '',
+        pricecharting_value: pcValue,
+        gamestop_value: gamestopValue,
+        market_value: marketValue,
+        recommended_cash_offer: recommendedOffer(marketValue, quantity, CASH_OFFER_RATE),
+        recommended_trade_offer: recommendedOffer(marketValue, quantity, TRADE_OFFER_RATE),
+        accepted_offer: recommendedOffer(marketValue, quantity, buyForm.payout_type === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE),
+        pricing_source: [
+          pcValue > 0 ? 'PriceCharting' : '',
+          gamestopValue > 0 ? 'GameStop' : '',
+        ].filter(Boolean).join(' + '),
+        pricing_notes: warnings.slice(0, 2).join(' '),
+        lookup_status: marketValue > 0 ? 'found' : 'missing',
+      });
+
+      if (marketValue > 0) toast.success(`Pricing found for ${item.title}`);
+      else toast.warning(`No pricing found for ${item.title}`);
+    } catch (error: any) {
+      updateTradeItem(item.id, { lookup_status: 'error', pricing_notes: error.message || 'Lookup failed' });
+      toast.error(error.message || 'Trade pricing lookup failed');
+    }
   };
 
   const handleCreateCustomer = async () => {
@@ -178,22 +331,31 @@ export default function PosPage() {
   };
 
   const handleCompleteBuy = async () => {
-    if (!buyForm.item_summary.trim()) return toast.error('Enter what the customer is selling/trading');
-    if (!selectedCustomer && Number(buyForm.trade_credit_issued || 0) > 0) return toast.error('Select or create a rewards customer before issuing trade credit');
+    const itemSummary = tradeItems.length
+      ? tradeItems.map((item) => `${item.quantity}x ${item.title}${item.platform ? ` (${item.platform})` : ''}`).join('; ')
+      : buyForm.item_summary.trim();
+    const offerAmount = Number(buyForm.offer_amount || 0) || acceptedTradeOfferTotal;
+    const cashPaid = Number(buyForm.cash_paid || 0) || (buyForm.payout_type === 'cash' ? offerAmount : 0);
+    const tradeCreditIssued = Number(buyForm.trade_credit_issued || 0) || (buyForm.payout_type === 'trade_credit' ? offerAmount : 0);
+
+    if (!itemSummary) return toast.error('Add at least one trade item or enter what the customer is selling/trading');
+    if (!selectedCustomer && tradeCreditIssued > 0) return toast.error('Select or create a rewards customer before issuing trade credit');
 
     setSaving(true);
     try {
       const buy = await completeCustomerBuy({
         customer_id: selectedCustomer?.id || null,
-        item_summary: buyForm.item_summary,
-        offer_amount: Number(buyForm.offer_amount || 0),
+        item_summary: itemSummary,
+        items: tradeItems,
+        offer_amount: offerAmount,
         payout_type: buyForm.payout_type,
-        cash_paid: Number(buyForm.cash_paid || 0),
-        trade_credit_issued: Number(buyForm.trade_credit_issued || 0),
+        cash_paid: cashPaid,
+        trade_credit_issued: tradeCreditIssued,
         notes: buyForm.notes,
       });
       toast.success(`Buy complete: ${buy.buy_number}`);
       setBuyForm({ item_summary: '', offer_amount: '', payout_type: 'trade_credit', cash_paid: '', trade_credit_issued: '', notes: '' });
+      setTradeItems([]);
       await loadCustomers();
     } catch (error: any) {
       toast.error(error.message || 'Failed to complete buy');
@@ -297,36 +459,133 @@ export default function PosPage() {
                 <HandCoins className="h-5 w-5 text-primary" />
                 Buy From Customer / Trade Credit
               </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="space-y-3">
-                  <Label>Items Offered</Label>
-                  <Textarea className="min-h-36 border-white/10 bg-black/40 text-base" value={buyForm.item_summary} onChange={(event) => setBuyForm({ ...buyForm, item_summary: event.target.value })} placeholder="Example: 8 PS4 games, Xbox controller, Pokemon cards..." />
-                  <Label>Notes</Label>
-                  <Textarea className="min-h-24 border-white/10 bg-black/40" value={buyForm.notes} onChange={(event) => setBuyForm({ ...buyForm, notes: event.target.value })} placeholder="Condition, ID check, testing notes..." />
-                </div>
-                <div className="space-y-3">
-                  <Label>Offer Amount</Label>
-                  <Input className="h-12 border-white/10 bg-black/40 text-base" type="number" min="0" step="0.01" value={buyForm.offer_amount} onChange={(event) => setBuyForm({ ...buyForm, offer_amount: event.target.value })} />
-                  <Label>Payout Type</Label>
-                  <Select value={buyForm.payout_type} onValueChange={(value: any) => setBuyForm({ ...buyForm, payout_type: value })}>
-                    <SelectTrigger className="h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cash">Cash</SelectItem>
-                      <SelectItem value="trade_credit">Trade Credit</SelectItem>
-                      <SelectItem value="mixed">Mixed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label>Cash Paid</Label>
-                      <Input className="mt-2 h-12 border-white/10 bg-black/40" type="number" min="0" step="0.01" value={buyForm.cash_paid} onChange={(event) => setBuyForm({ ...buyForm, cash_paid: event.target.value })} />
-                    </div>
-                    <div>
-                      <Label>Trade Credit</Label>
-                      <Input className="mt-2 h-12 border-white/10 bg-black/40" type="number" min="0" step="0.01" value={buyForm.trade_credit_issued} onChange={(event) => setBuyForm({ ...buyForm, trade_credit_issued: event.target.value })} />
-                    </div>
+              <div className="grid gap-4">
+                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 lg:grid-cols-[1.4fr_.85fr_.7fr_.45fr_auto]">
+                  <div>
+                    <Label>Title</Label>
+                    <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={tradeItemForm.title} onChange={(event) => setTradeItemForm({ ...tradeItemForm, title: event.target.value })} placeholder="Mario Party 8" />
                   </div>
-                  <Button className="h-14 w-full text-lg" onClick={handleCompleteBuy} disabled={saving}>Complete Buy</Button>
+                  <div>
+                    <Label>Platform</Label>
+                    <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={tradeItemForm.platform} onChange={(event) => setTradeItemForm({ ...tradeItemForm, platform: event.target.value })} placeholder="Wii" />
+                  </div>
+                  <div>
+                    <Label>Condition</Label>
+                    <Select value={tradeItemForm.condition} onValueChange={(value) => setTradeItemForm({ ...tradeItemForm, condition: value })}>
+                      <SelectTrigger className="mt-2 h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Loose">Loose</SelectItem>
+                        <SelectItem value="CIB">CIB</SelectItem>
+                        <SelectItem value="New">New</SelectItem>
+                        <SelectItem value="Sealed">Sealed</SelectItem>
+                        <SelectItem value="Graded">Graded</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Qty</Label>
+                    <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" type="number" min="1" step="1" value={tradeItemForm.quantity} onChange={(event) => setTradeItemForm({ ...tradeItemForm, quantity: event.target.value })} />
+                  </div>
+                  <div className="flex items-end">
+                    <Button className="h-12 w-full px-6" onClick={addTradeItem}>Add</Button>
+                  </div>
+                </div>
+
+                <div className="grid gap-3">
+                  {tradeItems.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-white/15 p-8 text-center text-white/45">
+                      Add each item in the customer trade. PriceCharting and GameStop values will show per line after lookup.
+                    </div>
+                  ) : tradeItems.map((item) => (
+                    <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
+                      <div className="grid gap-3 xl:grid-cols-[1.4fr_.75fr_.6fr_.45fr_.65fr_.65fr_.65fr_.65fr_auto]">
+                        <div>
+                          <Label>Item</Label>
+                          <Input className="mt-2 h-11 border-white/10 bg-black/40" value={item.title} onChange={(event) => updateTradeItem(item.id, { title: event.target.value })} />
+                        </div>
+                        <div>
+                          <Label>Platform</Label>
+                          <Input className="mt-2 h-11 border-white/10 bg-black/40" value={item.platform || ''} onChange={(event) => updateTradeItem(item.id, { platform: event.target.value })} />
+                        </div>
+                        <div>
+                          <Label>Condition</Label>
+                          <Select value={item.condition || 'Loose'} onValueChange={(value) => updateTradeItem(item.id, { condition: value })}>
+                            <SelectTrigger className="mt-2 h-11 border-white/10 bg-black/40"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="Loose">Loose</SelectItem>
+                              <SelectItem value="CIB">CIB</SelectItem>
+                              <SelectItem value="New">New</SelectItem>
+                              <SelectItem value="Sealed">Sealed</SelectItem>
+                              <SelectItem value="Graded">Graded</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Qty</Label>
+                          <Input className="mt-2 h-11 border-white/10 bg-black/40" type="number" min="1" step="1" value={item.quantity} onChange={(event) => updateTradeItem(item.id, { quantity: Number(event.target.value || 1) })} />
+                        </div>
+                        <TradeMoneyInput label="PriceCharting" value={item.pricecharting_value} onChange={(value) => updateTradeItem(item.id, { pricecharting_value: value })} />
+                        <TradeMoneyInput label="GameStop" value={item.gamestop_value} onChange={(value) => updateTradeItem(item.id, { gamestop_value: value })} />
+                        <TradeMoneyInput label="Market" value={item.market_value} onChange={(value) => updateTradeItem(item.id, { market_value: value })} />
+                        <TradeMoneyInput label="Accepted" value={item.accepted_offer} onChange={(value) => updateTradeItem(item.id, { accepted_offer: value })} />
+                        <div className="flex items-end gap-2">
+                          <Button className="h-11" variant="outline" onClick={() => lookupTradeItemPricing(item)} disabled={item.lookup_status === 'loading'}>
+                            {item.lookup_status === 'loading' ? 'Pricing...' : 'Price'}
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-11 w-11 text-white/45" onClick={() => setTradeItems((current) => current.filter((tradeItem) => tradeItem.id !== item.id))}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/45">
+                        <span>Cash offer: <b className="text-white">{money(item.recommended_cash_offer)}</b></span>
+                        <span>Trade offer: <b className="text-primary">{money(item.recommended_trade_offer)}</b></span>
+                        <span>{item.pricing_source || 'No source yet'}</span>
+                        {item.pricing_notes && <span className="text-amber-200">{item.pricing_notes}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
+                  <div className="space-y-3">
+                    <Label>Fallback Item Summary</Label>
+                    <Textarea className="min-h-24 border-white/10 bg-black/40 text-base" value={buyForm.item_summary} onChange={(event) => setBuyForm({ ...buyForm, item_summary: event.target.value })} placeholder="Use only if you do not want to itemize the trade." />
+                    <Label>Notes</Label>
+                    <Textarea className="min-h-24 border-white/10 bg-black/40" value={buyForm.notes} onChange={(event) => setBuyForm({ ...buyForm, notes: event.target.value })} placeholder="Condition, ID check, testing notes..." />
+                  </div>
+                  <div className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4">
+                    <TotalsRow label="Total Market Value" value={tradeMarketTotal} large />
+                    <TotalsRow label={`Suggested Cash (${Math.round(CASH_OFFER_RATE * 100)}%)`} value={tradeCashOfferTotal} />
+                    <TotalsRow label={`Suggested Trade (${Math.round(TRADE_OFFER_RATE * 100)}%)`} value={tradeCreditOfferTotal} />
+                    <TotalsRow label="Accepted Offer" value={acceptedTradeOfferTotal} large />
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button className="h-11" variant="outline" onClick={() => applySuggestedOffer('cash')}>Use Cash Offer</Button>
+                      <Button className="h-11" onClick={() => applySuggestedOffer('trade')}>Use Trade Offer</Button>
+                    </div>
+                    <Label>Offer Amount</Label>
+                    <Input className="h-12 border-white/10 bg-black/40 text-base" type="number" min="0" step="0.01" value={buyForm.offer_amount} onChange={(event) => setBuyForm({ ...buyForm, offer_amount: event.target.value })} />
+                    <Label>Payout Type</Label>
+                    <Select value={buyForm.payout_type} onValueChange={(value: any) => setBuyForm({ ...buyForm, payout_type: value })}>
+                      <SelectTrigger className="h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="trade_credit">Trade Credit</SelectItem>
+                        <SelectItem value="mixed">Mixed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <Label>Cash Paid</Label>
+                        <Input className="mt-2 h-12 border-white/10 bg-black/40" type="number" min="0" step="0.01" value={buyForm.cash_paid} onChange={(event) => setBuyForm({ ...buyForm, cash_paid: event.target.value })} />
+                      </div>
+                      <div>
+                        <Label>Trade Credit</Label>
+                        <Input className="mt-2 h-12 border-white/10 bg-black/40" type="number" min="0" step="0.01" value={buyForm.trade_credit_issued} onChange={(event) => setBuyForm({ ...buyForm, trade_credit_issued: event.target.value })} />
+                      </div>
+                    </div>
+                    <Button className="h-14 w-full text-lg" onClick={handleCompleteBuy} disabled={saving}>Complete Buy</Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -494,6 +753,22 @@ function CustomerPanel(props: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function TradeMoneyInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <div>
+      <Label>{label}</Label>
+      <Input
+        className="mt-2 h-11 border-white/10 bg-black/40"
+        type="number"
+        min="0"
+        step="0.01"
+        value={Number(value || 0)}
+        onChange={(event) => onChange(Number(event.target.value || 0))}
+      />
     </div>
   );
 }
