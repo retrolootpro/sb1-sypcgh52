@@ -23,7 +23,7 @@ import {
   type PosInventoryItem,
   type PosSale,
 } from '@/lib/pos-services';
-import { getCanonicalPricing } from '@/lib/pricing-service';
+import { supabase } from '@/lib/supabase';
 
 const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -33,6 +33,30 @@ const TRADE_OFFER_RATE = 0.45;
 type TradeItem = PosBuyItem & {
   id: string;
   lookup_status?: 'idle' | 'loading' | 'found' | 'missing' | 'error';
+  search_results?: PriceChartingSearchResult[];
+};
+
+type PriceChartingSearchResult = {
+  id: string;
+  productName: string;
+  consoleName: string;
+};
+
+type PriceChartingDetails = {
+  id: string;
+  productName: string;
+  consoleName: string;
+  prices: {
+    loose: number;
+    cib: number;
+    new: number;
+    graded: number;
+    gamestop: number;
+    gamestopTrade: number;
+    retailLooseBuy: number;
+    retailCibBuy: number;
+    retailNewBuy: number;
+  };
 };
 
 function conditionKey(condition: string): 'loose' | 'cib' | 'new' | 'graded' {
@@ -51,19 +75,8 @@ function recommendedOffer(marketValue: number, quantity: number, rate: number) {
   return Number((Math.max(0, marketValue) * Math.max(1, quantity || 1) * rate).toFixed(2));
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return new Promise((resolve) => {
-    const timer = window.setTimeout(() => resolve(fallback), ms);
-    promise
-      .then((value) => {
-        window.clearTimeout(timer);
-        resolve(value);
-      })
-      .catch(() => {
-        window.clearTimeout(timer);
-        resolve(fallback);
-      });
-  });
+function priceChartingValueForCondition(details: PriceChartingDetails, condition: string) {
+  return Number(details.prices[conditionKey(condition)] || 0);
 }
 
 export default function PosPage() {
@@ -250,47 +263,69 @@ export default function PosPage() {
 
   const lookupTradeItemPricing = async (item: TradeItem) => {
     if (!item.title.trim()) return;
-    updateTradeItem(item.id, { lookup_status: 'loading' });
+    updateTradeItem(item.id, { lookup_status: 'loading', search_results: [], pricing_notes: 'Searching PriceCharting...' });
 
     try {
-      const pc = await getCanonicalPricing(item.title, item.platform || 'Unknown', { forceRefresh: true });
-      const key = conditionKey(item.condition || '');
-      const pcValue = pc.status === 'api_error' ? 0 : Number(pc.prices[key]?.value || 0);
-      const quantity = Math.max(1, Number(item.quantity || 1));
-      const pcWarnings = pc.status === 'api_error' ? [pc.error || 'PriceCharting lookup failed'] : pc.diagnostics.warnings || [];
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('No active session');
 
-      updateTradeItem(item.id, {
-        title: pc.pcMatch?.productName || item.title,
-        platform: pc.pcMatch?.platform || item.platform || '',
-        pricecharting_value: pcValue,
-        market_value: pcValue,
-        recommended_cash_offer: recommendedOffer(pcValue, quantity, CASH_OFFER_RATE),
-        recommended_trade_offer: recommendedOffer(pcValue, quantity, TRADE_OFFER_RATE),
-        accepted_offer: recommendedOffer(pcValue, quantity, buyForm.payout_type === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE),
-        pricing_source: pcValue > 0 ? 'PriceCharting' : '',
-        pricing_notes: pcWarnings.slice(0, 2).join(' '),
-        lookup_status: pcValue > 0 ? 'found' : 'loading',
+      const response = await fetch('/api/pricecharting-search', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'search', title: item.title, platform: item.platform || '' }),
       });
+      const data = await response.json();
+      if (!data?.success) throw new Error(data?.message || 'PriceCharting search failed');
 
-      const gamestop = await withTimeout(
-        fetch('/api/gamestop-price', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title: item.title, platform: item.platform || '' }),
-        }).then((response) => response.json()),
-        7000,
-        null
-      );
-      const gamestopValue = gamestop?.success ? Number(gamestop.price || 0) : 0;
-      const marketValue = bestMarketValue(pcValue, gamestopValue);
-      const warnings = [
-        ...pcWarnings,
-        ...(gamestop?.warnings || []),
-      ].filter(Boolean);
+      const results = (data.products || []) as PriceChartingSearchResult[];
+      if (results.length === 0) {
+        updateTradeItem(item.id, { lookup_status: 'missing', pricing_notes: 'No PriceCharting matches found.' });
+        toast.warning(`No PriceCharting matches for ${item.title}`);
+        return;
+      }
 
       updateTradeItem(item.id, {
-        title: pc.pcMatch?.productName || item.title,
-        platform: pc.pcMatch?.platform || item.platform || '',
+        lookup_status: 'found',
+        search_results: results,
+        pricing_notes: results.length === 1 ? 'One match found. Tap it to confirm.' : `${results.length} matches found. Choose the exact item.`,
+      });
+      toast.success(`Found ${results.length} PriceCharting match${results.length === 1 ? '' : 'es'}`);
+    } catch (error: any) {
+      updateTradeItem(item.id, { lookup_status: 'error', pricing_notes: error.message || 'Lookup failed' });
+      toast.error(error.message || 'Trade pricing lookup failed');
+    }
+  };
+
+  const applyPriceChartingMatch = async (item: TradeItem, match: PriceChartingSearchResult) => {
+    updateTradeItem(item.id, { lookup_status: 'loading', pricing_notes: `Loading ${match.productName} prices...` });
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('No active session');
+
+      const response = await fetch('/api/pricecharting-search', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'details', id: match.id }),
+      });
+      const data = await response.json();
+      if (!data?.success) throw new Error(data?.message || 'Could not load PriceCharting item');
+
+      const details = data.product as PriceChartingDetails;
+      const pcValue = priceChartingValueForCondition(details, item.condition || 'Loose');
+      const gamestopValue = Number(details.prices.gamestop || 0);
+      const marketValue = bestMarketValue(pcValue, gamestopValue);
+      const quantity = Math.max(1, Number(item.quantity || 1));
+
+      updateTradeItem(item.id, {
+        title: details.productName || match.productName,
+        platform: details.consoleName || match.consoleName,
         pricecharting_value: pcValue,
         gamestop_value: gamestopValue,
         market_value: marketValue,
@@ -298,18 +333,17 @@ export default function PosPage() {
         recommended_trade_offer: recommendedOffer(marketValue, quantity, TRADE_OFFER_RATE),
         accepted_offer: recommendedOffer(marketValue, quantity, buyForm.payout_type === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE),
         pricing_source: [
-          pcValue > 0 ? 'PriceCharting' : '',
-          gamestopValue > 0 ? 'GameStop' : '',
+          pcValue > 0 ? 'PriceCharting API' : '',
+          gamestopValue > 0 ? 'GameStop via PriceCharting' : '',
         ].filter(Boolean).join(' + '),
-        pricing_notes: warnings.slice(0, 2).join(' ') || (gamestop ? '' : 'GameStop lookup timed out; PriceCharting value was still used.'),
+        pricing_notes: pcValue > 0 ? `Confirmed PriceCharting ID ${details.id}` : 'Match confirmed, but this condition has no current value.',
         lookup_status: marketValue > 0 ? 'found' : 'missing',
+        search_results: [],
       });
-
-      if (marketValue > 0) toast.success(`Pricing found for ${item.title}`);
-      else toast.warning(`No pricing found for ${item.title}`);
+      toast.success(`Applied ${details.productName || match.productName}`);
     } catch (error: any) {
-      updateTradeItem(item.id, { lookup_status: 'error', pricing_notes: error.message || 'Lookup failed' });
-      toast.error(error.message || 'Trade pricing lookup failed');
+      updateTradeItem(item.id, { lookup_status: 'error', pricing_notes: error.message || 'Could not apply PriceCharting match' });
+      toast.error(error.message || 'Could not apply PriceCharting match');
     }
   };
 
@@ -579,6 +613,20 @@ export default function PosPage() {
                         <span>{item.pricing_source || 'No source yet'}</span>
                         {item.pricing_notes && <span className="text-amber-200">{item.pricing_notes}</span>}
                       </div>
+                      {item.search_results && item.search_results.length > 0 && (
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                          {item.search_results.map((match) => (
+                            <button
+                              key={match.id}
+                              onClick={() => applyPriceChartingMatch(item, match)}
+                              className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-left transition hover:border-primary hover:bg-primary/20"
+                            >
+                              <div className="text-sm font-semibold text-white">{match.productName}</div>
+                              <div className="mt-1 text-xs text-white/50">{match.consoleName} • PC ID {match.id}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
