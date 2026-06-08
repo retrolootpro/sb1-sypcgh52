@@ -27,6 +27,7 @@ import {
   Gavel,
   Boxes,
   FileLock2,
+  MonitorUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -344,6 +345,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         {children}
       </main>
 
+      <Link
+        href="/pos"
+        className="fixed bottom-20 right-5 z-40 flex h-14 items-center gap-2 rounded-full border border-primary/35 bg-primary px-5 text-sm font-bold text-black shadow-[0_12px_34px_-18px_hsl(148_100%_50%)] transition hover:scale-[1.02]"
+      >
+        <MonitorUp className="h-4 w-4" />
+        POS
+      </Link>
       <QuickDealScannerLauncher />
     </div>
   );

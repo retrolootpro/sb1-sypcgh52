@@ -220,6 +220,33 @@ export const manualSections: ManualSection[] = [
     ],
   },
   {
+    id: 'pos-register',
+    title: 'POS Register',
+    category: 'Sales Channels',
+    icon: WalletCards,
+    summary: 'The POS Register is a full-screen, touch-friendly checkout for in-person selling, customer buys, trade credit, and rewards customers.',
+    why: 'A dedicated register keeps counter sales connected to inventory, customer credit, and profit records without cluttering the normal dashboard screens.',
+    steps: [
+      'Tap the POS button from the main app to open iPad register mode.',
+      'Use Sell to add inventory items or manual sale lines to the cart.',
+      'Select or create a rewards customer when trade credit, sales history, or customer notes should be tracked.',
+      'Choose cash, Square, Stripe, external card, trade credit, split, or other as the payment method.',
+      'Use Buy / Trade when a customer sells items to the business or accepts store credit.',
+      'Use Customers to review reward customers, credit balances, and lifetime spend.',
+    ],
+    fields: [
+      'Cart subtotal is the item total before discounts and tax.',
+      'Trade credit used lowers the amount due and reduces the customer credit balance.',
+      'Payment reference stores the Square, Stripe, or external processor receipt/reference number.',
+      'Customer buy records track what was bought, cash paid, trade credit issued, and notes.',
+    ],
+    warnings: [
+      'Do not store card numbers in RetroLootPro. Use Square, Stripe, or another processor for card entry.',
+      'Inventory items sold through POS are marked sold so they do not remain available elsewhere.',
+      'Trade credit should be issued only to a selected rewards customer.',
+    ],
+  },
+  {
     id: 'bundle-builder',
     title: 'Bundle Builder',
     category: 'Sales Channels',
@@ -597,6 +624,19 @@ export const workflowGuides: ManualGuide[] = [
       'Review pricing and floor warnings.',
       'Create a draft or mark listed.',
       'Store listing URL and update sold status when it sells.',
+    ],
+  },
+  {
+    id: 'pos-sale-workflow',
+    title: 'POS Sale Workflow',
+    summary: 'Use this at a counter, convention table, local pickup, or live in-person sale.',
+    steps: [
+      'Tap POS to open full-screen register mode.',
+      'Select a rewards customer or create a new one if the buyer wants credit/history tracked.',
+      'Search inventory and add items, or add a manual line for non-inventory sales.',
+      'Review discount, tax, payment method, and any trade credit used.',
+      'Process the card in Square or Stripe if taking card payment, then enter the processor reference.',
+      'Complete the sale and confirm sold inventory is no longer available.',
     ],
   },
   {
