@@ -43,6 +43,7 @@ const CONDITION_RATING_MULTIPLIERS: Record<number, number> = {
 
 type TradeItem = PosBuyItem & {
   id: string;
+  barcode?: string;
   lookup_status?: 'idle' | 'loading' | 'found' | 'missing' | 'error';
   search_results?: PriceChartingSearchResult[];
 };
@@ -68,6 +69,13 @@ type PriceChartingDetails = {
     retailCibBuy: number;
     retailNewBuy: number;
   };
+};
+
+type LocalUpcLookupResult = {
+  barcode: string;
+  title: string;
+  platform: string;
+  pcProductId?: string;
 };
 
 function bestMarketValue(pricecharting: number, gamestop: number) {
@@ -148,7 +156,7 @@ export default function PosPage() {
   const [saving, setSaving] = useState(false);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [tradeItems, setTradeItems] = useState<TradeItem[]>([]);
-  const [tradeItemForm, setTradeItemForm] = useState({ title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
+  const [tradeItemForm, setTradeItemForm] = useState({ barcode: '', title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
   const [buyForm, setBuyForm] = useState({
     item_summary: '',
     offer_amount: '',
@@ -297,15 +305,18 @@ export default function PosPage() {
   };
 
   const addTradeItem = () => {
-    if (!tradeItemForm.title.trim()) {
-      toast.error('Enter a trade item title');
+    const barcode = tradeItemForm.barcode.trim();
+    const title = tradeItemForm.title.trim();
+    if (!title && !barcode) {
+      toast.error('Enter a trade item title or scan a UPC');
       return;
     }
 
     const quantity = Math.max(1, Number(tradeItemForm.quantity || 1));
     const newItem: TradeItem = {
       id: uid(),
-      title: tradeItemForm.title.trim(),
+      barcode,
+      title: title || barcode,
       platform: tradeItemForm.platform.trim(),
       condition: tradeItemForm.condition,
       condition_rating: Number(tradeItemForm.conditionRating || 5),
@@ -321,8 +332,11 @@ export default function PosPage() {
       lookup_status: 'idle',
     };
     setTradeItems((current) => [...current, newItem]);
-    setTradeItemForm({ title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
-    window.setTimeout(() => lookupTradeItemPricing(newItem), 0);
+    setTradeItemForm({ barcode: '', title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
+    window.setTimeout(() => {
+      if (barcode) lookupTradeItemByUpc(newItem);
+      else lookupTradeItemPricing(newItem);
+    }, 0);
   };
 
   const updateTradeItem = (id: string, updates: Partial<TradeItem>) => {
@@ -399,6 +413,91 @@ export default function PosPage() {
     }
   };
 
+  const applyPriceChartingDetailsToTradeItem = (item: TradeItem, details: PriceChartingDetails, fallback?: Partial<PriceChartingSearchResult>) => {
+    const pcValue = baselinePriceChartingValue(details);
+    const gamestopValue = Number(details.prices.gamestop || 0);
+    const marketValue = bestMarketValue(pcValue, gamestopValue);
+    const quantity = Math.max(1, Number(item.quantity || 1));
+
+    updateTradeItem(item.id, {
+      title: details.productName || fallback?.productName || item.title,
+      platform: details.consoleName || fallback?.consoleName || item.platform,
+      pricecharting_value: pcValue,
+      gamestop_value: gamestopValue,
+      market_value: marketValue,
+      recommended_cash_offer: conditionAdjustedOffer(marketValue, quantity, CASH_OFFER_RATE, Number(item.condition_rating || 5)),
+      recommended_trade_offer: conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
+      accepted_offer: recommendedBuyOffer(marketValue, quantity, Number(item.condition_rating || 5)),
+      pricing_source: [
+        pcValue > 0 ? 'PriceCharting baseline' : '',
+        gamestopValue > 0 ? 'GameStop via PriceCharting' : '',
+      ].filter(Boolean).join(' + '),
+      pricing_notes: marketValue > 0
+        ? `Confirmed PriceCharting ID ${details.id}. Baseline value used; condition rating adjusts the offer.`
+        : `Confirmed PriceCharting ID ${details.id}, but no baseline market value was returned.`,
+      lookup_status: marketValue > 0 ? 'found' : 'missing',
+      search_results: [],
+    });
+  };
+
+  const lookupTradeItemByUpc = async (item: TradeItem) => {
+    const barcode = String(item.barcode || '').trim();
+    if (!barcode) {
+      toast.error('Scan or enter a UPC first');
+      return;
+    }
+
+    updateTradeItem(item.id, { lookup_status: 'loading', search_results: [], pricing_notes: `Looking up UPC ${barcode}...` });
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('No active session');
+
+      const upcResponse = await fetch('/api/local-upc-lookup', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ barcode, titleHint: item.title !== barcode ? item.title : undefined }),
+      });
+      const upcData = await upcResponse.json();
+      if (!upcData?.success) throw new Error(upcData?.message || 'UPC lookup failed');
+
+      const product = upcData as LocalUpcLookupResult;
+      if (!product.pcProductId) {
+        updateTradeItem(item.id, {
+          title: product.title || item.title,
+          platform: product.platform || item.platform,
+          lookup_status: 'missing',
+          pricing_notes: 'UPC matched metadata, but no PriceCharting product ID was returned.',
+        });
+        return;
+      }
+
+      const detailsResponse = await fetch('/api/pricecharting-search', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'details', id: product.pcProductId }),
+      });
+      const detailsData = await detailsResponse.json();
+      if (!detailsData?.success) throw new Error(detailsData?.message || 'Could not load PriceCharting item');
+
+      applyPriceChartingDetailsToTradeItem(item, detailsData.product as PriceChartingDetails, {
+        id: product.pcProductId,
+        productName: product.title,
+        consoleName: product.platform,
+      });
+      toast.success(`UPC matched ${product.title || item.title}`);
+    } catch (error: any) {
+      updateTradeItem(item.id, { lookup_status: 'error', pricing_notes: error.message || 'UPC lookup failed' });
+      toast.error(error.message || 'Trade UPC lookup failed');
+    }
+  };
+
   const applyPriceChartingMatch = async (item: TradeItem, match: PriceChartingSearchResult) => {
     updateTradeItem(item.id, { lookup_status: 'loading', pricing_notes: `Loading ${match.productName} prices...` });
 
@@ -418,30 +517,7 @@ export default function PosPage() {
       if (!data?.success) throw new Error(data?.message || 'Could not load PriceCharting item');
 
       const details = data.product as PriceChartingDetails;
-      const pcValue = baselinePriceChartingValue(details);
-      const gamestopValue = Number(details.prices.gamestop || 0);
-      const marketValue = bestMarketValue(pcValue, gamestopValue);
-      const quantity = Math.max(1, Number(item.quantity || 1));
-
-      updateTradeItem(item.id, {
-        title: details.productName || match.productName,
-        platform: details.consoleName || match.consoleName,
-        pricecharting_value: pcValue,
-        gamestop_value: gamestopValue,
-        market_value: marketValue,
-        recommended_cash_offer: conditionAdjustedOffer(marketValue, quantity, CASH_OFFER_RATE, Number(item.condition_rating || 5)),
-        recommended_trade_offer: conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
-        accepted_offer: recommendedBuyOffer(marketValue, quantity, Number(item.condition_rating || 5)),
-        pricing_source: [
-          pcValue > 0 ? 'PriceCharting baseline' : '',
-          gamestopValue > 0 ? 'GameStop via PriceCharting' : '',
-        ].filter(Boolean).join(' + '),
-        pricing_notes: marketValue > 0
-          ? `Confirmed PriceCharting ID ${details.id}. Baseline value used; condition rating adjusts the offer.`
-          : `Confirmed PriceCharting ID ${details.id}, but no baseline market value was returned.`,
-        lookup_status: marketValue > 0 ? 'found' : 'missing',
-        search_results: [],
-      });
+      applyPriceChartingDetailsToTradeItem(item, details, match);
       toast.success(`Applied ${details.productName || match.productName}`);
     } catch (error: any) {
       updateTradeItem(item.id, { lookup_status: 'error', pricing_notes: error.message || 'Could not apply PriceCharting match' });
@@ -664,7 +740,19 @@ export default function PosPage() {
                 Buy From Customer / Trade Credit
               </div>
               <div className="grid gap-4">
-                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 lg:grid-cols-[1.25fr_.75fr_.65fr_.8fr_.4fr_auto]">
+                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 xl:grid-cols-[.85fr_1.2fr_.7fr_.6fr_.75fr_.35fr_auto]">
+                  <div>
+                    <Label>UPC</Label>
+                    <Input
+                      className="mt-2 h-12 border-white/10 bg-black/40 font-mono text-base"
+                      value={tradeItemForm.barcode}
+                      onChange={(event) => setTradeItemForm({ ...tradeItemForm, barcode: event.target.value })}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') addTradeItem();
+                      }}
+                      placeholder="Scan UPC"
+                    />
+                  </div>
                   <div>
                     <Label>Title</Label>
                     <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={tradeItemForm.title} onChange={(event) => setTradeItemForm({ ...tradeItemForm, title: event.target.value })} placeholder="Mario Party 8" />
@@ -713,6 +801,30 @@ export default function PosPage() {
                     </div>
                   ) : tradeItems.map((item) => (
                     <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
+                      <div className="mb-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                        <div>
+                          <Label>UPC</Label>
+                          <Input
+                            className="mt-2 h-10 border-white/10 bg-black/40 font-mono"
+                            value={item.barcode || ''}
+                            onChange={(event) => updateTradeItem(item.id, { barcode: event.target.value })}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter') lookupTradeItemByUpc({ ...item, barcode: (event.target as HTMLInputElement).value });
+                            }}
+                            placeholder="Scan or enter UPC"
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button
+                            className="h-10"
+                            variant="outline"
+                            onClick={() => lookupTradeItemByUpc(item)}
+                            disabled={item.lookup_status === 'loading' || !item.barcode?.trim()}
+                          >
+                            Lookup UPC
+                          </Button>
+                        </div>
+                      </div>
                       <div className="grid gap-3 xl:grid-cols-[1.2fr_.65fr_.55fr_.75fr_.4fr_.6fr_.6fr_.6fr_.6fr_auto]">
                         <div>
                           <Label>Item</Label>
