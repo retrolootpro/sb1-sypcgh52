@@ -31,7 +31,7 @@ import { supabase } from '@/lib/supabase';
 const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
 const CASH_OFFER_RATE = 0.35;
-const TRADE_OFFER_RATE = 0.45;
+const TRADE_OFFER_RATE = 0.6;
 const CONDITION_RATING_MULTIPLIERS: Record<number, number> = {
   5: 1,
   4: 0.85,
@@ -80,6 +80,12 @@ function recommendedOffer(marketValue: number, quantity: number, rate: number) {
 function conditionAdjustedOffer(marketValue: number, quantity: number, rate: number, rating: number) {
   const multiplier = CONDITION_RATING_MULTIPLIERS[Math.max(1, Math.min(5, Math.round(Number(rating || 5))))] ?? 1;
   return Number((recommendedOffer(marketValue, quantity, rate) * multiplier).toFixed(2));
+}
+
+function offerPercent(offer: number, marketValue: number, quantity = 1) {
+  const totalValue = Math.max(0, Number(marketValue || 0) * Math.max(1, Number(quantity || 1)));
+  if (totalValue <= 0) return 0;
+  return Number(((Number(offer || 0) / totalValue) * 100).toFixed(1));
 }
 
 function conditionRatingLabel(rating: number) {
@@ -216,6 +222,8 @@ export default function PosPage() {
     () => tradeItems.reduce((sum, item) => sum + Number(item.accepted_offer || 0), 0),
     [tradeItems]
   );
+  const suggestedCashPercent = offerPercent(tradeCashOfferTotal, tradeMarketTotal);
+  const suggestedTradePercent = offerPercent(tradeCreditOfferTotal, tradeMarketTotal);
 
   useEffect(() => {
     if (!selectedCustomer) {
@@ -754,8 +762,8 @@ export default function PosPage() {
                         </div>
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/45">
-                        <span>Cash offer: <b className="text-white">{money(item.recommended_cash_offer)}</b></span>
-                        <span>Trade offer: <b className="text-primary">{money(item.recommended_trade_offer)}</b></span>
+                        <span>Cash offer ({offerPercent(item.recommended_cash_offer, item.market_value, item.quantity)}%): <b className="text-white">{money(item.recommended_cash_offer)}</b></span>
+                        <span>Trade offer ({offerPercent(item.recommended_trade_offer, item.market_value, item.quantity)}%): <b className="text-primary">{money(item.recommended_trade_offer)}</b></span>
                         <span>{item.pricing_source || 'No source yet'}</span>
                         {item.pricing_notes && <span className="text-amber-200">{item.pricing_notes}</span>}
                       </div>
@@ -786,8 +794,8 @@ export default function PosPage() {
                   </div>
                   <div className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4">
                     <TotalsRow label="Total Market Value" value={tradeMarketTotal} large />
-                    <TotalsRow label={`Suggested Cash (${Math.round(CASH_OFFER_RATE * 100)}%)`} value={tradeCashOfferTotal} />
-                    <TotalsRow label={`Suggested Trade (${Math.round(TRADE_OFFER_RATE * 100)}%)`} value={tradeCreditOfferTotal} />
+                    <TotalsRow label={`Suggested Cash (${suggestedCashPercent}%)`} value={tradeCashOfferTotal} />
+                    <TotalsRow label={`Suggested Trade (${suggestedTradePercent}%)`} value={tradeCreditOfferTotal} />
                     <TotalsRow label="Accepted Offer" value={acceptedTradeOfferTotal} large />
                     <div className="grid grid-cols-2 gap-2">
                       <Button className="h-11" variant="outline" onClick={() => applySuggestedOffer('cash')}>Use Cash Offer</Button>
