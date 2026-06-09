@@ -212,6 +212,27 @@ export async function completePosSale(input: {
   const { error: itemsError } = await supabase.from('pos_sale_items').insert(saleItems);
   if (itemsError) throw itemsError;
 
+  const { error: financeError } = await supabase.from('financial_transactions').insert({
+    user_id: accountId,
+    date: new Date().toISOString().slice(0, 10),
+    description: `POS sale ${sale.sale_number}`,
+    amount: total,
+    type: 'income',
+    category: 'Sales',
+    subcategory: 'POS',
+    source: 'show',
+    platform: 'POS Register',
+    reference_id: sale.id,
+    merchant_name: 'RetroLootPro POS',
+    notes: [
+      input.payment_method ? `Tender: ${input.payment_method}` : '',
+      input.processor_reference?.trim() ? `Card ref: ${input.processor_reference.trim()}` : '',
+      creditUsed > 0 ? `Trade credit used: $${creditUsed.toFixed(2)}` : '',
+    ].filter(Boolean).join(' | '),
+    is_reconciled: false,
+  });
+  if (financeError) throw financeError;
+
   const inventoryIds = input.lines
     .filter((line) => line.source === 'inventory' && line.inventory_item_id)
     .map((line) => line.inventory_item_id as string);
