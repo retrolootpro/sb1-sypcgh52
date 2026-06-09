@@ -32,6 +32,7 @@ const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
 const CASH_OFFER_RATE = 0.35;
 const TRADE_OFFER_RATE = 0.6;
+const RECOMMENDED_OFFER_RATE = (CASH_OFFER_RATE + TRADE_OFFER_RATE) / 2;
 const CONDITION_RATING_MULTIPLIERS: Record<number, number> = {
   5: 1,
   4: 0.85,
@@ -82,8 +83,8 @@ function conditionAdjustedOffer(marketValue: number, quantity: number, rate: num
   return Number((recommendedOffer(marketValue, quantity, rate) * multiplier).toFixed(2));
 }
 
-function payoutOfferRate(payoutType: 'cash' | 'trade_credit' | 'mixed') {
-  return payoutType === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE;
+function recommendedBuyOffer(marketValue: number, quantity: number, rating: number) {
+  return conditionAdjustedOffer(marketValue, quantity, RECOMMENDED_OFFER_RATE, rating);
 }
 
 function offerPercent(offer: number, marketValue: number, quantity = 1) {
@@ -222,7 +223,7 @@ export default function PosPage() {
     () => tradeItems.reduce((sum, item) => sum + Number(item.recommended_trade_offer || 0), 0),
     [tradeItems]
   );
-  const acceptedTradeOfferTotal = useMemo(
+  const recommendedOfferTotal = useMemo(
     () => tradeItems.reduce((sum, item) => sum + Number(item.accepted_offer || 0), 0),
     [tradeItems]
   );
@@ -343,7 +344,7 @@ export default function PosPage() {
         next.market_value = marketValue;
         next.recommended_cash_offer = conditionAdjustedOffer(marketValue, quantity, CASH_OFFER_RATE, Number(next.condition_rating || 5));
         next.recommended_trade_offer = conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(next.condition_rating || 5));
-        next.accepted_offer = conditionAdjustedOffer(marketValue, quantity, payoutOfferRate(buyForm.payout_type), Number(next.condition_rating || 5));
+        next.accepted_offer = recommendedBuyOffer(marketValue, quantity, Number(next.condition_rating || 5));
       }
       return next;
     }));
@@ -351,10 +352,6 @@ export default function PosPage() {
 
   const applySuggestedOffer = (type: 'cash' | 'trade') => {
     const amount = type === 'cash' ? tradeCashOfferTotal : tradeCreditOfferTotal;
-    setTradeItems((current) => current.map((item) => ({
-      ...item,
-      accepted_offer: type === 'cash' ? item.recommended_cash_offer : item.recommended_trade_offer,
-    })));
     setBuyForm((current) => ({
       ...current,
       offer_amount: amount.toFixed(2),
@@ -434,7 +431,7 @@ export default function PosPage() {
         market_value: marketValue,
         recommended_cash_offer: conditionAdjustedOffer(marketValue, quantity, CASH_OFFER_RATE, Number(item.condition_rating || 5)),
         recommended_trade_offer: conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
-        accepted_offer: conditionAdjustedOffer(marketValue, quantity, payoutOfferRate(buyForm.payout_type), Number(item.condition_rating || 5)),
+        accepted_offer: recommendedBuyOffer(marketValue, quantity, Number(item.condition_rating || 5)),
         pricing_source: [
           pcValue > 0 ? 'PriceCharting baseline' : '',
           gamestopValue > 0 ? 'GameStop via PriceCharting' : '',
@@ -522,7 +519,7 @@ export default function PosPage() {
     const itemSummary = tradeItems.length
       ? tradeItems.map((item) => `${item.quantity}x ${item.title}${item.platform ? ` (${item.platform})` : ''}`).join('; ')
       : buyForm.item_summary.trim();
-    const offerAmount = Number(buyForm.offer_amount || 0) || acceptedTradeOfferTotal;
+    const offerAmount = Number(buyForm.offer_amount || 0) || recommendedOfferTotal;
     const cashPaid = Number(buyForm.cash_paid || 0) || (buyForm.payout_type === 'cash' ? offerAmount : 0);
     const tradeCreditIssued = Number(buyForm.trade_credit_issued || 0) || (buyForm.payout_type === 'trade_credit' ? offerAmount : 0);
 
@@ -801,33 +798,35 @@ export default function PosPage() {
                     <TotalsRow label="Total Market Value" value={tradeMarketTotal} large />
                     <TotalsRow label={`Suggested Cash (${suggestedCashPercent}%)`} value={tradeCashOfferTotal} />
                     <TotalsRow label={`Suggested Trade (${suggestedTradePercent}%)`} value={tradeCreditOfferTotal} />
-                    <TotalsRow label="Recommended Offer" value={acceptedTradeOfferTotal} large />
+                    <TotalsRow label={`Recommended Offer (${offerPercent(recommendedOfferTotal, tradeMarketTotal)}%)`} value={recommendedOfferTotal} large />
                     <div className="grid grid-cols-2 gap-2">
                       <Button className="h-11" variant="outline" onClick={() => applySuggestedOffer('cash')}>Use Cash Offer</Button>
                       <Button className="h-11" onClick={() => applySuggestedOffer('trade')}>Use Trade Offer</Button>
                     </div>
                     <Label>Offer Amount</Label>
                     <Input className="h-12 border-white/10 bg-black/40 text-base" type="number" min="0" step="0.01" value={buyForm.offer_amount} onChange={(event) => setBuyForm({ ...buyForm, offer_amount: event.target.value })} />
+                    <Button
+                      className="h-11 w-full"
+                      variant="outline"
+                      onClick={() => setBuyForm((current) => ({
+                        ...current,
+                        offer_amount: recommendedOfferTotal.toFixed(2),
+                        cash_paid: current.payout_type === 'cash' ? recommendedOfferTotal.toFixed(2) : '',
+                        trade_credit_issued: current.payout_type !== 'cash' ? recommendedOfferTotal.toFixed(2) : '',
+                      }))}
+                      disabled={recommendedOfferTotal <= 0}
+                    >
+                      Use Recommended Offer
+                    </Button>
                     <Label>Payout Type</Label>
                     <Select
                       value={buyForm.payout_type}
                       onValueChange={(value: 'cash' | 'trade_credit' | 'mixed') => {
-                        const rate = payoutOfferRate(value);
-                        const nextItems = tradeItems.map((item) => {
-                          const quantity = Math.max(1, Number(item.quantity || 1));
-                          return {
-                            ...item,
-                            accepted_offer: conditionAdjustedOffer(Number(item.market_value || 0), quantity, rate, Number(item.condition_rating || 5)),
-                          };
-                        });
-                        const nextOffer = nextItems.reduce((sum, item) => sum + Number(item.accepted_offer || 0), 0);
-                        setTradeItems(nextItems);
                         setBuyForm({
                           ...buyForm,
                           payout_type: value,
-                          offer_amount: nextOffer > 0 ? nextOffer.toFixed(2) : buyForm.offer_amount,
-                          cash_paid: value === 'cash' && nextOffer > 0 ? nextOffer.toFixed(2) : value === 'cash' ? buyForm.cash_paid : '',
-                          trade_credit_issued: value !== 'cash' && nextOffer > 0 ? nextOffer.toFixed(2) : value !== 'cash' ? buyForm.trade_credit_issued : '',
+                          cash_paid: value === 'cash' ? buyForm.offer_amount : '',
+                          trade_credit_issued: value !== 'cash' ? buyForm.offer_amount : '',
                         });
                       }}
                     >
