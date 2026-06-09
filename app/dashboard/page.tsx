@@ -189,7 +189,7 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 sm:p-8 lg:p-10 max-w-6xl space-y-10">
+      <div className="p-5 sm:p-7 lg:p-8 max-w-6xl space-y-7">
 
         <div className="space-y-1">
           <div className="flex items-center gap-2">
@@ -198,8 +198,8 @@ export default function DashboardPage() {
               Start here each day: review cash, tasks, aging inventory, priority listing work, and sales.
             </ContextHelp>
           </div>
-          <div className="flex items-end gap-4">
-            <div className="heading-display text-[52px] stat-number text-foreground">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-4">
+            <div className="heading-display text-[38px] stat-number text-foreground sm:text-[46px]">
               ${stats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             {stats.totalSpent > 0 && (
@@ -234,27 +234,30 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div className="rounded-2xl border border-border/40 bg-card p-6">
-            <div className="label-caps mb-3">Total Invested</div>
-            <div className="text-[28px] font-bold stat-number">${stats.totalSpent.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
-            <div className="text-sm text-muted-foreground mt-1">{stats.itemCount} items</div>
+        <div className="rounded-2xl border border-border/40 bg-card p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-white/85">Business Snapshot</div>
+              <div className="text-xs text-muted-foreground">Quick financial read without opening Finance.</div>
+            </div>
+            <Link href="/finance">
+              <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground">
+                Finance <ChevronRight className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </Link>
           </div>
-          <div className="rounded-2xl border border-border/40 bg-card p-6">
-            <div className="label-caps mb-3">Unrealized Profit</div>
-            <div className={`text-[28px] font-bold stat-number ${profitPositive ? 'text-emerald-400' : 'text-red-400'}`}>
-              {profitPositive ? '+' : ''}${stats.totalProfit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </div>
-            <div className="text-sm text-muted-foreground mt-1">
-              {stats.totalSpent > 0 ? `${roi >= 0 ? '+' : ''}${roi.toFixed(1)}% return` : 'No data'}
-            </div>
-          </div>
-          <div className="rounded-2xl border border-border/40 bg-card p-6">
-            <div className="label-caps mb-3">Avg Deal Score</div>
-            <div className="text-[28px] font-bold stat-number text-primary">{stats.avgDealScore}</div>
-            <div className="text-sm text-muted-foreground mt-1">
-              {stats.avgDealScore >= 70 ? 'Excellent picks' : stats.avgDealScore >= 40 ? 'Good collection' : stats.itemCount > 0 ? 'Below average' : 'No data'}
-            </div>
+          <div className="grid gap-3 sm:grid-cols-3 sm:divide-x sm:divide-border/30">
+            {[
+              { label: 'Invested', value: `$${stats.totalSpent.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, detail: `${stats.itemCount} items`, tone: 'text-white/90' },
+              { label: 'Unrealized Profit', value: `${profitPositive ? '+' : ''}$${stats.totalProfit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, detail: stats.totalSpent > 0 ? `${roi >= 0 ? '+' : ''}${roi.toFixed(1)}% return` : 'No data', tone: profitPositive ? 'text-emerald-400' : 'text-red-400' },
+              { label: 'Avg Deal Score', value: String(stats.avgDealScore), detail: stats.avgDealScore >= 70 ? 'Excellent picks' : stats.avgDealScore >= 40 ? 'Good collection' : stats.itemCount > 0 ? 'Below average' : 'No data', tone: 'text-primary' },
+            ].map((metric) => (
+              <div key={metric.label} className="px-1 py-2 sm:px-4">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{metric.label}</div>
+                <div className={`mt-1 text-xl font-bold stat-number ${metric.tone}`}>{metric.value}</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">{metric.detail}</div>
+              </div>
+            ))}
           </div>
         </div>
 

@@ -16,6 +16,7 @@ import {
   completeCustomerBuy,
   completePosSale,
   createPosCustomer,
+  getPosTaxSettings,
   searchPosCustomers,
   searchPosInventory,
   type PosCartLine,
@@ -23,6 +24,7 @@ import {
   type PosCustomer,
   type PosInventoryItem,
   type PosSale,
+  type PosTaxSettings,
 } from '@/lib/pos-services';
 import { supabase } from '@/lib/supabase';
 
@@ -113,7 +115,7 @@ export default function PosPage() {
   const [inventorySearch, setInventorySearch] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [cart, setCart] = useState<PosCartLine[]>([]);
-  const [taxRate, setTaxRate] = useState('7');
+  const [taxSettings, setTaxSettings] = useState<PosTaxSettings | null>(null);
   const [discount, setDiscount] = useState('');
   const [discountType, setDiscountType] = useState<'percent' | 'amount'>('amount');
   const [paymentMethod, setPaymentMethod] = useState<PosSale['payment_method']>('cash');
@@ -148,6 +150,7 @@ export default function PosPage() {
     if (!user) return;
     loadInventory();
     loadCustomers();
+    loadTaxSettings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -167,11 +170,20 @@ export default function PosPage() {
     }
   };
 
+  const loadTaxSettings = async () => {
+    try {
+      setTaxSettings(await getPosTaxSettings());
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to load POS tax settings');
+    }
+  };
+
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.quantity * line.unit_price, 0), [cart]);
   const discountRaw = Math.max(0, Number(discount || 0));
   const discountAmount = Math.min(discountType === 'percent' ? subtotal * Math.min(discountRaw, 100) / 100 : discountRaw, subtotal);
   const taxable = Math.max(0, subtotal - discountAmount);
-  const taxAmount = taxable * (Math.max(0, Number(taxRate || 0)) / 100);
+  const activeTaxRate = Math.max(0, Number(taxSettings?.default_tax_rate || 0));
+  const taxAmount = taxable * activeTaxRate;
   const total = taxable + taxAmount;
   const creditUsed = Math.min(Number(creditToUse || 0), selectedCustomer?.credit_balance || 0, total);
   const dueAfterCredit = Math.max(0, total - creditUsed);
@@ -453,7 +465,9 @@ export default function PosPage() {
         customer_id: selectedCustomer?.id || null,
         lines: cart,
         discount_amount: discountAmount,
-        tax_rate: Math.max(0, Number(taxRate || 0)) / 100,
+        tax_rate: activeTaxRate,
+        tax_zip: taxSettings?.tax_zip || '',
+        tax_source: taxSettings?.tax_source || '',
         payment_method: paymentMethod,
         trade_credit_used: creditUsed,
         cash_received: cashAmount,
@@ -879,9 +893,14 @@ export default function PosPage() {
                   </div>
                 </div>
               </div>
-              <div>
-                <Label className="text-xs">Tax %</Label>
-                <Input className="mt-1 h-9 border-white/10 bg-black/40 text-xs" type="number" min="0" step="0.01" value={taxRate} onChange={(event) => setTaxRate(event.target.value)} />
+              <div className="rounded-lg border border-white/10 bg-black/40 p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label className="text-xs">Tax</Label>
+                  <span className="text-xs font-semibold text-primary">{(activeTaxRate * 100).toFixed(3)}%</span>
+                </div>
+                <div className="mt-1 truncate text-[10px] text-white/45">
+                  {taxSettings?.tax_zip ? `ZIP ${taxSettings.tax_zip}` : 'No ZIP set'} {taxSettings?.tax_source ? `- ${taxSettings.tax_source}` : '- admin setting'}
+                </div>
               </div>
             </div>
             <TotalsRow label="Subtotal" value={subtotal} />

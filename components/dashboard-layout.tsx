@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Bot,
   ChevronRight,
+  ChevronDown,
   Target,
   BookOpen,
   Gavel,
@@ -84,6 +85,8 @@ const navGroups = [
     ],
   },
 ];
+
+const ALWAYS_OPEN_GROUPS = new Set(['Daily Command']);
 
 type NavItem = {
   href: string;
@@ -185,6 +188,27 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
       ...group,
       items: group.items.filter((item) => item.href !== '/settings' || isAdmin),
     }));
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  const groupHasActiveItem = (group: NavGroup) =>
+    group.items.some((item) => {
+      const itemPath = item.href.split('?')[0];
+      const hrefQuery = item.href.includes('?') ? new URLSearchParams(item.href.split('?')[1]) : null;
+      const isQueryMatch = hrefQuery
+        ? Array.from(hrefQuery.entries()).every(([key, value]) => searchParams?.get(key) === value)
+        : true;
+      return hrefQuery
+        ? pathname === itemPath && isQueryMatch
+        : item.href === '/planning'
+        ? pathname === '/planning' && !searchParams?.get('tab')
+        : pathname === itemPath || (itemPath !== '/dashboard' && pathname.startsWith(itemPath + '/'));
+    });
+
+  const isGroupOpen = (group: NavGroup) => {
+    if (ALWAYS_OPEN_GROUPS.has(group.label)) return true;
+    if (typeof openGroups[group.label] === 'boolean') return openGroups[group.label];
+    return groupHasActiveItem(group);
+  };
 
   return (
     <div className="flex h-full flex-col bg-black">
@@ -202,23 +226,42 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-4 overflow-y-auto px-3 py-4">
+      <nav className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
         {visibleNavGroups.map((group, groupIndex) => (
-          <div key={groupIndex}>
-            {group.label && (
-              <div className="label-caps mb-2 px-2 text-[9.5px]">{group.label}</div>
+          <div key={groupIndex} className="rounded-lg">
+            {group.label && group.items.length > 0 && (
+              <button
+                type="button"
+                className="group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.035]"
+                onClick={() => {
+                  if (ALWAYS_OPEN_GROUPS.has(group.label)) return;
+                  setOpenGroups((current) => ({ ...current, [group.label]: !isGroupOpen(group) }));
+                }}
+              >
+                <span className="label-caps text-[9px]">{group.label}</span>
+                {!ALWAYS_OPEN_GROUPS.has(group.label) && (
+                  <ChevronDown
+                    className={cn(
+                      'h-3.5 w-3.5 text-white/20 transition-transform group-hover:text-white/45',
+                      isGroupOpen(group) && 'rotate-180'
+                    )}
+                  />
+                )}
+              </button>
             )}
-            <div className="space-y-1">
-              {group.items.map((item) => (
-                <NavLink
-                  key={item.href}
-                  item={item}
-                  pathname={pathname}
-                  searchParams={searchParams}
-                  onNavClick={onNavClick}
-                />
-              ))}
-            </div>
+            {isGroupOpen(group) && (
+              <div className="mt-1 space-y-1">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    item={item}
+                    pathname={pathname}
+                    searchParams={searchParams}
+                    onNavClick={onNavClick}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </nav>

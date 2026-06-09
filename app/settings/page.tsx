@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Key, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Plus, Trash2, Eye, EyeOff, ShieldCheck, Image, Plug, Bell, Save, KeyRound, QrCode, Smartphone } from 'lucide-react';
+import { Key, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Plus, Trash2, Eye, EyeOff, ShieldCheck, Image, Plug, Bell, Save, KeyRound, QrCode, Smartphone, Calculator } from 'lucide-react';
 import { EbayConnectCard } from '@/components/ebay-connect-card';
 import { AmazonConnectCard } from '@/components/amazon-connect-card';
 import { WhatnotConnectCard } from '@/components/whatnot-connect-card';
@@ -15,6 +15,7 @@ import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds } from '@/lib/inventory-aging';
 import { getAccountSecuritySettings, getAssuranceLevel, upsertAccountSecuritySettings, type AccountSecuritySettings } from '@/lib/security-services';
+import { getPosTaxSettings, upsertPosTaxSettings, type PosTaxSettings } from '@/lib/pos-services';
 
 type ApiKey = {
   id: string;
@@ -63,6 +64,13 @@ const API_SERVICES = [
     required: false,
     optional: true,
   },
+  {
+    name: 'taxjar',
+    label: 'TaxJar',
+    description: 'ZIP-based sales tax lookup for the POS register. The POS uses the saved admin rate and cannot edit it during checkout.',
+    required: false,
+    optional: true,
+  },
 ];
 
 export default function SettingsPage() {
@@ -86,6 +94,11 @@ export default function SettingsPage() {
   const [phoneFactorId, setPhoneFactorId] = useState('');
   const [phoneCode, setPhoneCode] = useState('');
   const [mfaChallengeCode, setMfaChallengeCode] = useState('');
+  const [posTaxSettings, setPosTaxSettings] = useState<PosTaxSettings | null>(null);
+  const [posTaxZip, setPosTaxZip] = useState('');
+  const [posTaxRate, setPosTaxRate] = useState('0');
+  const [posTaxSource, setPosTaxSource] = useState('manual');
+  const [taxLookupLoading, setTaxLookupLoading] = useState(false);
   const toastShown = useRef(false);
 
   useEffect(() => {
@@ -138,6 +151,23 @@ export default function SettingsPage() {
       loadApiKeys();
     }
   }, [user, accountId, loadApiKeys]);
+
+  const loadPosTaxSettings = useCallback(async () => {
+    if (!user || !accountId) return;
+    try {
+      const settings = await getPosTaxSettings();
+      setPosTaxSettings(settings);
+      setPosTaxZip(settings.tax_zip || '');
+      setPosTaxRate(String(Number(settings.default_tax_rate || 0) * 100));
+      setPosTaxSource(settings.tax_source || 'manual');
+    } catch (error) {
+      console.warn('Failed to load POS tax settings', error);
+    }
+  }, [accountId, user]);
+
+  useEffect(() => {
+    loadPosTaxSettings();
+  }, [loadPosTaxSettings]);
 
   const loadSecurity = useCallback(async () => {
     if (!user || !accountId) return;
@@ -246,6 +276,63 @@ export default function SettingsPage() {
       loadSecurity();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save security settings');
+    }
+  };
+
+  const lookupPosTaxRate = async () => {
+    if (!isAdmin) return;
+    const zip = posTaxZip.trim();
+    if (!/^\d{5}(?:-\d{4})?$/.test(zip)) {
+      toast.error('Enter a valid 5-digit ZIP code');
+      return;
+    }
+
+    setTaxLookupLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('No active session');
+
+      const response = await fetch('/api/sales-tax-lookup', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ zip }),
+      });
+      const data = await response.json();
+      if (!data?.success) throw new Error(data?.message || 'Sales tax lookup failed');
+
+      setPosTaxRate(String(data.ratePercent));
+      setPosTaxSource(data.source || `TaxJar ZIP ${zip}`);
+      toast.success(`Sales tax set to ${Number(data.ratePercent).toFixed(3)}% for ${zip}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Sales tax lookup failed');
+    } finally {
+      setTaxLookupLoading(false);
+    }
+  };
+
+  const savePosTaxSettings = async () => {
+    if (!isAdmin) return;
+    const ratePercent = Math.max(0, Math.min(20, Number(posTaxRate || 0)));
+    if (!Number.isFinite(ratePercent)) {
+      toast.error('Enter a valid tax rate');
+      return;
+    }
+
+    try {
+      const saved = await upsertPosTaxSettings({
+        default_tax_rate: ratePercent / 100,
+        tax_zip: posTaxZip.trim(),
+        tax_source: posTaxSource.trim() || 'manual',
+        tax_lookup_provider: posTaxSource.toLowerCase().includes('taxjar') ? 'TaxJar' : '',
+        tax_lookup_enabled: posTaxSource.toLowerCase().includes('taxjar'),
+      });
+      setPosTaxSettings(saved);
+      toast.success('POS tax settings saved');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to save POS tax settings');
     }
   };
 
@@ -520,6 +607,75 @@ export default function SettingsPage() {
                 </Button>
               ))}
             </div>
+          </div>
+        </div>}
+
+        {isAdmin && <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
+          <div className="px-6 py-4 border-b border-border/40">
+            <div className="flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-primary" />
+              <h3 className="font-semibold text-[15px]">POS Sales Tax</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Admin-controlled sales tax for the register. POS users can see the rate, but cannot change it during checkout.
+            </p>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <div>
+                <label className="text-sm font-medium">Reference ZIP</label>
+                <Input
+                  className="mt-1.5 h-11 bg-secondary/40"
+                  value={posTaxZip}
+                  onChange={(event) => {
+                    setPosTaxZip(event.target.value);
+                    setPosTaxSource('manual');
+                  }}
+                  placeholder="Example: 29601"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Sales tax rate %</label>
+                <Input
+                  className="mt-1.5 h-11 bg-secondary/40"
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="0.001"
+                  value={posTaxRate}
+                  onChange={(event) => {
+                    setPosTaxRate(event.target.value);
+                    setPosTaxSource('manual');
+                  }}
+                />
+              </div>
+              <Button className="h-11" variant="outline" onClick={lookupPosTaxRate} disabled={taxLookupLoading}>
+                {taxLookupLoading ? 'Looking Up...' : 'Lookup ZIP'}
+              </Button>
+            </div>
+            <div className="rounded-xl border border-border/30 bg-secondary/20 p-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Current POS Rate</div>
+                  <div className="mt-1 text-lg font-semibold text-white/85">{Number(posTaxRate || 0).toFixed(3)}%</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Source</div>
+                  <div className="mt-1 text-sm font-semibold text-white/75">{posTaxSource || posTaxSettings?.tax_source || 'manual'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Saved ZIP</div>
+                  <div className="mt-1 text-sm font-semibold text-white/75">{posTaxZip || 'Not set'}</div>
+                </div>
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                ZIP-only tax lookup is a quick register reference. Some jurisdictions need a full address for exact rooftop tax. Use the manual rate if your accountant or state portal gives you a more specific number.
+              </p>
+            </div>
+            <Button className="h-11" onClick={savePosTaxSettings}>
+              <Save className="mr-2 h-4 w-4" />
+              Save POS Tax
+            </Button>
           </div>
         </div>}
 

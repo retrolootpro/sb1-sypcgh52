@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -30,6 +30,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { ContextHelp } from '@/components/context-help';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 type InventoryItem = {
   id: string;
@@ -534,7 +535,7 @@ export default function InventoryPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 sm:p-8 lg:p-10 max-w-7xl space-y-8">
+      <div className="p-5 sm:p-7 lg:p-8 max-w-7xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <div className="mb-1 flex items-center gap-2">
@@ -547,15 +548,25 @@ export default function InventoryPage() {
               {activeCollection ? activeCollection.name : 'Inventory'}
             </h1>
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button variant="outline" size="sm" onClick={handleRefreshInventoryPrices} disabled={refreshingPrices || backfilling || loading} className="text-sm h-10 rounded-lg">
-              <TrendingUp className={`w-4 h-4 mr-1.5 ${refreshingPrices ? 'animate-pulse' : ''}`} />
-              {refreshingPrices ? 'Pricing...' : 'Refresh Prices'}
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleBackfillBarcodeData} disabled={backfilling || refreshingPrices || loading} className="text-sm h-10 rounded-lg">
-              <RefreshCw className={`w-4 h-4 mr-1.5 ${backfilling ? 'animate-spin' : ''}`} />
-              {backfilling ? 'Refreshing...' : 'Refresh Metadata'}
-            </Button>
+          <div className="flex items-center gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || loading}>
+                  <MoreHorizontal className="mr-1.5 h-4 w-4" />
+                  Tools
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuItem onClick={handleRefreshInventoryPrices}>
+                  <TrendingUp className={`mr-2 h-4 w-4 ${refreshingPrices ? 'animate-pulse' : ''}`} />
+                  Refresh pricing
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleBackfillBarcodeData}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${backfilling ? 'animate-spin' : ''}`} />
+                  Refresh metadata
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <Button size="sm" className="h-10 rounded-lg text-sm" onClick={() => setShowAddDialog(true)}>
               <Plus className="w-4 h-4 mr-1.5" />
               Add Item
@@ -674,10 +685,17 @@ export default function InventoryPage() {
           </div>
         )}
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="rounded-2xl border border-border/40 bg-card/60 p-3">
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-white/85">Collections</div>
+              <div className="text-xs text-muted-foreground">Use collections to narrow the inventory table.</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
           <button
             onClick={() => setSelectedCollectionId(null)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 border ${
+            className={`flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 border ${
               selectedCollectionId === null
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-card border-border/50 text-muted-foreground hover:text-foreground hover:border-border'
@@ -694,7 +712,7 @@ export default function InventoryPage() {
             <div key={col.id} className="relative group/chip">
               <button
                 onClick={() => setSelectedCollectionId(col.id === selectedCollectionId ? null : col.id)}
-                className={`flex items-center gap-2 pl-4 pr-8 py-2 rounded-lg text-sm font-medium transition-all duration-150 border ${
+                className={`flex shrink-0 items-center gap-2 pl-4 pr-8 py-2 rounded-lg text-sm font-medium transition-all duration-150 border ${
                   selectedCollectionId === col.id
                     ? 'bg-primary text-primary-foreground border-primary'
                     : 'bg-card border-border/50 text-muted-foreground hover:text-foreground hover:border-border'
@@ -721,14 +739,22 @@ export default function InventoryPage() {
 
           <button
             onClick={() => setShowCreateCollection(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-dashed border-border/50 text-muted-foreground/60 hover:text-muted-foreground hover:border-border transition-all duration-150"
+            className="flex shrink-0 items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border border-dashed border-border/50 text-muted-foreground/60 hover:text-muted-foreground hover:border-border transition-all duration-150"
           >
             <FolderPlus className="w-4 h-4" />
             New Collection
           </button>
+          </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
+        <div className="rounded-2xl border border-border/40 bg-card/60 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-white/85">Find & Filter</div>
+              <div className="text-xs text-muted-foreground">{filteredItems.length} item{filteredItems.length === 1 ? '' : 's'} shown</div>
+            </div>
+          </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/40" />
             <Input
@@ -805,6 +831,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
           </div>
+        </div>
         </div>
 
         {loading ? (

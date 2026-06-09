@@ -47,6 +47,8 @@ export type PosSale = {
   discount_amount: number;
   tax_rate: number;
   tax_amount: number;
+  tax_zip?: string;
+  tax_source?: string;
   total_amount: number;
   payment_method: 'cash' | 'external_card' | 'square' | 'stripe' | 'trade_credit' | 'split' | 'other';
   trade_credit_used: number;
@@ -55,6 +57,26 @@ export type PosSale = {
   status: 'draft' | 'completed' | 'voided' | 'refunded';
   notes?: string;
   sold_at: string;
+};
+
+export type PosTaxSettings = {
+  user_id: string;
+  default_tax_rate: number;
+  tax_zip: string;
+  tax_source: string;
+  tax_lookup_provider: string;
+  tax_lookup_enabled: boolean;
+  updated_by?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export const DEFAULT_POS_TAX_SETTINGS: Omit<PosTaxSettings, 'user_id'> = {
+  default_tax_rate: 0,
+  tax_zip: '',
+  tax_source: 'manual',
+  tax_lookup_provider: '',
+  tax_lookup_enabled: false,
 };
 
 export type PosBuy = {
@@ -154,11 +176,57 @@ export async function createPosCustomer(input: { name: string; email?: string; p
   return data as PosCustomer;
 }
 
+export async function getPosTaxSettings(): Promise<PosTaxSettings> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data, error } = await supabase
+    .from('pos_tax_settings')
+    .select('*')
+    .eq('user_id', accountId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return {
+    user_id: accountId,
+    ...DEFAULT_POS_TAX_SETTINGS,
+    ...(data || {}),
+  } as PosTaxSettings;
+}
+
+export async function upsertPosTaxSettings(input: Partial<PosTaxSettings>): Promise<PosTaxSettings> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const rate = Math.max(0, Math.min(1, Number(input.default_tax_rate || 0)));
+  const { data, error } = await supabase
+    .from('pos_tax_settings')
+    .upsert({
+      user_id: accountId,
+      default_tax_rate: rate,
+      tax_zip: input.tax_zip?.trim() || '',
+      tax_source: input.tax_source?.trim() || 'manual',
+      tax_lookup_provider: input.tax_lookup_provider?.trim() || '',
+      tax_lookup_enabled: Boolean(input.tax_lookup_enabled),
+      updated_by: session.user.id,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'user_id' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as PosTaxSettings;
+}
+
 export async function completePosSale(input: {
   customer_id?: string | null;
   lines: PosCartLine[];
   discount_amount: number;
   tax_rate: number;
+  tax_zip?: string;
+  tax_source?: string;
   payment_method: PosSale['payment_method'];
   trade_credit_used: number;
   cash_received: number;
@@ -185,6 +253,8 @@ export async function completePosSale(input: {
       discount_amount: discount,
       tax_rate: Number(input.tax_rate || 0),
       tax_amount: taxAmount,
+      tax_zip: input.tax_zip?.trim() || '',
+      tax_source: input.tax_source?.trim() || '',
       total_amount: total,
       payment_method: input.payment_method,
       trade_credit_used: creditUsed,
