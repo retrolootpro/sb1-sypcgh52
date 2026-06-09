@@ -442,6 +442,75 @@ export default function SettingsPage() {
           <h1 className="heading-lg text-[22px]">Settings</h1>
         </div>
 
+        {isAdmin && <div className="rounded-2xl border border-primary/25 bg-card overflow-hidden">
+          <div className="px-6 py-4 border-b border-border/40">
+            <div className="flex items-center gap-2">
+              <Calculator className="w-4 h-4 text-primary" />
+              <h3 className="font-semibold text-[15px]">POS Sales Tax</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Enter the ZIP used for in-person sales tax. The register uses this saved rate and cannot change it during checkout.
+            </p>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <div>
+                <label className="text-sm font-medium">Sales tax ZIP</label>
+                <Input
+                  className="mt-1.5 h-11 bg-secondary/40"
+                  value={posTaxZip}
+                  onChange={(event) => {
+                    setPosTaxZip(event.target.value);
+                    setPosTaxSource('manual');
+                  }}
+                  placeholder="Example: 29601"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Sales tax rate %</label>
+                <Input
+                  className="mt-1.5 h-11 bg-secondary/40"
+                  type="number"
+                  min="0"
+                  max="20"
+                  step="0.001"
+                  value={posTaxRate}
+                  onChange={(event) => {
+                    setPosTaxRate(event.target.value);
+                    setPosTaxSource('manual');
+                  }}
+                />
+              </div>
+              <Button className="h-11" variant="outline" onClick={lookupPosTaxRate} disabled={taxLookupLoading}>
+                {taxLookupLoading ? 'Looking Up...' : 'Lookup ZIP'}
+              </Button>
+            </div>
+            <div className="rounded-xl border border-border/30 bg-secondary/20 p-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Current POS Rate</div>
+                  <div className="mt-1 text-lg font-semibold text-white/85">{Number(posTaxRate || 0).toFixed(3)}%</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Source</div>
+                  <div className="mt-1 text-sm font-semibold text-white/75">{posTaxSource || posTaxSettings?.tax_source || 'manual'}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Saved ZIP</div>
+                  <div className="mt-1 text-sm font-semibold text-white/75">{posTaxZip || 'Not set'}</div>
+                </div>
+              </div>
+              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                ZIP-only tax lookup is a quick register reference. Some jurisdictions need a full address for exact rooftop tax. Use the manual rate if your accountant or state portal gives you a more specific number.
+              </p>
+            </div>
+            <Button className="h-11" onClick={savePosTaxSettings}>
+              <Save className="mr-2 h-4 w-4" />
+              Save POS Tax
+            </Button>
+          </div>
+        </div>}
+
         <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
           <div className="px-6 py-4 border-b border-border/40">
             <div className="flex items-center gap-2">
@@ -607,75 +676,6 @@ export default function SettingsPage() {
                 </Button>
               ))}
             </div>
-          </div>
-        </div>}
-
-        {isAdmin && <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
-          <div className="px-6 py-4 border-b border-border/40">
-            <div className="flex items-center gap-2">
-              <Calculator className="w-4 h-4 text-primary" />
-              <h3 className="font-semibold text-[15px]">POS Sales Tax</h3>
-            </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Admin-controlled sales tax for the register. POS users can see the rate, but cannot change it during checkout.
-            </p>
-          </div>
-          <div className="p-5 space-y-4">
-            <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-              <div>
-                <label className="text-sm font-medium">Reference ZIP</label>
-                <Input
-                  className="mt-1.5 h-11 bg-secondary/40"
-                  value={posTaxZip}
-                  onChange={(event) => {
-                    setPosTaxZip(event.target.value);
-                    setPosTaxSource('manual');
-                  }}
-                  placeholder="Example: 29601"
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Sales tax rate %</label>
-                <Input
-                  className="mt-1.5 h-11 bg-secondary/40"
-                  type="number"
-                  min="0"
-                  max="20"
-                  step="0.001"
-                  value={posTaxRate}
-                  onChange={(event) => {
-                    setPosTaxRate(event.target.value);
-                    setPosTaxSource('manual');
-                  }}
-                />
-              </div>
-              <Button className="h-11" variant="outline" onClick={lookupPosTaxRate} disabled={taxLookupLoading}>
-                {taxLookupLoading ? 'Looking Up...' : 'Lookup ZIP'}
-              </Button>
-            </div>
-            <div className="rounded-xl border border-border/30 bg-secondary/20 p-4">
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Current POS Rate</div>
-                  <div className="mt-1 text-lg font-semibold text-white/85">{Number(posTaxRate || 0).toFixed(3)}%</div>
-                </div>
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Source</div>
-                  <div className="mt-1 text-sm font-semibold text-white/75">{posTaxSource || posTaxSettings?.tax_source || 'manual'}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Saved ZIP</div>
-                  <div className="mt-1 text-sm font-semibold text-white/75">{posTaxZip || 'Not set'}</div>
-                </div>
-              </div>
-              <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                ZIP-only tax lookup is a quick register reference. Some jurisdictions need a full address for exact rooftop tax. Use the manual rate if your accountant or state portal gives you a more specific number.
-              </p>
-            </div>
-            <Button className="h-11" onClick={savePosTaxSettings}>
-              <Save className="mr-2 h-4 w-4" />
-              Save POS Tax
-            </Button>
           </div>
         </div>}
 
