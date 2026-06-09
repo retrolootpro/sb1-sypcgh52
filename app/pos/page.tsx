@@ -82,6 +82,10 @@ function conditionAdjustedOffer(marketValue: number, quantity: number, rate: num
   return Number((recommendedOffer(marketValue, quantity, rate) * multiplier).toFixed(2));
 }
 
+function payoutOfferRate(payoutType: 'cash' | 'trade_credit' | 'mixed') {
+  return payoutType === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE;
+}
+
 function offerPercent(offer: number, marketValue: number, quantity = 1) {
   const totalValue = Math.max(0, Number(marketValue || 0) * Math.max(1, Number(quantity || 1)));
   if (totalValue <= 0) return 0;
@@ -339,6 +343,7 @@ export default function PosPage() {
         next.market_value = marketValue;
         next.recommended_cash_offer = conditionAdjustedOffer(marketValue, quantity, CASH_OFFER_RATE, Number(next.condition_rating || 5));
         next.recommended_trade_offer = conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(next.condition_rating || 5));
+        next.accepted_offer = conditionAdjustedOffer(marketValue, quantity, payoutOfferRate(buyForm.payout_type), Number(next.condition_rating || 5));
       }
       return next;
     }));
@@ -429,7 +434,7 @@ export default function PosPage() {
         market_value: marketValue,
         recommended_cash_offer: conditionAdjustedOffer(marketValue, quantity, CASH_OFFER_RATE, Number(item.condition_rating || 5)),
         recommended_trade_offer: conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
-        accepted_offer: conditionAdjustedOffer(marketValue, quantity, buyForm.payout_type === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
+        accepted_offer: conditionAdjustedOffer(marketValue, quantity, payoutOfferRate(buyForm.payout_type), Number(item.condition_rating || 5)),
         pricing_source: [
           pcValue > 0 ? 'PriceCharting baseline' : '',
           gamestopValue > 0 ? 'GameStop via PriceCharting' : '',
@@ -751,7 +756,7 @@ export default function PosPage() {
                         <TradeMoneyInput label="PriceCharting" value={item.pricecharting_value} onChange={(value) => updateTradeItem(item.id, { pricecharting_value: value })} />
                         <TradeMoneyInput label="GameStop" value={item.gamestop_value} onChange={(value) => updateTradeItem(item.id, { gamestop_value: value })} />
                         <TradeMoneyInput label="Market" value={item.market_value} onChange={(value) => updateTradeItem(item.id, { market_value: value })} />
-                        <TradeMoneyInput label="Accepted" value={item.accepted_offer} onChange={(value) => updateTradeItem(item.id, { accepted_offer: value })} />
+                        <TradeMoneyInput label="Recommended" value={item.accepted_offer} onChange={(value) => updateTradeItem(item.id, { accepted_offer: value })} />
                         <div className="flex items-end gap-2">
                           <Button className="h-11" variant="outline" onClick={() => lookupTradeItemPricing(item)} disabled={item.lookup_status === 'loading'}>
                             {item.lookup_status === 'loading' ? 'Pricing...' : 'Price'}
@@ -796,7 +801,7 @@ export default function PosPage() {
                     <TotalsRow label="Total Market Value" value={tradeMarketTotal} large />
                     <TotalsRow label={`Suggested Cash (${suggestedCashPercent}%)`} value={tradeCashOfferTotal} />
                     <TotalsRow label={`Suggested Trade (${suggestedTradePercent}%)`} value={tradeCreditOfferTotal} />
-                    <TotalsRow label="Accepted Offer" value={acceptedTradeOfferTotal} large />
+                    <TotalsRow label="Recommended Offer" value={acceptedTradeOfferTotal} large />
                     <div className="grid grid-cols-2 gap-2">
                       <Button className="h-11" variant="outline" onClick={() => applySuggestedOffer('cash')}>Use Cash Offer</Button>
                       <Button className="h-11" onClick={() => applySuggestedOffer('trade')}>Use Trade Offer</Button>
@@ -804,7 +809,28 @@ export default function PosPage() {
                     <Label>Offer Amount</Label>
                     <Input className="h-12 border-white/10 bg-black/40 text-base" type="number" min="0" step="0.01" value={buyForm.offer_amount} onChange={(event) => setBuyForm({ ...buyForm, offer_amount: event.target.value })} />
                     <Label>Payout Type</Label>
-                    <Select value={buyForm.payout_type} onValueChange={(value: any) => setBuyForm({ ...buyForm, payout_type: value })}>
+                    <Select
+                      value={buyForm.payout_type}
+                      onValueChange={(value: 'cash' | 'trade_credit' | 'mixed') => {
+                        const rate = payoutOfferRate(value);
+                        const nextItems = tradeItems.map((item) => {
+                          const quantity = Math.max(1, Number(item.quantity || 1));
+                          return {
+                            ...item,
+                            accepted_offer: conditionAdjustedOffer(Number(item.market_value || 0), quantity, rate, Number(item.condition_rating || 5)),
+                          };
+                        });
+                        const nextOffer = nextItems.reduce((sum, item) => sum + Number(item.accepted_offer || 0), 0);
+                        setTradeItems(nextItems);
+                        setBuyForm({
+                          ...buyForm,
+                          payout_type: value,
+                          offer_amount: nextOffer > 0 ? nextOffer.toFixed(2) : buyForm.offer_amount,
+                          cash_paid: value === 'cash' && nextOffer > 0 ? nextOffer.toFixed(2) : value === 'cash' ? buyForm.cash_paid : '',
+                          trade_credit_issued: value !== 'cash' && nextOffer > 0 ? nextOffer.toFixed(2) : value !== 'cash' ? buyForm.trade_credit_issued : '',
+                        });
+                      }}
+                    >
                       <SelectTrigger className="h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="cash">Cash</SelectItem>
