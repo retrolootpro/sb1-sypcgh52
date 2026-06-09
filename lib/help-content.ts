@@ -237,7 +237,7 @@ export const manualSections: ManualSection[] = [
     ],
     fields: [
       'Cart subtotal is the item total before discounts and tax.',
-      'Sales tax is calculated from the saved admin POS tax rate. Admins can set it manually or look it up by ZIP using TaxJar.',
+      'Sales tax is calculated from the saved admin POS tax rate. Admins can set it manually or look it up by ZIP using public sales-tax data.',
       'Trade credit used lowers the amount due and reduces the customer credit balance.',
       'Payment reference stores the Square, Stripe, or external processor receipt/reference number.',
       'Customer buy records track what was bought, cash paid, trade credit issued, and notes.',

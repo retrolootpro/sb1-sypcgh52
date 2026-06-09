@@ -64,13 +64,6 @@ const API_SERVICES = [
     required: false,
     optional: true,
   },
-  {
-    name: 'taxjar',
-    label: 'TaxJar',
-    description: 'ZIP-based sales tax lookup for the POS register. The POS uses the saved admin rate and cannot edit it during checkout.',
-    required: false,
-    optional: true,
-  },
 ];
 
 export default function SettingsPage() {
@@ -304,7 +297,7 @@ export default function SettingsPage() {
       if (!data?.success) throw new Error(data?.message || 'Sales tax lookup failed');
 
       setPosTaxRate(String(data.ratePercent));
-      setPosTaxSource(data.source || `TaxJar ZIP ${zip}`);
+      setPosTaxSource(data.source || `Sales-Taxes.com ZIP ${zip}`);
       toast.success(`Sales tax set to ${Number(data.ratePercent).toFixed(3)}% for ${zip}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Sales tax lookup failed');
@@ -326,8 +319,8 @@ export default function SettingsPage() {
         default_tax_rate: ratePercent / 100,
         tax_zip: posTaxZip.trim(),
         tax_source: posTaxSource.trim() || 'manual',
-        tax_lookup_provider: posTaxSource.toLowerCase().includes('taxjar') ? 'TaxJar' : '',
-        tax_lookup_enabled: posTaxSource.toLowerCase().includes('taxjar'),
+        tax_lookup_provider: posTaxSource.toLowerCase().includes('sales-taxes.com') ? 'Sales-Taxes.com' : '',
+        tax_lookup_enabled: posTaxSource.toLowerCase().includes('sales-taxes.com'),
       });
       setPosTaxSettings(saved);
       toast.success('POS tax settings saved');
@@ -501,7 +494,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                ZIP-only tax lookup is a quick register reference. Some jurisdictions need a full address for exact rooftop tax. Use the manual rate if your accountant or state portal gives you a more specific number.
+                ZIP-only lookup uses public sales-tax data and is a quick register reference. Some jurisdictions need a full address for exact rooftop tax. Use the manual rate if your accountant or state portal gives you a more specific number.
               </p>
             </div>
             <Button className="h-11" onClick={savePosTaxSettings}>
