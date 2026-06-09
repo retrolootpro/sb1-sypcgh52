@@ -69,14 +69,6 @@ type PriceChartingDetails = {
   };
 };
 
-function conditionKey(condition: string): 'loose' | 'cib' | 'new' | 'graded' {
-  const normalized = condition.toLowerCase();
-  if (normalized.includes('graded')) return 'graded';
-  if (normalized.includes('new') || normalized.includes('sealed')) return 'new';
-  if (normalized.includes('cib') || normalized.includes('complete')) return 'cib';
-  return 'loose';
-}
-
 function bestMarketValue(pricecharting: number, gamestop: number) {
   return Math.max(Number(pricecharting || 0), Number(gamestop || 0));
 }
@@ -101,8 +93,21 @@ function conditionRatingLabel(rating: number) {
   }
 }
 
-function priceChartingValueForCondition(details: PriceChartingDetails, condition: string) {
-  return Number(details.prices[conditionKey(condition)] || 0);
+function baselinePriceChartingValue(details: PriceChartingDetails) {
+  const marketBaseline = Math.max(
+    Number(details.prices.loose || 0),
+    Number(details.prices.cib || 0),
+    Number(details.prices.new || 0),
+    Number(details.prices.graded || 0)
+  );
+  const buyFallback = Math.max(
+    Number(details.prices.retailLooseBuy || 0),
+    Number(details.prices.retailCibBuy || 0),
+    Number(details.prices.retailNewBuy || 0),
+    Number(details.prices.gamestopTrade || 0)
+  );
+
+  return marketBaseline || buyFallback;
 }
 
 export default function PosPage() {
@@ -403,7 +408,7 @@ export default function PosPage() {
       if (!data?.success) throw new Error(data?.message || 'Could not load PriceCharting item');
 
       const details = data.product as PriceChartingDetails;
-      const pcValue = priceChartingValueForCondition(details, item.condition || 'Loose');
+      const pcValue = baselinePriceChartingValue(details);
       const gamestopValue = Number(details.prices.gamestop || 0);
       const marketValue = bestMarketValue(pcValue, gamestopValue);
       const quantity = Math.max(1, Number(item.quantity || 1));
@@ -418,10 +423,12 @@ export default function PosPage() {
         recommended_trade_offer: conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
         accepted_offer: conditionAdjustedOffer(marketValue, quantity, buyForm.payout_type === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
         pricing_source: [
-          pcValue > 0 ? 'PriceCharting API' : '',
+          pcValue > 0 ? 'PriceCharting baseline' : '',
           gamestopValue > 0 ? 'GameStop via PriceCharting' : '',
         ].filter(Boolean).join(' + '),
-        pricing_notes: pcValue > 0 ? `Confirmed PriceCharting ID ${details.id}` : 'Match confirmed, but this condition has no current value.',
+        pricing_notes: marketValue > 0
+          ? `Confirmed PriceCharting ID ${details.id}. Baseline value used; condition rating adjusts the offer.`
+          : `Confirmed PriceCharting ID ${details.id}, but no baseline market value was returned.`,
         lookup_status: marketValue > 0 ? 'found' : 'missing',
         search_results: [],
       });
