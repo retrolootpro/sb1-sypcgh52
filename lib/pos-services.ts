@@ -76,6 +76,7 @@ export type PosBuyItem = {
   title: string;
   platform?: string;
   condition?: string;
+  condition_rating?: number;
   quantity: number;
   pricecharting_value: number;
   gamestop_value: number;
@@ -322,6 +323,7 @@ export async function completeCustomerBuy(input: {
       title: item.title.trim(),
       platform: item.platform?.trim() || '',
       condition: item.condition?.trim() || '',
+      condition_rating: Number(item.condition_rating || 5),
       quantity: Number(item.quantity || 1),
       pricecharting_value: Number(item.pricecharting_value || 0),
       gamestop_value: Number(item.gamestop_value || 0),

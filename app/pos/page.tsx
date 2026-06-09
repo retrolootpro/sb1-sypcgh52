@@ -30,6 +30,13 @@ const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
 const CASH_OFFER_RATE = 0.35;
 const TRADE_OFFER_RATE = 0.45;
+const CONDITION_RATING_MULTIPLIERS: Record<number, number> = {
+  5: 1,
+  4: 0.85,
+  3: 0.65,
+  2: 0.35,
+  1: 0.1,
+};
 
 type TradeItem = PosBuyItem & {
   id: string;
@@ -76,6 +83,22 @@ function recommendedOffer(marketValue: number, quantity: number, rate: number) {
   return Number((Math.max(0, marketValue) * Math.max(1, quantity || 1) * rate).toFixed(2));
 }
 
+function conditionAdjustedOffer(marketValue: number, quantity: number, rate: number, rating: number) {
+  const multiplier = CONDITION_RATING_MULTIPLIERS[Math.max(1, Math.min(5, Math.round(Number(rating || 5))))] ?? 1;
+  return Number((recommendedOffer(marketValue, quantity, rate) * multiplier).toFixed(2));
+}
+
+function conditionRatingLabel(rating: number) {
+  switch (Number(rating || 5)) {
+    case 5: return '5 - flawless';
+    case 4: return '4 - light wear';
+    case 3: return '3 - average';
+    case 2: return '2 - damaged';
+    case 1: return '1 - parts/repair';
+    default: return '5 - flawless';
+  }
+}
+
 function priceChartingValueForCondition(details: PriceChartingDetails, condition: string) {
   return Number(details.prices[conditionKey(condition)] || 0);
 }
@@ -97,6 +120,7 @@ export default function PosPage() {
   const [cashReceived, setCashReceived] = useState('');
   const [cardAmount, setCardAmount] = useState('');
   const [creditToUse, setCreditToUse] = useState('');
+  const [creditManualOverride, setCreditManualOverride] = useState(false);
   const [processorReference, setProcessorReference] = useState('');
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [scanBuffer, setScanBuffer] = useState('');
@@ -106,7 +130,7 @@ export default function PosPage() {
   const [saving, setSaving] = useState(false);
   const [customerForm, setCustomerForm] = useState({ name: '', phone: '', email: '', notes: '' });
   const [tradeItems, setTradeItems] = useState<TradeItem[]>([]);
-  const [tradeItemForm, setTradeItemForm] = useState({ title: '', platform: '', condition: 'Loose', quantity: '1' });
+  const [tradeItemForm, setTradeItemForm] = useState({ title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
   const [buyForm, setBuyForm] = useState({
     item_summary: '',
     offer_amount: '',
@@ -176,6 +200,17 @@ export default function PosPage() {
     [tradeItems]
   );
 
+  useEffect(() => {
+    if (!selectedCustomer) {
+      setCreditToUse('');
+      setCreditManualOverride(false);
+      return;
+    }
+    if (!creditManualOverride) {
+      setCreditToUse(Math.min(Number(selectedCustomer.credit_balance || 0), total).toFixed(2));
+    }
+  }, [creditManualOverride, selectedCustomer, total]);
+
   const addInventoryItem = (item: PosInventoryItem) => {
     if (cart.some((line) => line.inventory_item_id === item.id)) {
       toast.info('That inventory item is already in the cart');
@@ -243,6 +278,7 @@ export default function PosPage() {
       title: tradeItemForm.title.trim(),
       platform: tradeItemForm.platform.trim(),
       condition: tradeItemForm.condition,
+      condition_rating: Number(tradeItemForm.conditionRating || 5),
       quantity,
       pricecharting_value: 0,
       gamestop_value: 0,
@@ -255,7 +291,7 @@ export default function PosPage() {
       lookup_status: 'idle',
     };
     setTradeItems((current) => [...current, newItem]);
-    setTradeItemForm({ title: '', platform: '', condition: 'Loose', quantity: '1' });
+    setTradeItemForm({ title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
     window.setTimeout(() => lookupTradeItemPricing(newItem), 0);
   };
 
@@ -272,11 +308,12 @@ export default function PosPage() {
         'gamestop_value' in updates ||
         'market_value' in updates ||
         'quantity' in updates ||
-        'condition' in updates
+        'condition' in updates ||
+        'condition_rating' in updates
       ) {
         next.market_value = marketValue;
-        next.recommended_cash_offer = recommendedOffer(marketValue, quantity, CASH_OFFER_RATE);
-        next.recommended_trade_offer = recommendedOffer(marketValue, quantity, TRADE_OFFER_RATE);
+        next.recommended_cash_offer = conditionAdjustedOffer(marketValue, quantity, CASH_OFFER_RATE, Number(next.condition_rating || 5));
+        next.recommended_trade_offer = conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(next.condition_rating || 5));
       }
       return next;
     }));
@@ -365,9 +402,9 @@ export default function PosPage() {
         pricecharting_value: pcValue,
         gamestop_value: gamestopValue,
         market_value: marketValue,
-        recommended_cash_offer: recommendedOffer(marketValue, quantity, CASH_OFFER_RATE),
-        recommended_trade_offer: recommendedOffer(marketValue, quantity, TRADE_OFFER_RATE),
-        accepted_offer: recommendedOffer(marketValue, quantity, buyForm.payout_type === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE),
+        recommended_cash_offer: conditionAdjustedOffer(marketValue, quantity, CASH_OFFER_RATE, Number(item.condition_rating || 5)),
+        recommended_trade_offer: conditionAdjustedOffer(marketValue, quantity, TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
+        accepted_offer: conditionAdjustedOffer(marketValue, quantity, buyForm.payout_type === 'cash' ? CASH_OFFER_RATE : TRADE_OFFER_RATE, Number(item.condition_rating || 5)),
         pricing_source: [
           pcValue > 0 ? 'PriceCharting API' : '',
           gamestopValue > 0 ? 'GameStop via PriceCharting' : '',
@@ -427,6 +464,7 @@ export default function PosPage() {
       setDiscount('');
       setDiscountType('amount');
       setCreditToUse('');
+      setCreditManualOverride(false);
       setCashReceived('');
       setCardAmount('');
       setProcessorReference('');
@@ -595,7 +633,7 @@ export default function PosPage() {
                 Buy From Customer / Trade Credit
               </div>
               <div className="grid gap-4">
-                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 lg:grid-cols-[1.4fr_.85fr_.7fr_.45fr_auto]">
+                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 lg:grid-cols-[1.25fr_.75fr_.65fr_.8fr_.4fr_auto]">
                   <div>
                     <Label>Title</Label>
                     <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={tradeItemForm.title} onChange={(event) => setTradeItemForm({ ...tradeItemForm, title: event.target.value })} placeholder="Mario Party 8" />
@@ -618,6 +656,17 @@ export default function PosPage() {
                     </Select>
                   </div>
                   <div>
+                    <Label>Rating</Label>
+                    <Select value={tradeItemForm.conditionRating} onValueChange={(value) => setTradeItemForm({ ...tradeItemForm, conditionRating: value })}>
+                      <SelectTrigger className="mt-2 h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {[5, 4, 3, 2, 1].map((rating) => (
+                          <SelectItem key={rating} value={String(rating)}>{conditionRatingLabel(rating)}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
                     <Label>Qty</Label>
                     <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" type="number" min="1" step="1" value={tradeItemForm.quantity} onChange={(event) => setTradeItemForm({ ...tradeItemForm, quantity: event.target.value })} />
                   </div>
@@ -633,7 +682,7 @@ export default function PosPage() {
                     </div>
                   ) : tradeItems.map((item) => (
                     <div key={item.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
-                      <div className="grid gap-3 xl:grid-cols-[1.4fr_.75fr_.6fr_.45fr_.65fr_.65fr_.65fr_.65fr_auto]">
+                      <div className="grid gap-3 xl:grid-cols-[1.2fr_.65fr_.55fr_.75fr_.4fr_.6fr_.6fr_.6fr_.6fr_auto]">
                         <div>
                           <Label>Item</Label>
                           <Input className="mt-2 h-11 border-white/10 bg-black/40" value={item.title} onChange={(event) => updateTradeItem(item.id, { title: event.target.value })} />
@@ -652,6 +701,17 @@ export default function PosPage() {
                               <SelectItem value="New">New</SelectItem>
                               <SelectItem value="Sealed">Sealed</SelectItem>
                               <SelectItem value="Graded">Graded</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label>Rating</Label>
+                          <Select value={String(item.condition_rating || 5)} onValueChange={(value) => updateTradeItem(item.id, { condition_rating: Number(value) } as Partial<TradeItem>)}>
+                            <SelectTrigger className="mt-2 h-11 border-white/10 bg-black/40"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {[5, 4, 3, 2, 1].map((rating) => (
+                                <SelectItem key={rating} value={String(rating)}>{conditionRatingLabel(rating)}</SelectItem>
+                              ))}
                             </SelectContent>
                           </Select>
                         </div>
@@ -830,9 +890,60 @@ export default function PosPage() {
             <TotalsRow label="Total" value={total} large />
 
             {selectedCustomer && selectedCustomer.credit_balance > 0 && (
-              <div>
-                <Label className="text-xs">Trade Credit to Use</Label>
-                <Input className="mt-1 h-9 border-white/10 bg-black/40 text-xs" type="number" min="0" step="0.01" value={creditToUse} onChange={(event) => setCreditToUse(event.target.value)} placeholder={`Available ${money(selectedCustomer.credit_balance)}`} />
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-2">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <Label className="text-xs">Customer Credit</Label>
+                  <div className="text-xs text-primary">{money(selectedCustomer.credit_balance)} available</div>
+                </div>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <Input
+                    className="h-9 border-white/10 bg-black/40 text-xs"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={creditToUse}
+                    onChange={(event) => {
+                      setCreditManualOverride(true);
+                      setCreditToUse(event.target.value);
+                    }}
+                    placeholder={`Available ${money(selectedCustomer.credit_balance)}`}
+                  />
+                  <Button
+                    className="h-9 px-3 text-xs"
+                    variant="outline"
+                    onClick={() => {
+                      setCreditManualOverride(false);
+                      setCreditToUse(Math.min(Number(selectedCustomer.credit_balance || 0), total).toFixed(2));
+                    }}
+                  >
+                    Use All
+                  </Button>
+                </div>
+                <div className="mt-2 grid grid-cols-4 gap-1">
+                  {[5, 10, 15].map((percent) => (
+                    <Button
+                      key={percent}
+                      className="h-8 text-xs"
+                      variant="outline"
+                      onClick={() => {
+                        setDiscountType('percent');
+                        setDiscount(String(percent));
+                      }}
+                    >
+                      {percent}% Reward
+                    </Button>
+                  ))}
+                  <Button
+                    className="h-8 text-xs"
+                    variant="outline"
+                    onClick={() => {
+                      setDiscount('');
+                      setDiscountType('amount');
+                    }}
+                  >
+                    Clear
+                  </Button>
+                </div>
               </div>
             )}
 
