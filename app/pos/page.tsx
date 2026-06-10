@@ -636,21 +636,21 @@ export default function PosPage() {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-neutral-950 text-white">
-      <header className="h-[64px] border-b border-white/10 bg-black/95 px-4 py-2 backdrop-blur">
+    <div className="min-h-screen overflow-x-hidden overflow-y-auto bg-neutral-950 text-[17px] text-white xl:h-screen xl:overflow-hidden">
+      <header className="min-h-[72px] border-b border-white/10 bg-black/95 px-4 py-3 backdrop-blur xl:h-[72px]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link href="/dashboard">
-              <Button variant="outline" size="icon" className="h-10 w-10 border-white/15 bg-white/5 text-white hover:bg-white/10">
-                <ArrowLeft className="h-5 w-5" />
+              <Button variant="outline" size="icon" className="h-12 w-12 border-white/15 bg-white/5 text-white hover:bg-white/10">
+                <ArrowLeft className="h-6 w-6" />
               </Button>
             </Link>
             <div>
-              <div className="text-lg font-bold tracking-tight">RetroLootPro POS</div>
-              <div className="text-xs text-white/45">iPad register mode</div>
+              <div className="text-xl font-bold tracking-tight">RetroLootPro POS</div>
+              <div className="text-sm text-white/50">iPad register mode</div>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-1">
+          <div className="grid w-full grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-1 sm:w-auto">
             <ModeButton active={mode === 'sale'} icon={ShoppingCart} label="Sell" onClick={() => setMode('sale')} />
             <ModeButton active={mode === 'buy'} icon={HandCoins} label="Buy / Trade" onClick={() => setMode('buy')} />
             <ModeButton active={mode === 'customers'} icon={Users} label="Customers" onClick={() => setMode('customers')} />
@@ -658,8 +658,8 @@ export default function PosPage() {
         </div>
       </header>
 
-      <main className="grid h-[calc(100vh-64px)] gap-3 overflow-hidden p-3 xl:grid-cols-[1fr_380px]">
-        <section className="space-y-3 overflow-hidden">
+      <main className="grid min-h-0 gap-4 overflow-visible p-3 sm:p-4 xl:h-[calc(100vh-72px)] xl:grid-cols-[minmax(0,1fr)_420px] xl:overflow-hidden">
+        <section className="min-w-0 space-y-4 xl:overflow-auto xl:pr-1">
           <CustomerPanel
             customers={customers}
             selectedCustomer={selectedCustomer}
@@ -674,16 +674,16 @@ export default function PosPage() {
           />
 
           {mode === 'sale' && (
-            <div className="grid h-[calc(100vh-160px)] gap-3 overflow-hidden lg:grid-cols-[1.15fr_.85fr]">
-              <div className="overflow-hidden rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+            <div className="grid gap-4 xl:h-[calc(100vh-176px)] xl:overflow-hidden 2xl:grid-cols-[1.15fr_.85fr]">
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 xl:overflow-hidden">
+                <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
                   <Package className="h-5 w-5 text-primary" />
                   Scan / Inventory
                 </div>
-                <div className="mb-2 flex gap-2">
+                <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
                   <Input
                     ref={scanInputRef}
-                    className="h-10 border-primary/30 bg-black/40 text-base"
+                    className="h-14 border-primary/30 bg-black/40 text-lg"
                     value={scanBuffer}
                     onChange={(event) => setScanBuffer(event.target.value)}
                     onKeyDown={(event) => {
@@ -691,43 +691,43 @@ export default function PosPage() {
                     }}
                     placeholder="Continuous UPC scan..."
                   />
-                  <Button className="h-10" onClick={() => scanUpcIntoCart(scanBuffer)}>Add UPC</Button>
+                  <Button className="h-14 px-6 text-lg" onClick={() => scanUpcIntoCart(scanBuffer)}>Add UPC</Button>
                 </div>
-                <div className="mb-2 flex gap-2">
+                <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
                   <div className="relative flex-1">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
-                    <Input className="h-10 border-white/10 bg-black/40 pl-9 text-sm" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} placeholder="Search inventory..." />
+                    <Input className="h-14 border-white/10 bg-black/40 pl-9 text-lg" value={inventorySearch} onChange={(event) => setInventorySearch(event.target.value)} placeholder="Search inventory..." />
                   </div>
-                  <Button className="h-10" variant="outline" onClick={() => loadInventory()}>Search</Button>
+                  <Button className="h-14 px-6 text-lg" variant="outline" onClick={() => loadInventory()}>Search</Button>
                 </div>
-                <div className="grid max-h-[calc(100vh-280px)] gap-1.5 overflow-auto pr-1">
+                <div className="grid gap-2 overflow-visible pr-1 xl:max-h-[calc(100vh-304px)] xl:overflow-auto">
                   {inventory.map((item) => (
-                    <button key={item.id} onClick={() => addInventoryItem(item)} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/30 p-2 text-left transition hover:border-primary/35 hover:bg-primary/10">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-white/5">
+                    <button key={item.id} onClick={() => addInventoryItem(item)} className="flex min-h-16 items-center gap-3 rounded-lg border border-white/10 bg-black/30 p-3 text-left transition hover:border-primary/35 hover:bg-primary/10">
+                      <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-white/5">
                         {item.thumbnail_url || item.image_url ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={item.thumbnail_url || item.image_url || ''} alt="" className="h-full w-full object-cover" />
                         ) : <Package className="h-6 w-6 text-white/30" />}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold">{item.title}</div>
-                        <div className="text-xs text-white/45">{item.platform || 'No platform'} • {item.condition || 'No condition'}</div>
+                        <div className="truncate text-base font-semibold">{item.title}</div>
+                        <div className="text-sm text-white/50">{item.platform || 'No platform'} - {item.condition || 'No condition'}</div>
                       </div>
-                      <div className="text-right text-sm font-bold text-primary">{money(Number(item.sell_price || item.selected_market_value || item.purchase_price || 0))}</div>
+                      <div className="text-right text-lg font-bold text-primary">{money(Number(item.sell_price || item.selected_market_value || item.purchase_price || 0))}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-                <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+              <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+                <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
                   <Plus className="h-5 w-5 text-primary" />
                   Manual Item
                 </div>
-                <div className="grid gap-2">
-                  <Input className="h-10 border-white/10 bg-black/40 text-sm" value={manualName} onChange={(event) => setManualName(event.target.value)} placeholder="Manual item, service, or misc sale" />
-                  <Input className="h-10 border-white/10 bg-black/40 text-sm" type="number" min="0" step="0.01" value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} placeholder="Price" />
-                  <Button className="h-10 text-sm" onClick={addManualItem}>Add Manual Item</Button>
+                <div className="grid gap-3">
+                  <Input className="h-14 border-white/10 bg-black/40 text-lg" value={manualName} onChange={(event) => setManualName(event.target.value)} placeholder="Manual item, service, or misc sale" />
+                  <Input className="h-14 border-white/10 bg-black/40 text-lg" type="number" min="0" step="0.01" value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} placeholder="Price" />
+                  <Button className="h-14 text-lg" onClick={addManualItem}>Add Manual Item</Button>
                 </div>
               </div>
             </div>
@@ -740,11 +740,11 @@ export default function PosPage() {
                 Buy From Customer / Trade Credit
               </div>
               <div className="grid gap-4">
-                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 xl:grid-cols-[.85fr_1.2fr_.7fr_.6fr_.75fr_.35fr_auto]">
+                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 2xl:grid-cols-[.85fr_1.2fr_.7fr_.6fr_.75fr_.35fr_auto]">
                   <div>
                     <Label>UPC</Label>
                     <Input
-                      className="mt-2 h-12 border-white/10 bg-black/40 font-mono text-base"
+                      className="mt-2 h-14 border-white/10 bg-black/40 font-mono text-lg"
                       value={tradeItemForm.barcode}
                       onChange={(event) => setTradeItemForm({ ...tradeItemForm, barcode: event.target.value })}
                       onKeyDown={(event) => {
@@ -755,16 +755,16 @@ export default function PosPage() {
                   </div>
                   <div>
                     <Label>Title</Label>
-                    <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={tradeItemForm.title} onChange={(event) => setTradeItemForm({ ...tradeItemForm, title: event.target.value })} placeholder="Mario Party 8" />
+                    <Input className="mt-2 h-14 border-white/10 bg-black/40 text-lg" value={tradeItemForm.title} onChange={(event) => setTradeItemForm({ ...tradeItemForm, title: event.target.value })} placeholder="Mario Party 8" />
                   </div>
                   <div>
                     <Label>Platform</Label>
-                    <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={tradeItemForm.platform} onChange={(event) => setTradeItemForm({ ...tradeItemForm, platform: event.target.value })} placeholder="Wii" />
+                    <Input className="mt-2 h-14 border-white/10 bg-black/40 text-lg" value={tradeItemForm.platform} onChange={(event) => setTradeItemForm({ ...tradeItemForm, platform: event.target.value })} placeholder="Wii" />
                   </div>
                   <div>
                     <Label>Condition</Label>
                     <Select value={tradeItemForm.condition} onValueChange={(value) => setTradeItemForm({ ...tradeItemForm, condition: value })}>
-                      <SelectTrigger className="mt-2 h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-2 h-14 border-white/10 bg-black/40 text-lg"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Loose">Loose</SelectItem>
                         <SelectItem value="CIB">CIB</SelectItem>
@@ -777,7 +777,7 @@ export default function PosPage() {
                   <div>
                     <Label>Rating</Label>
                     <Select value={tradeItemForm.conditionRating} onValueChange={(value) => setTradeItemForm({ ...tradeItemForm, conditionRating: value })}>
-                      <SelectTrigger className="mt-2 h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="mt-2 h-14 border-white/10 bg-black/40 text-lg"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {[5, 4, 3, 2, 1].map((rating) => (
                           <SelectItem key={rating} value={String(rating)}>{conditionRatingLabel(rating)}</SelectItem>
@@ -787,10 +787,10 @@ export default function PosPage() {
                   </div>
                   <div>
                     <Label>Qty</Label>
-                    <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" type="number" min="1" step="1" value={tradeItemForm.quantity} onChange={(event) => setTradeItemForm({ ...tradeItemForm, quantity: event.target.value })} />
+                    <Input className="mt-2 h-14 border-white/10 bg-black/40 text-lg" type="number" min="1" step="1" value={tradeItemForm.quantity} onChange={(event) => setTradeItemForm({ ...tradeItemForm, quantity: event.target.value })} />
                   </div>
                   <div className="flex items-end">
-                    <Button className="h-12 w-full px-6" onClick={addTradeItem}>Add</Button>
+                    <Button className="h-14 w-full px-6 text-lg" onClick={addTradeItem}>Add</Button>
                   </div>
                 </div>
 
@@ -805,7 +805,7 @@ export default function PosPage() {
                         <div>
                           <Label>UPC</Label>
                           <Input
-                            className="mt-2 h-10 border-white/10 bg-black/40 font-mono"
+                            className="mt-2 h-12 border-white/10 bg-black/40 font-mono text-base"
                             value={item.barcode || ''}
                             onChange={(event) => updateTradeItem(item.id, { barcode: event.target.value })}
                             onKeyDown={(event) => {
@@ -816,7 +816,7 @@ export default function PosPage() {
                         </div>
                         <div className="flex items-end">
                           <Button
-                            className="h-10"
+                            className="h-12 px-5 text-base"
                             variant="outline"
                             onClick={() => lookupTradeItemByUpc(item)}
                             disabled={item.lookup_status === 'loading' || !item.barcode?.trim()}
@@ -825,19 +825,19 @@ export default function PosPage() {
                           </Button>
                         </div>
                       </div>
-                      <div className="grid gap-3 xl:grid-cols-[1.2fr_.65fr_.55fr_.75fr_.4fr_.6fr_.6fr_.6fr_.6fr_auto]">
+                      <div className="grid gap-3 2xl:grid-cols-[1.2fr_.65fr_.55fr_.75fr_.4fr_.6fr_.6fr_.6fr_.6fr_auto]">
                         <div>
                           <Label>Item</Label>
-                          <Input className="mt-2 h-11 border-white/10 bg-black/40" value={item.title} onChange={(event) => updateTradeItem(item.id, { title: event.target.value })} />
+                          <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={item.title} onChange={(event) => updateTradeItem(item.id, { title: event.target.value })} />
                         </div>
                         <div>
                           <Label>Platform</Label>
-                          <Input className="mt-2 h-11 border-white/10 bg-black/40" value={item.platform || ''} onChange={(event) => updateTradeItem(item.id, { platform: event.target.value })} />
+                          <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={item.platform || ''} onChange={(event) => updateTradeItem(item.id, { platform: event.target.value })} />
                         </div>
                         <div>
                           <Label>Condition</Label>
                           <Select value={item.condition || 'Loose'} onValueChange={(value) => updateTradeItem(item.id, { condition: value })}>
-                            <SelectTrigger className="mt-2 h-11 border-white/10 bg-black/40"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="mt-2 h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               <SelectItem value="Loose">Loose</SelectItem>
                               <SelectItem value="CIB">CIB</SelectItem>
@@ -850,7 +850,7 @@ export default function PosPage() {
                         <div>
                           <Label>Rating</Label>
                           <Select value={String(item.condition_rating || 5)} onValueChange={(value) => updateTradeItem(item.id, { condition_rating: Number(value) } as Partial<TradeItem>)}>
-                            <SelectTrigger className="mt-2 h-11 border-white/10 bg-black/40"><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="mt-2 h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
                             <SelectContent>
                               {[5, 4, 3, 2, 1].map((rating) => (
                                 <SelectItem key={rating} value={String(rating)}>{conditionRatingLabel(rating)}</SelectItem>
@@ -860,22 +860,22 @@ export default function PosPage() {
                         </div>
                         <div>
                           <Label>Qty</Label>
-                          <Input className="mt-2 h-11 border-white/10 bg-black/40" type="number" min="1" step="1" value={item.quantity} onChange={(event) => updateTradeItem(item.id, { quantity: Number(event.target.value || 1) })} />
+                          <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" type="number" min="1" step="1" value={item.quantity} onChange={(event) => updateTradeItem(item.id, { quantity: Number(event.target.value || 1) })} />
                         </div>
                         <TradeMoneyInput label="PriceCharting" value={item.pricecharting_value} onChange={(value) => updateTradeItem(item.id, { pricecharting_value: value })} />
                         <TradeMoneyInput label="GameStop" value={item.gamestop_value} onChange={(value) => updateTradeItem(item.id, { gamestop_value: value })} />
                         <TradeMoneyInput label="Market" value={item.market_value} onChange={(value) => updateTradeItem(item.id, { market_value: value })} />
                         <TradeMoneyInput label="Recommended" value={item.accepted_offer} onChange={(value) => updateTradeItem(item.id, { accepted_offer: value })} />
                         <div className="flex items-end gap-2">
-                          <Button className="h-11" variant="outline" onClick={() => lookupTradeItemPricing(item)} disabled={item.lookup_status === 'loading'}>
+                          <Button className="h-12 px-5 text-base" variant="outline" onClick={() => lookupTradeItemPricing(item)} disabled={item.lookup_status === 'loading'}>
                             {item.lookup_status === 'loading' ? 'Pricing...' : 'Price'}
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-11 w-11 text-white/45" onClick={() => setTradeItems((current) => current.filter((tradeItem) => tradeItem.id !== item.id))}>
+                          <Button variant="ghost" size="icon" className="h-12 w-12 text-white/45" onClick={() => setTradeItems((current) => current.filter((tradeItem) => tradeItem.id !== item.id))}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
                       </div>
-                      <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/45">
+                      <div className="mt-3 flex flex-wrap gap-2 text-sm text-white/50">
                         <span>Cash offer ({offerPercent(item.recommended_cash_offer, item.market_value, item.quantity)}%): <b className="text-white">{money(item.recommended_cash_offer)}</b></span>
                         <span>Trade offer ({offerPercent(item.recommended_trade_offer, item.market_value, item.quantity)}%): <b className="text-primary">{money(item.recommended_trade_offer)}</b></span>
                         <span>{item.pricing_source || 'No source yet'}</span>
@@ -889,8 +889,8 @@ export default function PosPage() {
                               onClick={() => applyPriceChartingMatch(item, match)}
                               className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-left transition hover:border-primary hover:bg-primary/20"
                             >
-                              <div className="text-sm font-semibold text-white">{match.productName}</div>
-                              <div className="mt-1 text-xs text-white/50">{match.consoleName} • PC ID {match.id}</div>
+                              <div className="text-base font-semibold text-white">{match.productName}</div>
+                              <div className="mt-1 text-sm text-white/50">{match.consoleName} - PC ID {match.id}</div>
                             </button>
                           ))}
                         </div>
@@ -899,7 +899,7 @@ export default function PosPage() {
                   ))}
                 </div>
 
-                <div className="grid gap-4 xl:grid-cols-[1fr_420px]">
+                <div className="grid gap-4 2xl:grid-cols-[1fr_440px]">
                   <div className="space-y-3">
                     <Label>Fallback Item Summary</Label>
                     <Textarea className="min-h-24 border-white/10 bg-black/40 text-base" value={buyForm.item_summary} onChange={(event) => setBuyForm({ ...buyForm, item_summary: event.target.value })} placeholder="Use only if you do not want to itemize the trade." />
@@ -916,9 +916,9 @@ export default function PosPage() {
                       <Button className="h-11" onClick={() => applySuggestedOffer('trade')}>Use Trade Offer</Button>
                     </div>
                     <Label>Offer Amount</Label>
-                    <Input className="h-12 border-white/10 bg-black/40 text-base" type="number" min="0" step="0.01" value={buyForm.offer_amount} onChange={(event) => setBuyForm({ ...buyForm, offer_amount: event.target.value })} />
+                    <Input className="h-14 border-white/10 bg-black/40 text-lg" type="number" min="0" step="0.01" value={buyForm.offer_amount} onChange={(event) => setBuyForm({ ...buyForm, offer_amount: event.target.value })} />
                     <Button
-                      className="h-11 w-full"
+                      className="h-12 w-full text-base"
                       variant="outline"
                       onClick={() => setBuyForm((current) => ({
                         ...current,
@@ -942,7 +942,7 @@ export default function PosPage() {
                         });
                       }}
                     >
-                      <SelectTrigger className="h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-14 border-white/10 bg-black/40 text-lg"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="trade_credit">Trade Credit</SelectItem>
@@ -952,14 +952,14 @@ export default function PosPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <Label>Cash Paid</Label>
-                        <Input className="mt-2 h-12 border-white/10 bg-black/40" type="number" min="0" step="0.01" value={buyForm.cash_paid} onChange={(event) => setBuyForm({ ...buyForm, cash_paid: event.target.value })} />
+                        <Input className="mt-2 h-14 border-white/10 bg-black/40 text-lg" type="number" min="0" step="0.01" value={buyForm.cash_paid} onChange={(event) => setBuyForm({ ...buyForm, cash_paid: event.target.value })} />
                       </div>
                       <div>
                         <Label>Trade Credit</Label>
-                        <Input className="mt-2 h-12 border-white/10 bg-black/40" type="number" min="0" step="0.01" value={buyForm.trade_credit_issued} onChange={(event) => setBuyForm({ ...buyForm, trade_credit_issued: event.target.value })} />
+                        <Input className="mt-2 h-14 border-white/10 bg-black/40 text-lg" type="number" min="0" step="0.01" value={buyForm.trade_credit_issued} onChange={(event) => setBuyForm({ ...buyForm, trade_credit_issued: event.target.value })} />
                       </div>
                     </div>
-                    <Button className="h-14 w-full text-lg" onClick={handleCompleteBuy} disabled={saving}>Complete Buy</Button>
+                    <Button className="h-16 w-full text-xl" onClick={handleCompleteBuy} disabled={saving}>Complete Buy</Button>
                   </div>
                 </div>
               </div>
@@ -975,7 +975,7 @@ export default function PosPage() {
                     <div className="font-semibold">{customer.name}</div>
                     <div className="mt-1 text-sm text-white/45">{customer.phone || customer.email || customer.rewards_number}</div>
                     <div className="mt-3 text-lg font-bold text-primary">Credit {money(customer.credit_balance)}</div>
-                    <div className="text-xs text-white/35">Lifetime spend {money(customer.lifetime_spend)}</div>
+                    <div className="text-sm text-white/45">Lifetime spend {money(customer.lifetime_spend)}</div>
                   </button>
                 ))}
               </div>
@@ -983,29 +983,29 @@ export default function PosPage() {
           )}
         </section>
 
-        <aside className="flex min-h-0 flex-col rounded-xl border border-white/10 bg-black/70 p-3">
+        <aside className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-black/70 p-4">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-lg font-bold">Receipt Cart</div>
-            <Button className="h-8" variant="outline" size="sm" onClick={() => setCart([])}>Clear</Button>
+            <Button className="h-10 px-4 text-base" variant="outline" size="sm" onClick={() => setCart([])}>Clear</Button>
           </div>
-          <div className="min-h-0 flex-1 space-y-1 overflow-auto pr-1 font-mono">
+          <div className="min-h-0 flex-1 space-y-2 overflow-visible pr-1 font-mono xl:overflow-auto">
             {cart.length === 0 ? (
               <div className="rounded-lg border border-dashed border-white/15 p-6 text-center font-sans text-white/40">No sale items yet.</div>
             ) : cart.map((line) => (
-              <div key={line.id} className="rounded-md border border-white/10 bg-white/[0.035] p-2">
+              <div key={line.id} className="rounded-md border border-white/10 bg-white/[0.035] p-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-xs font-semibold">{line.item_name}</div>
-                    <div className="text-[10px] text-white/40">{line.platform || line.source}</div>
+                    <div className="truncate text-base font-semibold">{line.item_name}</div>
+                    <div className="text-sm text-white/45">{line.platform || line.source}</div>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-white/40" onClick={() => setCart((current) => current.filter((item) => item.id !== line.id))}>
+                  <Button variant="ghost" size="icon" className="h-10 w-10 shrink-0 text-white/40" onClick={() => setCart((current) => current.filter((item) => item.id !== line.id))}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="mt-1 grid grid-cols-[54px_1fr_80px] items-center gap-1">
-                  <Input className="h-8 border-white/10 bg-black/40 px-2 text-xs" type="number" min="1" step="1" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value || 1) })} disabled={line.source === 'inventory'} />
-                  <Input className="h-8 border-white/10 bg-black/40 px-2 text-xs" type="number" min="0" step="0.01" value={line.unit_price} onChange={(event) => updateLine(line.id, { unit_price: Number(event.target.value || 0) })} />
-                  <div className="text-right text-xs font-semibold">{money(line.quantity * line.unit_price)}</div>
+                <div className="mt-2 grid grid-cols-[68px_1fr_96px] items-center gap-2">
+                  <Input className="h-11 border-white/10 bg-black/40 px-2 text-base" type="number" min="1" step="1" value={line.quantity} onChange={(event) => updateLine(line.id, { quantity: Number(event.target.value || 1) })} disabled={line.source === 'inventory'} />
+                  <Input className="h-11 border-white/10 bg-black/40 px-2 text-base" type="number" min="0" step="0.01" value={line.unit_price} onChange={(event) => updateLine(line.id, { unit_price: Number(event.target.value || 0) })} />
+                  <div className="text-right text-base font-semibold">{money(line.quantity * line.unit_price)}</div>
                 </div>
               </div>
             ))}
@@ -1014,10 +1014,10 @@ export default function PosPage() {
           <div className="mt-2 space-y-2 border-t border-white/10 pt-2">
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <Label className="text-xs">Discount</Label>
-                <div className="mt-1 grid grid-cols-[70px_1fr] gap-1">
+                <Label className="text-sm">Discount</Label>
+                <div className="mt-1 grid grid-cols-[80px_1fr] gap-2">
                   <Select value={discountType} onValueChange={(value: 'percent' | 'amount') => setDiscountType(value)}>
-                    <SelectTrigger className="h-9 border-white/10 bg-black/40">
+                    <SelectTrigger className="h-12 border-white/10 bg-black/40 text-base">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -1030,7 +1030,7 @@ export default function PosPage() {
                       <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/45">$</span>
                     )}
                     <Input
-                      className={`h-9 border-white/10 bg-black/40 text-xs ${discountType === 'amount' ? 'pl-7' : ''}`}
+                      className={`h-12 border-white/10 bg-black/40 text-base ${discountType === 'amount' ? 'pl-7' : ''}`}
                       type="number"
                       min="0"
                       max={discountType === 'percent' ? 100 : undefined}
@@ -1047,10 +1047,10 @@ export default function PosPage() {
               </div>
               <div className="rounded-lg border border-white/10 bg-black/40 p-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Label className="text-xs">Tax</Label>
-                  <span className="text-xs font-semibold text-primary">{(activeTaxRate * 100).toFixed(3)}%</span>
+                  <Label className="text-sm">Tax</Label>
+                  <span className="text-sm font-semibold text-primary">{(activeTaxRate * 100).toFixed(3)}%</span>
                 </div>
-                <div className="mt-1 truncate text-[10px] text-white/45">
+                <div className="mt-1 truncate text-xs text-white/50">
                   {taxSettings?.tax_zip ? `ZIP ${taxSettings.tax_zip}` : 'No ZIP set'} {taxSettings?.tax_source ? `- ${taxSettings.tax_source}` : '- admin setting'}
                 </div>
               </div>
@@ -1063,12 +1063,12 @@ export default function PosPage() {
             {selectedCustomer && selectedCustomer.credit_balance > 0 && (
               <div className="rounded-lg border border-primary/20 bg-primary/5 p-2">
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <Label className="text-xs">Customer Credit</Label>
-                  <div className="text-xs text-primary">{money(selectedCustomer.credit_balance)} available</div>
+                  <Label className="text-sm">Customer Credit</Label>
+                  <div className="text-sm text-primary">{money(selectedCustomer.credit_balance)} available</div>
                 </div>
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <Input
-                    className="h-9 border-white/10 bg-black/40 text-xs"
+                    className="h-12 border-white/10 bg-black/40 text-base"
                     type="number"
                     min="0"
                     step="0.01"
@@ -1080,7 +1080,7 @@ export default function PosPage() {
                     placeholder={`Available ${money(selectedCustomer.credit_balance)}`}
                   />
                   <Button
-                    className="h-9 px-3 text-xs"
+                    className="h-12 px-4 text-base"
                     variant="outline"
                     onClick={() => {
                       setCreditManualOverride(false);
@@ -1094,7 +1094,7 @@ export default function PosPage() {
                   {[5, 10, 15].map((percent) => (
                     <Button
                       key={percent}
-                      className="h-8 text-xs"
+                      className="h-11 text-sm"
                       variant="outline"
                       onClick={() => {
                         setDiscountType('percent');
@@ -1105,7 +1105,7 @@ export default function PosPage() {
                     </Button>
                   ))}
                   <Button
-                    className="h-8 text-xs"
+                    className="h-11 text-sm"
                     variant="outline"
                     onClick={() => {
                       setDiscount('');
@@ -1119,7 +1119,7 @@ export default function PosPage() {
             )}
 
             <TotalsRow label="Due after credit" value={dueAfterCredit} large />
-            <Button className="h-12 w-full text-lg" disabled={saving || cart.length === 0} onClick={() => setPaymentOpen(true)}>
+            <Button className="h-16 w-full text-xl" disabled={saving || cart.length === 0} onClick={() => setPaymentOpen(true)}>
               <CreditCard className="mr-2 h-5 w-5" />
               Checkout
             </Button>
@@ -1128,7 +1128,7 @@ export default function PosPage() {
       </main>
 
       <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
-        <DialogContent className="max-w-md border-white/10 bg-neutral-950 text-white">
+        <DialogContent className="max-w-lg border-white/10 bg-neutral-950 text-white">
           <DialogHeader>
             <DialogTitle>Complete Sale</DialogTitle>
           </DialogHeader>
@@ -1141,7 +1141,7 @@ export default function PosPage() {
             <div>
               <Label>Tender</Label>
               <Select value={paymentMethod} onValueChange={(value: any) => setPaymentMethod(value)}>
-                <SelectTrigger className="mt-2 h-12 border-white/10 bg-black/40 text-base"><SelectValue /></SelectTrigger>
+                <SelectTrigger className="mt-2 h-14 border-white/10 bg-black/40 text-lg"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Cash</SelectItem>
                   <SelectItem value="square">Card - Square</SelectItem>
@@ -1154,22 +1154,22 @@ export default function PosPage() {
             {(paymentMethod === 'cash' || paymentMethod === 'split') && (
               <div>
                 <Label>Cash Received</Label>
-                <Input className="mt-2 h-12 border-white/10 bg-black/40 text-lg" type="number" min="0" step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
+                <Input className="mt-2 h-14 border-white/10 bg-black/40 text-xl" type="number" min="0" step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
               </div>
             )}
             {paymentMethod === 'split' && (
               <div>
                 <Label>Card Amount</Label>
-                <Input className="mt-2 h-12 border-white/10 bg-black/40 text-lg" type="number" min="0" step="0.01" value={cardAmount} onChange={(event) => setCardAmount(event.target.value)} />
+                <Input className="mt-2 h-14 border-white/10 bg-black/40 text-xl" type="number" min="0" step="0.01" value={cardAmount} onChange={(event) => setCardAmount(event.target.value)} />
               </div>
             )}
             {(paymentMethod === 'external_card' || paymentMethod === 'square' || paymentMethod === 'stripe' || paymentMethod === 'split') && (
               <div>
                 <Label>Card Machine Reference</Label>
-                <Input className="mt-2 h-12 border-white/10 bg-black/40 text-base" value={processorReference} onChange={(event) => setProcessorReference(event.target.value)} placeholder="Receipt / auth / batch reference" />
+                <Input className="mt-2 h-14 border-white/10 bg-black/40 text-lg" value={processorReference} onChange={(event) => setProcessorReference(event.target.value)} placeholder="Receipt / auth / batch reference" />
               </div>
             )}
-            <Button className="h-14 w-full text-lg" disabled={saving || cart.length === 0} onClick={handleCompleteSale}>
+            <Button className="h-16 w-full text-xl" disabled={saving || cart.length === 0} onClick={handleCompleteSale}>
               OK - Complete Sale
             </Button>
           </div>
@@ -1181,8 +1181,8 @@ export default function PosPage() {
 
 function ModeButton({ active, icon: Icon, label, onClick }: { active: boolean; icon: any; label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`flex h-12 items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold transition ${active ? 'bg-primary text-black' : 'text-white/55 hover:bg-white/10 hover:text-white'}`}>
-      <Icon className="h-4 w-4" />
+    <button onClick={onClick} className={`flex min-h-14 items-center justify-center gap-2 rounded-lg px-3 text-base font-semibold transition sm:px-5 ${active ? 'bg-primary text-black' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}>
+      <Icon className="h-5 w-5" />
       {label}
     </button>
   );
@@ -1201,8 +1201,8 @@ function CustomerPanel(props: {
   saving: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+      <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
         <Users className="h-5 w-5 text-primary" />
         Customer / Rewards
       </div>
@@ -1210,38 +1210,38 @@ function CustomerPanel(props: {
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/25 bg-primary/10 p-3">
           <div>
             <div className="text-base font-bold">{props.selectedCustomer.name}</div>
-            <div className="text-xs text-white/55">{props.selectedCustomer.phone || props.selectedCustomer.email || props.selectedCustomer.rewards_number}</div>
+            <div className="text-sm text-white/55">{props.selectedCustomer.phone || props.selectedCustomer.email || props.selectedCustomer.rewards_number}</div>
           </div>
           <div className="text-right">
-            <div className="text-xs text-white/50">Credit</div>
+            <div className="text-sm text-white/50">Credit</div>
             <div className="text-lg font-bold text-primary">{money(props.selectedCustomer.credit_balance)}</div>
           </div>
-          <Button className="h-9" variant="outline" onClick={() => props.setSelectedCustomer(null)}>Remove</Button>
+          <Button className="h-12 px-5 text-base" variant="outline" onClick={() => props.setSelectedCustomer(null)}>Remove</Button>
         </div>
       ) : (
-        <div className="grid gap-3 xl:grid-cols-[1fr_1fr]">
+        <div className="grid gap-3 2xl:grid-cols-[1fr_1fr]">
           <div>
             <div className="flex gap-2">
-              <Input className="h-10 border-white/10 bg-black/40" value={props.customerSearch} onChange={(event) => props.setCustomerSearch(event.target.value)} placeholder="Search customer..." />
-              <Button className="h-10" variant="outline" onClick={() => props.loadCustomers(props.customerSearch)}>Search</Button>
+              <Input className="h-12 border-white/10 bg-black/40 text-base" value={props.customerSearch} onChange={(event) => props.setCustomerSearch(event.target.value)} placeholder="Search customer..." />
+              <Button className="h-12 px-5 text-base" variant="outline" onClick={() => props.loadCustomers(props.customerSearch)}>Search</Button>
             </div>
             <div className="mt-2 grid max-h-24 gap-1 overflow-auto">
               {props.customers.map((customer) => (
                 <button key={customer.id} onClick={() => props.setSelectedCustomer(customer)} className="rounded-lg border border-white/10 bg-black/30 p-2 text-left hover:border-primary/35">
-                  <div className="text-sm font-semibold">{customer.name}</div>
-                  <div className="text-xs text-white/45">Credit {money(customer.credit_balance)}</div>
+                  <div className="text-base font-semibold">{customer.name}</div>
+                  <div className="text-sm text-white/50">Credit {money(customer.credit_balance)}</div>
                 </button>
               ))}
             </div>
           </div>
           <div className="grid gap-2">
-            <div className="flex items-center gap-2 text-sm font-semibold"><UserPlus className="h-4 w-4 text-primary" />New Rewards Customer</div>
-            <Input className="h-9 border-white/10 bg-black/40" value={props.customerForm.name} onChange={(event) => props.setCustomerForm({ ...props.customerForm, name: event.target.value })} placeholder="Name" />
+            <div className="flex items-center gap-2 text-base font-semibold"><UserPlus className="h-4 w-4 text-primary" />New Rewards Customer</div>
+            <Input className="h-12 border-white/10 bg-black/40 text-base" value={props.customerForm.name} onChange={(event) => props.setCustomerForm({ ...props.customerForm, name: event.target.value })} placeholder="Name" />
             <div className="grid grid-cols-2 gap-2">
-              <Input className="h-9 border-white/10 bg-black/40" value={props.customerForm.phone} onChange={(event) => props.setCustomerForm({ ...props.customerForm, phone: event.target.value })} placeholder="Phone" />
-              <Input className="h-9 border-white/10 bg-black/40" value={props.customerForm.email} onChange={(event) => props.setCustomerForm({ ...props.customerForm, email: event.target.value })} placeholder="Email" />
+              <Input className="h-12 border-white/10 bg-black/40 text-base" value={props.customerForm.phone} onChange={(event) => props.setCustomerForm({ ...props.customerForm, phone: event.target.value })} placeholder="Phone" />
+              <Input className="h-12 border-white/10 bg-black/40 text-base" value={props.customerForm.email} onChange={(event) => props.setCustomerForm({ ...props.customerForm, email: event.target.value })} placeholder="Email" />
             </div>
-            <Button className="h-9" onClick={props.handleCreateCustomer} disabled={props.saving}>Create Customer</Button>
+            <Button className="h-12 text-base" onClick={props.handleCreateCustomer} disabled={props.saving}>Create Customer</Button>
           </div>
         </div>
       )}
@@ -1254,7 +1254,7 @@ function TradeMoneyInput({ label, value, onChange }: { label: string; value: num
     <div>
       <Label>{label}</Label>
       <Input
-        className="mt-2 h-11 border-white/10 bg-black/40"
+        className="mt-2 h-12 border-white/10 bg-black/40 text-base"
         type="number"
         min="0"
         step="0.01"
@@ -1267,7 +1267,7 @@ function TradeMoneyInput({ label, value, onChange }: { label: string; value: num
 
 function TotalsRow({ label, value, large = false }: { label: string; value: number; large?: boolean }) {
   return (
-    <div className={`flex items-center justify-between ${large ? 'text-xl font-bold' : 'text-sm text-white/65'}`}>
+    <div className={`flex items-center justify-between gap-3 ${large ? 'text-2xl font-bold' : 'text-base text-white/70'}`}>
       <span>{label}</span>
       <span className={value < 0 ? 'text-red-300' : large ? 'text-primary' : 'text-white'}>{money(value)}</span>
     </div>
