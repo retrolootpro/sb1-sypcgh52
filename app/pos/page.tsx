@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { useAuth } from '@/lib/auth-context';
 import {
   completeCustomerBuy,
@@ -650,10 +651,13 @@ export default function PosPage() {
               <div className="text-sm text-white/50">iPad register mode</div>
             </div>
           </div>
-          <div className="grid w-full grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-1 sm:w-auto">
-            <ModeButton active={mode === 'sale'} icon={ShoppingCart} label="Sell" onClick={() => setMode('sale')} />
-            <ModeButton active={mode === 'buy'} icon={HandCoins} label="Buy / Trade" onClick={() => setMode('buy')} />
-            <ModeButton active={mode === 'customers'} icon={Users} label="Customers" onClick={() => setMode('customers')} />
+          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+            <ThemeToggle compact />
+            <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-1 sm:w-auto sm:flex-none">
+              <ModeButton active={mode === 'sale'} icon={ShoppingCart} label="Sell" onClick={() => setMode('sale')} />
+              <ModeButton active={mode === 'buy'} icon={HandCoins} label="Buy / Trade" onClick={() => setMode('buy')} />
+              <ModeButton active={mode === 'customers'} icon={Users} label="Customers" onClick={() => setMode('customers')} />
+            </div>
           </div>
         </div>
       </header>

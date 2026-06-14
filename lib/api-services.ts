@@ -731,12 +731,66 @@ export async function createEmployeePayout(input: Omit<EmployeePayout, 'id' | 'u
 }
 
 export async function markEmployeePayoutPaid(payoutId: string): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+  const paidAt = new Date().toISOString();
+
+  const { data: payout, error: payoutFetchError } = await supabase
+    .from('employee_payouts')
+    .select('id, employee_id, period_start, period_end, total_amount, notes')
+    .eq('id', payoutId)
+    .eq('user_id', accountId)
+    .single();
+
+  if (payoutFetchError) throw payoutFetchError;
+
+  const { data: employee } = await supabase
+    .from('employees')
+    .select('name')
+    .eq('id', payout.employee_id)
+    .eq('user_id', accountId)
+    .maybeSingle();
+
   const { error } = await supabase
     .from('employee_payouts')
-    .update({ status: 'paid', paid_at: new Date().toISOString() })
+    .update({ status: 'paid', paid_at: paidAt })
     .eq('id', payoutId);
 
   if (error) throw error;
+
+  const referenceId = `employee_payout:${payoutId}`;
+  const transactionPayload = {
+    user_id: accountId,
+    date: paidAt.slice(0, 10),
+    description: `Employee payout - ${employee?.name || 'Team member'}`,
+    amount: -Math.abs(Number(payout.total_amount || 0)),
+    type: 'expense',
+    category: 'Payroll',
+    subcategory: 'Employee payout',
+    source: 'manual',
+    platform: 'RetroLootPro',
+    reference_id: referenceId,
+    merchant_name: employee?.name || null,
+    notes: `Payroll period ${payout.period_start} to ${payout.period_end}. ${payout.notes || ''}`.trim(),
+    is_reconciled: false,
+    updated_at: paidAt,
+  };
+
+  const { data: existingTx, error: existingError } = await supabase
+    .from('financial_transactions')
+    .select('id')
+    .eq('user_id', accountId)
+    .eq('reference_id', referenceId)
+    .maybeSingle();
+
+  if (existingError) throw existingError;
+
+  const txWrite = existingTx?.id
+    ? await supabase.from('financial_transactions').update(transactionPayload).eq('id', existingTx.id)
+    : await supabase.from('financial_transactions').insert(transactionPayload);
+
+  if (txWrite.error) throw txWrite.error;
 }
 
 export interface EbayListing {

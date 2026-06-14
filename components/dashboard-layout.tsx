@@ -33,6 +33,7 @@ import {
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 import { QuickDealScannerLauncher } from '@/components/quick-deal-scanner-launcher';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { getAccountSecuritySettings, isMfaSatisfied } from '@/lib/security-services';
 
 const navGroups = [
@@ -267,6 +268,8 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
       </nav>
 
       <div className="mt-auto space-y-2 border-t border-white/[0.06] px-3 pb-5 pt-3">
+        <ThemeToggle />
+
         {isAdmin && (
           <Link
             href="/settings"
@@ -370,9 +373,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           <Terminal className="w-4 h-4 text-primary" />
           <span className="font-bold text-sm tracking-tight text-white/90">retro<span className="text-primary">loot</span><span className="ml-1 text-[9px] font-semibold tracking-widest text-primary/70 uppercase">pro</span></span>
         </Link>
-        <Button variant="ghost" size="icon" className="h-8 w-8 text-white/40 hover:text-white/70 hover:bg-white/[0.05]" onClick={() => setMobileOpen(!mobileOpen)}>
-          {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-        </Button>
+        <div className="flex items-center gap-2">
+          <ThemeToggle compact />
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-white/40 hover:text-white/70 hover:bg-white/[0.05]" onClick={() => setMobileOpen(!mobileOpen)}>
+            {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          </Button>
+        </div>
       </div>
 
       {mobileOpen && (

@@ -30,6 +30,33 @@
     --chart-4: 56 100% 50%;
     --chart-5: 210 100% 56%;
   }
+
+  html.light {
+    --background: 0 0% 96%;
+    --foreground: 222 24% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 24% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 24% 10%;
+    --primary: 148 84% 39%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 220 18% 91%;
+    --secondary-foreground: 222 24% 12%;
+    --muted: 220 16% 91%;
+    --muted-foreground: 220 10% 39%;
+    --accent: 148 26% 90%;
+    --accent-foreground: 148 48% 18%;
+    --destructive: 0 74% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 220 15% 82%;
+    --input: 220 15% 86%;
+    --ring: 148 84% 39%;
+    --chart-1: 148 84% 39%;
+    --chart-2: 188 70% 38%;
+    --chart-3: 0 74% 50%;
+    --chart-4: 45 94% 47%;
+    --chart-5: 214 80% 48%;
+  }
 }
 
 @layer base {
@@ -63,6 +90,118 @@
 
   ::-webkit-scrollbar-thumb:hover {
     background: hsl(0 0% 22%);
+  }
+
+  html.light ::-webkit-scrollbar-thumb {
+    background: hsl(220 12% 75%);
+  }
+
+  html.light ::-webkit-scrollbar-thumb:hover {
+    background: hsl(220 12% 62%);
+  }
+}
+
+@layer components {
+  html.light .surface {
+    background: hsl(var(--card));
+    border-color: hsl(var(--border));
+  }
+
+  html.light .glass {
+    background: hsl(var(--card) / 0.82);
+    border-color: hsl(var(--border) / 0.9);
+  }
+
+  html.light .label-caps {
+    color: hsl(var(--muted-foreground));
+  }
+}
+
+@layer utilities {
+  html.light [class~="bg-black"],
+  html.light [class~="bg-neutral-950"] {
+    background-color: hsl(var(--background)) !important;
+  }
+
+  html.light [class~="bg-black/95"] {
+    background-color: hsl(var(--background) / 0.95) !important;
+  }
+
+  html.light [class~="bg-black/80"] {
+    background-color: hsl(var(--foreground) / 0.16) !important;
+  }
+
+  html.light [class~="bg-black/70"],
+  html.light [class~="bg-black/60"],
+  html.light [class~="bg-black/50"],
+  html.light [class~="bg-black/40"],
+  html.light [class~="bg-black/30"] {
+    background-color: hsl(var(--card)) !important;
+  }
+
+  html.light [class~="bg-white/[0.02]"],
+  html.light [class~="bg-white/[0.025]"],
+  html.light [class~="bg-white/[0.035]"],
+  html.light [class~="bg-white/[0.04]"],
+  html.light [class~="bg-white/[0.055]"],
+  html.light [class~="bg-white/5"],
+  html.light [class~="hover:bg-white/[0.035]"]:hover,
+  html.light [class~="hover:bg-white/[0.05]"]:hover,
+  html.light [class~="hover:bg-white/10"]:hover {
+    background-color: hsl(var(--secondary)) !important;
+  }
+
+  html.light [class~="bg-primary/[0.12]"],
+  html.light [class~="bg-primary/10"],
+  html.light [class~="bg-primary/15"],
+  html.light [class~="bg-primary/5"] {
+    background-color: hsl(var(--primary) / 0.12) !important;
+  }
+
+  html.light [class~="text-white"],
+  html.light [class~="text-white/90"],
+  html.light [class~="text-white/85"],
+  html.light [class~="text-white/80"],
+  html.light [class~="text-white/75"],
+  html.light [class~="text-white/70"],
+  html.light [class~="hover:text-white"]:hover,
+  html.light [class~="hover:text-white/85"]:hover,
+  html.light [class~="hover:text-white/75"]:hover,
+  html.light [class~="hover:text-white/70"]:hover {
+    color: hsl(var(--foreground)) !important;
+  }
+
+  html.light [class~="text-white/65"],
+  html.light [class~="text-white/60"],
+  html.light [class~="text-white/55"],
+  html.light [class~="text-white/50"],
+  html.light [class~="text-white/45"],
+  html.light [class~="text-white/42"],
+  html.light [class~="text-white/40"],
+  html.light [class~="text-white/38"],
+  html.light [class~="text-white/35"],
+  html.light [class~="text-white/30"],
+  html.light [class~="text-white/28"],
+  html.light [class~="text-white/20"],
+  html.light [class~="hover:text-white/55"]:hover {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+
+  html.light [class~="border-white/[0.06]"],
+  html.light [class~="border-white/[0.07]"],
+  html.light [class~="border-white/[0.08]"],
+  html.light [class~="border-white/[0.10]"],
+  html.light [class~="border-white/[0.14]"],
+  html.light [class~="border-white/10"],
+  html.light [class~="border-white/15"],
+  html.light [class~="border-white/20"] {
+    border-color: hsl(var(--border)) !important;
+  }
+
+  html.light [class~="placeholder:text-white/25"]::placeholder,
+  html.light input::placeholder,
+  html.light textarea::placeholder {
+    color: hsl(var(--muted-foreground) / 0.68) !important;
   }
 }
 
