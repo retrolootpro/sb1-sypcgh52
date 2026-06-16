@@ -32,24 +32,24 @@
   }
 
   html.light {
-    --background: 0 0% 96%;
-    --foreground: 222 24% 10%;
+    --background: 220 24% 97%;
+    --foreground: 222 28% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222 24% 10%;
+    --card-foreground: 222 28% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 24% 10%;
+    --popover-foreground: 222 28% 11%;
     --primary: 148 100% 50%;
     --primary-foreground: 0 0% 0%;
-    --secondary: 220 18% 91%;
-    --secondary-foreground: 222 24% 12%;
-    --muted: 220 16% 91%;
-    --muted-foreground: 220 10% 39%;
-    --accent: 148 26% 90%;
+    --secondary: 220 22% 94%;
+    --secondary-foreground: 222 28% 12%;
+    --muted: 220 20% 94%;
+    --muted-foreground: 220 12% 34%;
+    --accent: 148 34% 91%;
     --accent-foreground: 148 48% 18%;
     --destructive: 0 74% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 15% 82%;
-    --input: 220 15% 86%;
+    --border: 220 18% 84%;
+    --input: 220 20% 89%;
     --ring: 148 100% 50%;
     --chart-1: 148 100% 50%;
     --chart-2: 188 70% 38%;
@@ -72,6 +72,13 @@
   body {
     @apply bg-background text-foreground;
     font-feature-settings: 'ss01' 1, 'cv01' 1;
+  }
+
+  html.light body {
+    background:
+      radial-gradient(circle at 12% -10%, hsl(var(--primary) / 0.09), transparent 30rem),
+      linear-gradient(180deg, hsl(220 28% 98%), hsl(var(--background)));
+    color: hsl(var(--foreground));
   }
 
   ::-webkit-scrollbar {
@@ -115,6 +122,16 @@
   html.light .label-caps {
     color: hsl(var(--muted-foreground));
   }
+
+  html.light .neon-glow,
+  html.light .gold-glow {
+    box-shadow: 0 18px 42px -32px hsl(var(--primary) / 0.48);
+  }
+
+  html.light .neon-glow-sm,
+  html.light .gold-glow-sm {
+    box-shadow: 0 12px 28px -24px hsl(var(--primary) / 0.5);
+  }
 }
 
 @layer utilities {
@@ -124,11 +141,11 @@
   }
 
   html.light [class~="bg-black/95"] {
-    background-color: hsl(var(--background) / 0.95) !important;
+    background-color: hsl(0 0% 100% / 0.95) !important;
   }
 
   html.light [class~="bg-black/80"] {
-    background-color: hsl(var(--foreground) / 0.16) !important;
+    background-color: hsl(220 20% 92%) !important;
   }
 
   html.light [class~="bg-black/70"],
@@ -136,7 +153,7 @@
   html.light [class~="bg-black/50"],
   html.light [class~="bg-black/40"],
   html.light [class~="bg-black/30"] {
-    background-color: hsl(var(--card)) !important;
+    background-color: hsl(0 0% 100%) !important;
   }
 
   html.light [class~="bg-white/[0.02]"],
@@ -148,7 +165,7 @@
   html.light [class~="hover:bg-white/[0.035]"]:hover,
   html.light [class~="hover:bg-white/[0.05]"]:hover,
   html.light [class~="hover:bg-white/10"]:hover {
-    background-color: hsl(var(--secondary)) !important;
+    background-color: hsl(220 22% 95%) !important;
   }
 
   html.light [class~="bg-primary/[0.12]"],
@@ -187,6 +204,16 @@
     color: hsl(var(--muted-foreground)) !important;
   }
 
+  html.light [class~="text-amber-200"],
+  html.light [class~="text-amber-300"] {
+    color: hsl(36 92% 34%) !important;
+  }
+
+  html.light [class~="text-red-300"],
+  html.light [class~="text-red-400"] {
+    color: hsl(0 74% 43%) !important;
+  }
+
   html.light [class~="border-white/[0.06]"],
   html.light [class~="border-white/[0.07]"],
   html.light [class~="border-white/[0.08]"],
@@ -202,6 +229,25 @@
   html.light input::placeholder,
   html.light textarea::placeholder {
     color: hsl(var(--muted-foreground) / 0.68) !important;
+  }
+
+  html.light input,
+  html.light textarea,
+  html.light button[role="combobox"] {
+    color: hsl(var(--foreground));
+    background-color: hsl(220 24% 98%) !important;
+    border-color: hsl(var(--input)) !important;
+  }
+
+  html.light input:focus,
+  html.light textarea:focus,
+  html.light button[role="combobox"]:focus {
+    border-color: hsl(var(--primary) / 0.7) !important;
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.16);
+  }
+
+  html.light [class~="shadow-sm"] {
+    box-shadow: 0 12px 34px -30px hsl(222 26% 24% / 0.55), 0 1px 0 hsl(0 0% 100% / 0.8) inset !important;
   }
 }
 

@@ -204,6 +204,7 @@ export default function PosPage() {
   };
 
   const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.quantity * line.unit_price, 0), [cart]);
+  const cartItemCount = useMemo(() => cart.reduce((sum, line) => sum + Number(line.quantity || 0), 0), [cart]);
   const discountRaw = Math.max(0, Number(discount || 0));
   const discountAmount = Math.min(discountType === 'percent' ? subtotal * Math.min(discountRaw, 100) / 100 : discountRaw, subtotal);
   const taxable = Math.max(0, subtotal - discountAmount);
@@ -238,6 +239,16 @@ export default function PosPage() {
   );
   const suggestedCashPercent = offerPercent(tradeCashOfferTotal, tradeMarketTotal);
   const suggestedTradePercent = offerPercent(tradeCreditOfferTotal, tradeMarketTotal);
+  const registerStatus = mode === 'sale'
+    ? cart.length > 0 ? 'Ready for checkout' : 'Scan or search items'
+    : mode === 'buy'
+      ? tradeItems.length > 0 ? 'Review trade offer' : 'Add trade items'
+      : selectedCustomer ? 'Customer selected' : 'Find or create customer';
+
+  const focusScanner = () => {
+    setMode('sale');
+    window.setTimeout(() => scanInputRef.current?.focus(), 50);
+  };
 
   useEffect(() => {
     if (!selectedCustomer) {
@@ -664,6 +675,20 @@ export default function PosPage() {
 
       <main className="grid min-h-0 gap-4 overflow-visible p-3 sm:p-4 xl:h-[calc(100vh-72px)] xl:grid-cols-[minmax(0,1fr)_420px] xl:overflow-hidden">
         <section className="min-w-0 space-y-4 xl:overflow-auto xl:pr-1">
+          <RegisterStatusStrip
+            mode={mode}
+            status={registerStatus}
+            customerLabel={selectedCustomer?.name || 'Walk-in customer'}
+            customerCredit={selectedCustomer?.credit_balance || 0}
+            itemCount={mode === 'buy' ? tradeItems.length : cartItemCount}
+            due={mode === 'buy' ? recommendedOfferTotal : dueAfterCredit}
+            onScan={focusScanner}
+            onCustomer={() => setMode('customers')}
+            onTrade={() => setMode('buy')}
+            onCheckout={() => setPaymentOpen(true)}
+            checkoutDisabled={cart.length === 0}
+          />
+
           <CustomerPanel
             customers={customers}
             selectedCustomer={selectedCustomer}
@@ -1179,6 +1204,59 @@ export default function PosPage() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function RegisterStatusStrip(props: {
+  mode: 'sale' | 'buy' | 'customers';
+  status: string;
+  customerLabel: string;
+  customerCredit: number;
+  itemCount: number;
+  due: number;
+  onScan: () => void;
+  onCustomer: () => void;
+  onTrade: () => void;
+  onCheckout: () => void;
+  checkoutDisabled: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3 shadow-sm">
+      <div className="grid gap-2 md:grid-cols-4">
+        <RegisterMetric label="Register" value={props.status} detail={props.mode === 'sale' ? 'Sell mode' : props.mode === 'buy' ? 'Buy / trade' : 'Rewards'} />
+        <RegisterMetric label="Customer" value={props.customerLabel} detail={`Credit ${money(props.customerCredit)}`} />
+        <RegisterMetric label={props.mode === 'buy' ? 'Trade lines' : 'Cart items'} value={String(props.itemCount)} detail={props.itemCount === 1 ? '1 item active' : `${props.itemCount} items active`} />
+        <RegisterMetric label={props.mode === 'buy' ? 'Offer' : 'Due'} value={money(props.due)} detail={props.mode === 'buy' ? 'Recommended offer' : 'After tax / credit'} strong />
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <Button className="h-12 text-base" variant={props.mode === 'sale' ? 'default' : 'outline'} onClick={props.onScan}>
+          <Package className="mr-2 h-4 w-4" />
+          Scan Items
+        </Button>
+        <Button className="h-12 text-base" variant={props.mode === 'customers' ? 'default' : 'outline'} onClick={props.onCustomer}>
+          <Users className="mr-2 h-4 w-4" />
+          Customer
+        </Button>
+        <Button className="h-12 text-base" variant={props.mode === 'buy' ? 'default' : 'outline'} onClick={props.onTrade}>
+          <HandCoins className="mr-2 h-4 w-4" />
+          Trade
+        </Button>
+        <Button className="h-12 text-base" onClick={props.onCheckout} disabled={props.checkoutDisabled}>
+          <CreditCard className="mr-2 h-4 w-4" />
+          Checkout
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function RegisterMetric({ label, value, detail, strong = false }: { label: string; value: string; detail: string; strong?: boolean }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-white/10 bg-black/30 p-3">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/45">{label}</div>
+      <div className={`mt-1 truncate ${strong ? 'text-xl font-bold text-primary' : 'text-base font-bold text-white'}`}>{value}</div>
+      <div className="mt-1 truncate text-xs text-white/45">{detail}</div>
     </div>
   );
 }
