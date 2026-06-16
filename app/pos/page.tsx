@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, CreditCard, HandCoins, Package, Plus, Search, ShoppingCart, Trash2, UserPlus, Users } from 'lucide-react';
+import { ArrowLeft, Camera, CreditCard, HandCoins, Package, Plus, Search, ShoppingCart, Trash2, UserPlus, Users } from 'lucide-react';
 import { toast } from 'sonner';
+import { BarcodeScannerView } from '@/components/barcode-scanner-view';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useAuth } from '@/lib/auth-context';
+import type { ScanResult } from '@/lib/barcode-scanner';
 import {
   completeCustomerBuy,
   completePosSale,
@@ -78,6 +80,8 @@ type LocalUpcLookupResult = {
   platform: string;
   pcProductId?: string;
 };
+
+type ScannerPurpose = 'sale' | 'trade';
 
 function bestMarketValue(pricecharting: number, gamestop: number) {
   return Math.max(Number(pricecharting || 0), Number(gamestop || 0));
@@ -150,6 +154,8 @@ export default function PosPage() {
   const [creditManualOverride, setCreditManualOverride] = useState(false);
   const [processorReference, setProcessorReference] = useState('');
   const [paymentOpen, setPaymentOpen] = useState(false);
+  const [scannerActive, setScannerActive] = useState(false);
+  const [scannerPurpose, setScannerPurpose] = useState<ScannerPurpose>('sale');
   const [scanBuffer, setScanBuffer] = useState('');
   const scanInputRef = useRef<HTMLInputElement | null>(null);
   const [manualName, setManualName] = useState('');
@@ -245,6 +251,11 @@ export default function PosPage() {
       ? tradeItems.length > 0 ? 'Review trade offer' : 'Add trade items'
       : selectedCustomer ? 'Customer selected' : 'Find or create customer';
 
+  const openCameraScanner = (purpose: ScannerPurpose) => {
+    setScannerPurpose(purpose);
+    setScannerActive(true);
+  };
+
   const focusScanner = () => {
     setMode('sale');
     window.setTimeout(() => scanInputRef.current?.focus(), 50);
@@ -296,6 +307,41 @@ export default function PosPage() {
     addInventoryItem(matches[0]);
     setScanBuffer('');
     window.setTimeout(() => scanInputRef.current?.focus(), 0);
+  };
+
+  const handleCameraScan = (result: ScanResult) => {
+    const code = result.barcode.trim();
+    if (!code) return;
+
+    if (scannerPurpose === 'trade') {
+      setScannerActive(false);
+      const quantity = Math.max(1, Number(tradeItemForm.quantity || 1));
+      const newItem: TradeItem = {
+        id: uid(),
+        barcode: code,
+        title: tradeItemForm.title.trim() || code,
+        platform: tradeItemForm.platform.trim(),
+        condition: tradeItemForm.condition,
+        condition_rating: Number(tradeItemForm.conditionRating || 5),
+        quantity,
+        pricecharting_value: 0,
+        gamestop_value: 0,
+        market_value: 0,
+        recommended_cash_offer: 0,
+        recommended_trade_offer: 0,
+        accepted_offer: 0,
+        pricing_source: '',
+        pricing_notes: '',
+        lookup_status: 'idle',
+      };
+      setTradeItems((current) => [...current, newItem]);
+      setTradeItemForm({ barcode: '', title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
+      window.setTimeout(() => lookupTradeItemByUpc(newItem), 0);
+      return;
+    }
+
+    setScanBuffer(code);
+    void scanUpcIntoCart(code);
   };
 
   const addManualItem = () => {
@@ -685,6 +731,7 @@ export default function PosPage() {
             onScan={focusScanner}
             onCustomer={() => setMode('customers')}
             onTrade={() => setMode('buy')}
+            onCameraScan={() => openCameraScanner(mode === 'buy' ? 'trade' : 'sale')}
             onCheckout={() => setPaymentOpen(true)}
             checkoutDisabled={cart.length === 0}
           />
@@ -709,7 +756,7 @@ export default function PosPage() {
                   <Package className="h-5 w-5 text-primary" />
                   Scan / Inventory
                 </div>
-                <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
+                <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto_auto]">
                   <Input
                     ref={scanInputRef}
                     className="h-14 border-primary/30 bg-black/40 text-lg"
@@ -720,6 +767,10 @@ export default function PosPage() {
                     }}
                     placeholder="Continuous UPC scan..."
                   />
+                  <Button className="h-14 px-6 text-lg" variant="outline" onClick={() => openCameraScanner('sale')}>
+                    <Camera className="mr-2 h-5 w-5" />
+                    Camera
+                  </Button>
                   <Button className="h-14 px-6 text-lg" onClick={() => scanUpcIntoCart(scanBuffer)}>Add UPC</Button>
                 </div>
                 <div className="mb-3 grid gap-2 sm:grid-cols-[1fr_auto]">
@@ -769,7 +820,7 @@ export default function PosPage() {
                 Buy From Customer / Trade Credit
               </div>
               <div className="grid gap-4">
-                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 2xl:grid-cols-[.85fr_1.2fr_.7fr_.6fr_.75fr_.35fr_auto]">
+                <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 2xl:grid-cols-[.85fr_1.2fr_.7fr_.6fr_.75fr_.35fr_auto_auto]">
                   <div>
                     <Label>UPC</Label>
                     <Input
@@ -817,6 +868,12 @@ export default function PosPage() {
                   <div>
                     <Label>Qty</Label>
                     <Input className="mt-2 h-14 border-white/10 bg-black/40 text-lg" type="number" min="1" step="1" value={tradeItemForm.quantity} onChange={(event) => setTradeItemForm({ ...tradeItemForm, quantity: event.target.value })} />
+                  </div>
+                  <div className="flex items-end">
+                    <Button className="h-14 w-full px-5 text-lg" variant="outline" onClick={() => openCameraScanner('trade')}>
+                      <Camera className="mr-2 h-5 w-5" />
+                      Scan
+                    </Button>
                   </div>
                   <div className="flex items-end">
                     <Button className="h-14 w-full px-6 text-lg" onClick={addTradeItem}>Add</Button>
@@ -1204,6 +1261,12 @@ export default function PosPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <BarcodeScannerView
+        isActive={scannerActive}
+        onScan={handleCameraScan}
+        onStop={() => setScannerActive(false)}
+      />
     </div>
   );
 }
@@ -1218,6 +1281,7 @@ function RegisterStatusStrip(props: {
   onScan: () => void;
   onCustomer: () => void;
   onTrade: () => void;
+  onCameraScan: () => void;
   onCheckout: () => void;
   checkoutDisabled: boolean;
 }) {
@@ -1229,10 +1293,14 @@ function RegisterStatusStrip(props: {
         <RegisterMetric label={props.mode === 'buy' ? 'Trade lines' : 'Cart items'} value={String(props.itemCount)} detail={props.itemCount === 1 ? '1 item active' : `${props.itemCount} items active`} />
         <RegisterMetric label={props.mode === 'buy' ? 'Offer' : 'Due'} value={money(props.due)} detail={props.mode === 'buy' ? 'Recommended offer' : 'After tax / credit'} strong />
       </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
+      <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-5">
         <Button className="h-12 text-base" variant={props.mode === 'sale' ? 'default' : 'outline'} onClick={props.onScan}>
           <Package className="mr-2 h-4 w-4" />
-          Scan Items
+          UPC Input
+        </Button>
+        <Button className="h-12 text-base" variant="outline" onClick={props.onCameraScan}>
+          <Camera className="mr-2 h-4 w-4" />
+          Camera
         </Button>
         <Button className="h-12 text-base" variant={props.mode === 'customers' ? 'default' : 'outline'} onClick={props.onCustomer}>
           <Users className="mr-2 h-4 w-4" />
