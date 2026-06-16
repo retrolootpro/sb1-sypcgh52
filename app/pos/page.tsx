@@ -719,7 +719,7 @@ export default function PosPage() {
         </div>
       </header>
 
-      <main className="grid min-h-0 gap-4 overflow-visible p-3 sm:p-4 xl:h-[calc(100vh-72px)] xl:grid-cols-[minmax(0,1fr)_420px] xl:overflow-hidden">
+      <main className="grid min-h-0 gap-4 overflow-visible p-3 sm:p-4 xl:h-[calc(100vh-72px)] xl:grid-cols-[minmax(0,1fr)_minmax(380px,420px)] xl:overflow-hidden">
         <section className="min-w-0 space-y-4 xl:overflow-auto xl:pr-1">
           <RegisterStatusStrip
             mode={mode}
@@ -750,8 +750,8 @@ export default function PosPage() {
           />
 
           {mode === 'sale' && (
-            <div className="grid gap-4 xl:h-[calc(100vh-176px)] xl:overflow-hidden 2xl:grid-cols-[1.15fr_.85fr]">
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4 xl:overflow-hidden">
+            <div className="grid items-start gap-4 2xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,.9fr)]">
+              <div className="flex min-h-[420px] flex-col rounded-xl border border-white/10 bg-white/[0.04] p-4 shadow-sm">
                 <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
                   <Package className="h-5 w-5 text-primary" />
                   Scan / Inventory
@@ -780,7 +780,7 @@ export default function PosPage() {
                   </div>
                   <Button className="h-14 px-6 text-lg" variant="outline" onClick={() => loadInventory()}>Search</Button>
                 </div>
-                <div className="grid gap-2 overflow-visible pr-1 xl:max-h-[calc(100vh-304px)] xl:overflow-auto">
+                <div className="grid min-h-0 flex-1 gap-2 overflow-visible pr-1 xl:max-h-[calc(100vh-420px)] xl:overflow-auto">
                   {inventory.map((item) => (
                     <button key={item.id} onClick={() => addInventoryItem(item)} className="flex min-h-16 items-center gap-3 rounded-lg border border-white/10 bg-black/30 p-3 text-left transition hover:border-primary/35 hover:bg-primary/10">
                       <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-white/5">
@@ -799,7 +799,7 @@ export default function PosPage() {
                 </div>
               </div>
 
-              <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+              <div className="flex min-h-[420px] flex-col rounded-xl border border-white/10 bg-white/[0.04] p-4 shadow-sm">
                 <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
                   <Plus className="h-5 w-5 text-primary" />
                   Manual Item
@@ -808,6 +808,22 @@ export default function PosPage() {
                   <Input className="h-14 border-white/10 bg-black/40 text-lg" value={manualName} onChange={(event) => setManualName(event.target.value)} placeholder="Manual item, service, or misc sale" />
                   <Input className="h-14 border-white/10 bg-black/40 text-lg" type="number" min="0" step="0.01" value={manualPrice} onChange={(event) => setManualPrice(event.target.value)} placeholder="Price" />
                   <Button className="h-14 text-lg" onClick={addManualItem}>Add Manual Item</Button>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 2xl:grid-cols-1">
+                  <button type="button" onClick={() => openCameraScanner('sale')} className="rounded-lg border border-white/10 bg-black/30 p-4 text-left transition hover:border-primary/35 hover:bg-primary/10">
+                    <div className="flex items-center gap-2 text-base font-semibold">
+                      <Camera className="h-5 w-5 text-primary" />
+                      Camera UPC
+                    </div>
+                    <div className="mt-2 text-2xl font-bold text-primary">Scan</div>
+                  </button>
+                  <button type="button" onClick={() => setMode('customers')} className="rounded-lg border border-white/10 bg-black/30 p-4 text-left transition hover:border-primary/35 hover:bg-primary/10">
+                    <div className="flex items-center gap-2 text-base font-semibold">
+                      <Users className="h-5 w-5 text-primary" />
+                      Rewards
+                    </div>
+                    <div className="mt-2 text-2xl font-bold text-primary">{selectedCustomer ? 'Active' : 'Select'}</div>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1069,7 +1085,7 @@ export default function PosPage() {
           )}
         </section>
 
-        <aside className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-black/70 p-4">
+        <aside className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-black/70 p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-lg font-bold">Receipt Cart</div>
             <Button className="h-10 px-4 text-base" variant="outline" size="sm" onClick={() => setCart([])}>Clear</Button>
@@ -1266,6 +1282,8 @@ export default function PosPage() {
         isActive={scannerActive}
         onScan={handleCameraScan}
         onStop={() => setScannerActive(false)}
+        variant="compact"
+        title={scannerPurpose === 'trade' ? 'Scan trade UPC' : 'Scan sale UPC'}
       />
     </div>
   );
