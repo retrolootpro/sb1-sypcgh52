@@ -694,8 +694,8 @@ export default function PosPage() {
   }
 
   return (
-    <div className="min-h-screen overflow-x-hidden overflow-y-auto bg-neutral-950 text-[17px] text-white xl:h-screen xl:overflow-hidden">
-      <header className="min-h-[72px] border-b border-white/10 bg-black/95 px-4 py-3 backdrop-blur xl:h-[72px]">
+    <div className="h-[100dvh] overflow-hidden bg-neutral-950 text-[17px] text-white">
+      <header className="h-[72px] border-b border-white/10 bg-black/95 px-4 py-3 backdrop-blur">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <Link href="/dashboard">
@@ -719,8 +719,8 @@ export default function PosPage() {
         </div>
       </header>
 
-      <main className="grid min-h-0 gap-4 overflow-visible p-3 sm:p-4 xl:h-[calc(100vh-72px)] xl:grid-cols-[minmax(0,1fr)_minmax(380px,420px)] xl:overflow-hidden">
-        <section className="min-w-0 space-y-4 xl:overflow-auto xl:pr-1">
+      <main className="grid h-[calc(100dvh-72px)] min-h-0 gap-4 overflow-hidden p-3 sm:p-4 xl:grid-cols-[minmax(0,1fr)_minmax(380px,420px)]">
+        <section className="flex min-h-0 min-w-0 flex-col gap-3 overflow-auto pr-1 xl:overflow-hidden">
           <RegisterStatusStrip
             mode={mode}
             status={registerStatus}
@@ -736,22 +736,9 @@ export default function PosPage() {
             checkoutDisabled={cart.length === 0}
           />
 
-          <CustomerPanel
-            customers={customers}
-            selectedCustomer={selectedCustomer}
-            customerSearch={customerSearch}
-            setCustomerSearch={setCustomerSearch}
-            setSelectedCustomer={setSelectedCustomer}
-            loadCustomers={loadCustomers}
-            customerForm={customerForm}
-            setCustomerForm={setCustomerForm}
-            handleCreateCustomer={handleCreateCustomer}
-            saving={saving}
-          />
-
           {mode === 'sale' && (
-            <div className="grid items-start gap-4 2xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,.9fr)]">
-              <div className="flex min-h-[420px] flex-col rounded-xl border border-white/10 bg-white/[0.04] p-4 shadow-sm">
+            <div className="grid min-h-0 flex-1 gap-3 2xl:grid-cols-[minmax(0,1.12fr)_minmax(320px,.88fr)]">
+              <div className="flex min-h-0 flex-col rounded-xl border border-white/10 bg-white/[0.04] p-4 shadow-sm">
                 <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
                   <Package className="h-5 w-5 text-primary" />
                   Scan / Inventory
@@ -780,7 +767,7 @@ export default function PosPage() {
                   </div>
                   <Button className="h-14 px-6 text-lg" variant="outline" onClick={() => loadInventory()}>Search</Button>
                 </div>
-                <div className="grid min-h-0 flex-1 gap-2 overflow-visible pr-1 xl:max-h-[calc(100vh-420px)] xl:overflow-auto">
+                <div className="grid min-h-0 flex-1 gap-2 overflow-auto pr-1">
                   {inventory.map((item) => (
                     <button key={item.id} onClick={() => addInventoryItem(item)} className="flex min-h-16 items-center gap-3 rounded-lg border border-white/10 bg-black/30 p-3 text-left transition hover:border-primary/35 hover:bg-primary/10">
                       <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-white/10 bg-white/5">
@@ -799,7 +786,7 @@ export default function PosPage() {
                 </div>
               </div>
 
-              <div className="flex min-h-[420px] flex-col rounded-xl border border-white/10 bg-white/[0.04] p-4 shadow-sm">
+              <div className="flex min-h-0 flex-col rounded-xl border border-white/10 bg-white/[0.04] p-4 shadow-sm">
                 <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
                   <Plus className="h-5 w-5 text-primary" />
                   Manual Item
@@ -830,7 +817,7 @@ export default function PosPage() {
           )}
 
           {mode === 'buy' && (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10 bg-white/[0.04] p-5">
               <div className="mb-4 flex items-center gap-2 text-lg font-semibold">
                 <HandCoins className="h-5 w-5 text-primary" />
                 Buy From Customer / Trade Credit
@@ -1069,8 +1056,20 @@ export default function PosPage() {
           )}
 
           {mode === 'customers' && (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
-              <div className="mb-4 text-lg font-semibold">Rewards Customers</div>
+            <div className="min-h-0 flex-1 space-y-4 overflow-auto rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+              <CustomerPanel
+                customers={customers}
+                selectedCustomer={selectedCustomer}
+                customerSearch={customerSearch}
+                setCustomerSearch={setCustomerSearch}
+                setSelectedCustomer={setSelectedCustomer}
+                loadCustomers={loadCustomers}
+                customerForm={customerForm}
+                setCustomerForm={setCustomerForm}
+                handleCreateCustomer={handleCreateCustomer}
+                saving={saving}
+              />
+              <div className="text-lg font-semibold">Rewards Customers</div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {customers.map((customer) => (
                   <button key={customer.id} onClick={() => setSelectedCustomer(customer)} className="rounded-xl border border-white/10 bg-black/30 p-4 text-left transition hover:border-primary/35 hover:bg-primary/10">

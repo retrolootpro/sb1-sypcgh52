@@ -14,7 +14,7 @@ import { ScanResult } from '@/lib/barcode-scanner';
 import {
   Camera, Keyboard, History, CircleCheck as CheckCircle2,
   CircleAlert as AlertCircle, Loader as Loader2, Undo2, Trash2,
-  User, TrendingUp, Layers, Play, ScanBarcode, PackageCheck, Calculator,
+  User, TrendingUp, Layers, Play, ScanBarcode, PackageCheck, Calculator, Search,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -27,16 +27,21 @@ import { calculateSimpleDealScore, getMarketValueByCondition, shouldSkipReview }
 
 type ScanMode = 'single' | 'continuous';
 
+const INTAKE_SESSION_KEY = 'retroloot-intake-session';
+
 type QueueItem = {
   id: string;
   barcode: string;
   status: 'scanning' | 'looking_up' | 'pricing' | 'awaiting_price' | 'calculating' | 'added' | 'needs_review' | 'failed';
   scannedAt: number;
+  scanCount?: number;
+  duplicateSessionScan?: boolean;
   productName?: string;
   result?: any;
   error?: string;
   purchasePrice?: number;
   selectedConsole?: string;
+  inventoryItemId?: string;
   dealScore?: any;
   duplicateMatches?: Array<{
     id: string;
@@ -50,6 +55,7 @@ type QueueItem = {
 type PendingBarcode = {
   barcode: string;
   scannedAt: number;
+  scanCount?: number;
 };
 
 export default function ScanPage() {
@@ -58,9 +64,13 @@ export default function ScanPage() {
   const [batchMode, setBatchMode] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
+  const [manualTitle, setManualTitle] = useState('');
+  const [manualPlatform, setManualPlatform] = useState('');
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [pendingBarcodes, setPendingBarcodes] = useState<PendingBarcode[]>([]);
   const [isProcessingBatch, setIsProcessingBatch] = useState(false);
+  const [intakeActive, setIntakeActive] = useState(false);
+  const [savedIntakeAvailable, setSavedIntakeAvailable] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [lots, setLots] = useState<LotCostSummary[]>([]);
@@ -75,9 +85,63 @@ export default function ScanPage() {
   useEffect(() => {
     getActiveEmployees().then(setEmployees).catch(() => {});
     getLotCostSummaries().then(setLots).catch(() => {});
+    try {
+      const saved = window.localStorage.getItem(INTAKE_SESSION_KEY);
+      if (saved) setSavedIntakeAvailable(true);
+    } catch {}
   }, []);
 
   const selectedLot = lots.find((lot) => lot.id === selectedLotId) || null;
+
+  const startIntake = useCallback(() => {
+    try {
+      const saved = window.localStorage.getItem(INTAKE_SESSION_KEY);
+      if (saved) {
+        const session = JSON.parse(saved);
+        if (session.selectedLotId) setSelectedLotId(session.selectedLotId);
+        if (session.scanMode) setScanMode(session.scanMode);
+        if (typeof session.batchMode === 'boolean') setBatchMode(session.batchMode);
+        if (Array.isArray(session.pendingBarcodes)) setPendingBarcodes(session.pendingBarcodes);
+        if (Array.isArray(session.queue)) setQueue(session.queue);
+        if (typeof session.manualBarcode === 'string') setManualBarcode(session.manualBarcode);
+        if (typeof session.manualTitle === 'string') setManualTitle(session.manualTitle);
+        if (typeof session.manualPlatform === 'string') setManualPlatform(session.manualPlatform);
+        recentScansRef.current = new Set([
+          ...(Array.isArray(session.pendingBarcodes) ? session.pendingBarcodes.map((item: PendingBarcode) => item.barcode).filter(Boolean) : []),
+          ...(Array.isArray(session.queue) ? session.queue.map((item: QueueItem) => item.barcode).filter(Boolean) : []),
+        ]);
+      } else {
+        setScanMode('continuous');
+        setBatchMode(true);
+      }
+    } catch {
+      setScanMode('continuous');
+      setBatchMode(true);
+    }
+    setIntakeActive(true);
+    setSavedIntakeAvailable(false);
+    toast.success('Intake started');
+  }, []);
+
+  const saveAndCloseIntake = useCallback(() => {
+    try {
+      window.localStorage.setItem(INTAKE_SESSION_KEY, JSON.stringify({
+        selectedLotId,
+        scanMode,
+        batchMode,
+        pendingBarcodes,
+        queue: queue.filter((item) => item.status !== 'scanning' && item.status !== 'looking_up' && item.status !== 'pricing' && item.status !== 'calculating'),
+        manualBarcode,
+        manualTitle,
+        manualPlatform,
+        savedAt: new Date().toISOString(),
+      }));
+    } catch {}
+    setScannerActive(false);
+    setIntakeActive(false);
+    setSavedIntakeAvailable(true);
+    toast.success('Intake saved');
+  }, [batchMode, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, queue, scanMode, selectedLotId]);
 
   const updateQueueItem = useCallback((id: string, updates: Partial<QueueItem>) => {
     setQueue((prev) =>
@@ -194,22 +258,23 @@ export default function ScanPage() {
   }, [user, accountId, updateQueueItem, findDuplicateInventoryItems]);
 
   const handleScan = useCallback((result: ScanResult) => {
-    const barcode = result.barcode;
+    const barcode = result.barcode.trim();
+    if (!barcode) return;
 
-    if (recentScansRef.current.has(barcode)) {
-      const addAgain = window.confirm('This barcode was already scanned in this session. Add another copy?');
-      if (!addAgain) {
-        toast.info('Duplicate scan skipped', { duration: 1500 });
-        return;
-      }
-    } else {
+    const duplicateSessionScan = recentScansRef.current.has(barcode);
+    if (!duplicateSessionScan) {
       recentScansRef.current.add(barcode);
+    } else {
+      toast.info('Another copy added to this intake queue', { description: barcode, duration: 1400 });
     }
 
     if (batchMode) {
       setPendingBarcodes((prev) => {
-        if (prev.some((p) => p.barcode === barcode)) return prev;
-        return [...prev, { barcode, scannedAt: result.timestamp }];
+        const existing = prev.find((p) => p.barcode === barcode);
+        if (existing) {
+          return prev.map((p) => p.barcode === barcode ? { ...p, scanCount: Number(p.scanCount || 1) + 1, scannedAt: result.timestamp } : p);
+        }
+        return [...prev, { barcode, scannedAt: result.timestamp, scanCount: 1 }];
       });
       if (scanMode === 'single') setScannerActive(false);
       return;
@@ -220,6 +285,8 @@ export default function ScanPage() {
       barcode,
       status: 'scanning',
       scannedAt: result.timestamp,
+      scanCount: 1,
+      duplicateSessionScan,
     };
 
     setQueue((prev) => [queueItem, ...prev]);
@@ -237,6 +304,7 @@ export default function ScanPage() {
         barcode: pending.barcode,
         status: 'scanning',
         scannedAt: pending.scannedAt,
+        scanCount: Math.max(1, Number(pending.scanCount || 1)),
       };
       setQueue((prev) => [queueItem, ...prev]);
 
@@ -318,8 +386,8 @@ export default function ScanPage() {
         condition,
         region: selectedRegion,
         purchase_price: Math.max(0, purchasePrice),
-        quantity: 1,
-        barcode: queueItem.barcode,
+        quantity: Math.max(1, Number(queueItem.scanCount || 1)),
+        barcode: queueItem.barcode || null,
         raw_scanned_title: lookupResult.title?.trim() || '',
         normalized_title: normalizedTitleStr,
         platform_raw: lookupResult.platform || '',
@@ -328,7 +396,7 @@ export default function ScanPage() {
         item_type: classification.itemType || 'unknown',
         brand: lookupResult.brand || null,
         confidence_score: confidence.overall || 0,
-        source_upc_provider: 'upcitemdb',
+        source_upc_provider: queueItem.barcode ? 'upcitemdb' : 'manual_title_search',
         source_metadata_provider: pricingResult?.status === 'success' ? 'pricecharting' : null,
         source_image_provider: lookupResult.imageUrl ? 'upcitemdb' : null,
         description: lookupResult.description || '',
@@ -507,33 +575,40 @@ export default function ScanPage() {
         pricingResult.data.newPrice,
         pricingResult.data.gradedPrice || 0
       );
-      dealScoreData = calculateSimpleDealScore(purchasePrice, marketValue, pricingResult.data.confidence);
-      updateQueueItem(queueItem.id, { dealScore: dealScoreData });
+      if (purchasePrice > 0) {
+        dealScoreData = calculateSimpleDealScore(purchasePrice, marketValue, pricingResult.data.confidence);
+        updateQueueItem(queueItem.id, { dealScore: dealScoreData });
+      }
     }
 
     const normalizedTitleStr = normalizeTitle(lookupResult.title || '');
-    const reviewCheck = shouldSkipReview(
-      queueItem.barcode,
-      normalizedTitleStr,
-      selectedConsole,
-      condition,
-      purchasePrice,
-      pricingResult ? toDatabaseStatus(pricingResult) : 'pending',
-      marketValue,
-      pricingResult?.data?.confidence || 0
-    );
+    const lotAllocationPending = selectedLotId !== 'none' && purchasePrice <= 0;
+    const reviewCheck = lotAllocationPending && marketValue > 0
+      ? { skip: true, reason: 'Lot COGS will be allocated after this lot is complete' }
+      : shouldSkipReview(
+        queueItem.barcode,
+        normalizedTitleStr,
+        selectedConsole,
+        condition,
+        purchasePrice,
+        pricingResult ? toDatabaseStatus(pricingResult) : 'pending',
+        marketValue,
+        pricingResult?.data?.confidence || 0
+      );
 
     try {
       if (reviewCheck.skip) {
-        await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, false);
-        updateQueueItem(queueItem.id, { status: 'added' });
+        const inventoryItem = await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, false);
+        updateQueueItem(queueItem.id, { status: 'added', inventoryItemId: inventoryItem.id });
         const pricingMsg = pricingResult?.status === 'success'
-          ? `$${purchasePrice} → ${dealScoreData?.emoji ?? ''} ${dealScoreData?.label ?? ''}`
+          ? purchasePrice > 0
+            ? `$${purchasePrice} → ${dealScoreData?.emoji ?? ''} ${dealScoreData?.label ?? ''}`
+            : 'Saved for lot COGS allocation'
           : getPricingStatusMessage(pricingResult!);
         toast.success(`Added: ${lookupResult.title}`, { description: pricingMsg, duration: 2500 });
       } else {
-        await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, true);
-        updateQueueItem(queueItem.id, { status: 'needs_review' });
+        const inventoryItem = await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, true);
+        updateQueueItem(queueItem.id, { status: 'needs_review', inventoryItemId: inventoryItem.id });
         toast.warning(`${lookupResult.title} — Needs Review`, { description: reviewCheck.reason, duration: 3000 });
       }
     } catch (err: any) {
@@ -542,7 +617,7 @@ export default function ScanPage() {
     }
 
     setCurrentQueueItemForDialog(null);
-  }, [currentQueueItemForDialog, user, queue, updateQueueItem, createInventoryItem]);
+  }, [currentQueueItemForDialog, user, queue, updateQueueItem, createInventoryItem, selectedLotId]);
 
   const handleItemSkip = useCallback(async () => {
     if (!currentQueueItemForDialog || !user) return;
@@ -556,8 +631,8 @@ export default function ScanPage() {
     const detectedConsole = lookupResult.platform || '';
 
     try {
-      await createInventoryItem(queueItem, lookupResult, lookupResult.classification, lookupResult.confidence, lookupResult.pricingResult, 0, detectedConsole, 'US', null, true);
-      updateQueueItem(queueItem.id, { status: 'needs_review' });
+      const inventoryItem = await createInventoryItem(queueItem, lookupResult, lookupResult.classification, lookupResult.confidence, lookupResult.pricingResult, 0, detectedConsole, 'US', null, true);
+      updateQueueItem(queueItem.id, { status: 'needs_review', inventoryItemId: inventoryItem.id });
       toast.warning(`${lookupResult.title} — Needs Review`, { description: 'Missing purchase price', duration: 3000 });
     } catch (err: any) {
       updateQueueItem(queueItem.id, { status: 'failed', error: err.message });
@@ -574,17 +649,76 @@ export default function ScanPage() {
     setManualBarcode('');
   };
 
+  const handleManualTitleSubmit = async () => {
+    if (!user) return;
+    const title = manualTitle.trim();
+    if (!title) return;
+
+    const platform = manualPlatform.trim() || extractPlatform(title) || '';
+    const classification = classifyItem(title, '', '');
+    const confidence = calculateConfidence({
+      barcodeMatch: false,
+      titleSimilarity: 85,
+      platformMatch: !!platform,
+      itemTypeConfidence: classification.confidence,
+      hasImage: false,
+      hasPricing: false,
+      editionMatch: false,
+    });
+
+    let pricingResult: PricingResult | null = null;
+    if (classification.itemType === 'game' || classification.itemType === 'console') {
+      try {
+        pricingResult = await getPricingData(title, platform || 'Unknown', accountId || user.id, true);
+      } catch (pricingError) {
+        pricingResult = {
+          status: 'api_error',
+          error: pricingError instanceof Error ? pricingError.message : 'Unknown exception',
+        };
+      }
+    }
+
+    const queueItem: QueueItem = {
+      id: `manual-${Date.now()}`,
+      barcode: '',
+      status: 'awaiting_price',
+      scannedAt: Date.now(),
+      scanCount: 1,
+      productName: title,
+      result: {
+        title,
+        platform,
+        category: 'Manual Entry',
+        classification,
+        confidence,
+        pricingResult,
+      },
+    };
+
+    setQueue((prev) => [queueItem, ...prev]);
+    setCurrentQueueItemForDialog(queueItem);
+    setShowItemDialog(true);
+    setManualTitle('');
+    setManualPlatform('');
+  };
+
   const handleUndo = async () => {
     if (queue.length === 0 || !user) return;
     const lastItem = queue[0];
     if (lastItem.status === 'added' || lastItem.status === 'needs_review') {
-      await supabase
+      const deleteQuery = supabase
         .from('inventory_items')
         .delete()
-        .eq('barcode', lastItem.barcode)
-        .eq('user_id', accountId || user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .eq('user_id', accountId || user.id);
+
+      if (lastItem.inventoryItemId) {
+        await deleteQuery.eq('id', lastItem.inventoryItemId);
+      } else if (lastItem.barcode) {
+        await deleteQuery
+          .eq('barcode', lastItem.barcode)
+          .order('created_at', { ascending: false })
+          .limit(1);
+      }
     }
     setQueue((prev) => prev.slice(1));
     recentScansRef.current.delete(lastItem.barcode);
@@ -595,6 +729,10 @@ export default function ScanPage() {
     setQueue([]);
     setPendingBarcodes([]);
     recentScansRef.current.clear();
+    try {
+      window.localStorage.removeItem(INTAKE_SESSION_KEY);
+      setSavedIntakeAvailable(false);
+    } catch {}
     toast.success('Queue cleared');
   };
 
@@ -643,6 +781,35 @@ export default function ScanPage() {
         <div>
           <div className="label-caps mb-1">Catalog</div>
           <h1 className="heading-lg text-[22px]">Scan Items</h1>
+        </div>
+
+        <div className="rounded-xl border border-primary/20 bg-primary/[0.04] p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-sm font-semibold">{intakeActive ? 'Lot Intake In Progress' : savedIntakeAvailable ? 'Saved Intake Available' : 'Start Intake'}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Select a lot, scan UPCs or enter them manually, save items without per-item cost, then finalize lot COGS when the lot is complete.
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" className="h-9 text-xs" onClick={startIntake}>
+                <Play className="mr-1.5 h-3.5 w-3.5" />
+                {savedIntakeAvailable ? 'Continue Intake' : intakeActive ? 'Restart Flow' : 'Start Intake'}
+              </Button>
+              {intakeActive && (
+                <Button size="sm" variant="outline" className="h-9 text-xs" onClick={saveAndCloseIntake}>
+                  Save & Close
+                </Button>
+              )}
+            </div>
+          </div>
+          <div className="mt-4 grid gap-2 text-xs sm:grid-cols-4">
+            {['1. Select lot', '2. Scan or enter', '3. Confirm item', '4. Finalize COGS'].map((step) => (
+              <div key={step} className="rounded-lg border border-white/10 bg-card/70 px-3 py-2 text-muted-foreground">
+                {step}
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -757,6 +924,35 @@ export default function ScanPage() {
                 Process Barcode
               </Button>
             </form>
+            <div className="border-t border-border/40 pt-4">
+              <div className="mb-3 flex items-center gap-2">
+                <Search className="w-4 h-4 text-primary" />
+                <span className="font-semibold text-[13px] tracking-tight">No UPC / Manual Title</span>
+              </div>
+              <div className="grid gap-3">
+                <Input
+                  value={manualTitle}
+                  onChange={(event) => setManualTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') handleManualTitleSubmit();
+                  }}
+                  placeholder="Game or item title..."
+                  className="bg-secondary/40 border-border/60 h-9 rounded-lg text-[13px]"
+                />
+                <Input
+                  value={manualPlatform}
+                  onChange={(event) => setManualPlatform(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') handleManualTitleSubmit();
+                  }}
+                  placeholder="Platform, category, or system..."
+                  className="bg-secondary/40 border-border/60 h-9 rounded-lg text-[13px]"
+                />
+                <Button type="button" variant="outline" className="w-full h-9 rounded-lg text-[13px]" disabled={!manualTitle.trim()} onClick={handleManualTitleSubmit}>
+                  Add Manual Search Item
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -792,7 +988,7 @@ export default function ScanPage() {
                 <Layers className="w-4 h-4 text-primary" />
                 <span className="font-semibold text-[14px]">Batch Queue</span>
                 <Badge variant="secondary" className="text-xs bg-primary/10 text-primary border-primary/20">
-                  {pendingBarcodes.length} barcodes
+                  {pendingBarcodes.reduce((sum, item) => sum + Number(item.scanCount || 1), 0)} item{pendingBarcodes.reduce((sum, item) => sum + Number(item.scanCount || 1), 0) === 1 ? '' : 's'}
                 </Badge>
               </div>
               <div className="flex gap-2">
@@ -826,6 +1022,9 @@ export default function ScanPage() {
                   <div key={p.barcode} className="flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-card border border-border/30 text-[12px]">
                     <ScanBarcode className="w-3 h-3 text-primary/50 flex-shrink-0" />
                     <span className="font-mono text-foreground/70 truncate">{p.barcode}</span>
+                    {Number(p.scanCount || 1) > 1 && (
+                      <Badge variant="outline" className="ml-auto border-primary/25 text-[10px] text-primary">Qty {p.scanCount}</Badge>
+                    )}
                   </div>
                 ))}
               </div>
@@ -839,7 +1038,7 @@ export default function ScanPage() {
               <div className="flex items-center gap-3">
                 <History className="w-4 h-4 text-muted-foreground" />
                 <span className="font-semibold text-[14px]">Processing Queue</span>
-                <Badge variant="secondary" className="text-xs">{queue.length}</Badge>
+                <Badge variant="secondary" className="text-xs">{queue.reduce((sum, item) => sum + Number(item.scanCount || 1), 0)}</Badge>
               </div>
               <div className="flex gap-2">
                 <Button variant="ghost" size="sm" onClick={handleUndo} disabled={queue.length === 0} className="h-7 text-[12px]">
@@ -876,9 +1075,32 @@ export default function ScanPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                      {item.status === 'awaiting_price' && item.result && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 px-2 text-[11px]"
+                          onClick={() => {
+                            setCurrentQueueItemForDialog(item);
+                            setShowItemDialog(true);
+                          }}
+                        >
+                          Confirm
+                        </Button>
+                      )}
                       {item.error && (
                         <Badge variant="destructive" className="text-[10px] max-w-[120px] truncate">
                           {item.error}
+                        </Badge>
+                      )}
+                      {Number(item.scanCount || 1) > 1 && (
+                        <Badge variant="outline" className="text-[11px] border-primary/30 text-primary">
+                          Qty {item.scanCount}
+                        </Badge>
+                      )}
+                      {item.duplicateSessionScan && (
+                        <Badge variant="outline" className="text-[10px] border-amber-500/30 text-amber-300">
+                          Duplicate scan
                         </Badge>
                       )}
                       {item.purchasePrice !== undefined && item.purchasePrice > 0 && (
