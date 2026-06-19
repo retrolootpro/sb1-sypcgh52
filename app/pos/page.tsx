@@ -709,7 +709,9 @@ export default function PosPage() {
             </div>
           </div>
           <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
-            <ThemeToggle compact />
+            <div className="[&_button]:h-12 [&_button]:w-12">
+              <ThemeToggle compact />
+            </div>
             <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-1 sm:w-auto sm:flex-none">
               <ModeButton active={mode === 'sale'} icon={ShoppingCart} label="Sell" onClick={() => setMode('sale')} />
               <ModeButton active={mode === 'buy'} icon={HandCoins} label="Buy / Trade" onClick={() => setMode('buy')} />
@@ -1056,7 +1058,7 @@ export default function PosPage() {
           )}
 
           {mode === 'customers' && (
-            <div className="min-h-0 flex-1 space-y-4 overflow-auto rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+            <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-5">
               <CustomerPanel
                 customers={customers}
                 selectedCustomer={selectedCustomer}
@@ -1069,17 +1071,6 @@ export default function PosPage() {
                 handleCreateCustomer={handleCreateCustomer}
                 saving={saving}
               />
-              <div className="text-lg font-semibold">Rewards Customers</div>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {customers.map((customer) => (
-                  <button key={customer.id} onClick={() => setSelectedCustomer(customer)} className="rounded-xl border border-white/10 bg-black/30 p-4 text-left transition hover:border-primary/35 hover:bg-primary/10">
-                    <div className="font-semibold">{customer.name}</div>
-                    <div className="mt-1 text-sm text-white/45">{customer.phone || customer.email || customer.rewards_number}</div>
-                    <div className="mt-3 text-lg font-bold text-primary">Credit {money(customer.credit_balance)}</div>
-                    <div className="text-sm text-white/45">Lifetime spend {money(customer.lifetime_spend)}</div>
-                  </button>
-                ))}
-              </div>
             </div>
           )}
         </section>
@@ -1087,7 +1078,7 @@ export default function PosPage() {
         <aside className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-black/70 p-4 shadow-sm">
           <div className="mb-2 flex items-center justify-between">
             <div className="text-lg font-bold">Receipt Cart</div>
-            <Button className="h-10 px-4 text-base" variant="outline" size="sm" onClick={() => setCart([])}>Clear</Button>
+            <Button className="px-4 text-base" style={{ minHeight: 44 }} variant="outline" size="sm" onClick={() => setCart([])}>Clear</Button>
           </div>
           <div className="min-h-0 flex-1 space-y-2 overflow-visible pr-1 font-mono xl:overflow-auto">
             {cart.length === 0 ? (
@@ -1348,7 +1339,11 @@ function RegisterMetric({ label, value, detail, strong = false }: { label: strin
 
 function ModeButton({ active, icon: Icon, label, onClick }: { active: boolean; icon: any; label: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`flex min-h-14 items-center justify-center gap-2 rounded-lg px-3 text-base font-semibold transition sm:px-5 ${active ? 'bg-primary text-black' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}>
+    <button
+      onClick={onClick}
+      style={{ minHeight: 52 }}
+      className={`flex items-center justify-center gap-2 rounded-lg px-3 text-base font-semibold transition sm:px-5 ${active ? 'bg-primary text-black' : 'text-white/60 hover:bg-white/10 hover:text-white'}`}
+    >
       <Icon className="h-5 w-5" />
       {label}
     </button>
@@ -1368,50 +1363,138 @@ function CustomerPanel(props: {
   saving: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
-      <div className="mb-3 flex items-center gap-2 text-lg font-semibold">
-        <Users className="h-5 w-5 text-primary" />
-        Customer / Rewards
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-xl font-bold">
+            <Users className="h-6 w-6 text-primary" />
+            Customers
+          </div>
+          <div className="mt-1 text-base text-white/55">Find a rewards customer or create one before checkout.</div>
+        </div>
+        {props.selectedCustomer && (
+          <Button className="h-12 px-5 text-base" variant="outline" onClick={() => props.setSelectedCustomer(null)}>
+            Change Customer
+          </Button>
+        )}
       </div>
+
       {props.selectedCustomer ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/25 bg-primary/10 p-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-primary/30 bg-primary/10 p-4">
           <div>
-            <div className="text-base font-bold">{props.selectedCustomer.name}</div>
-            <div className="text-sm text-white/55">{props.selectedCustomer.phone || props.selectedCustomer.email || props.selectedCustomer.rewards_number}</div>
+            <div className="text-sm font-semibold uppercase tracking-[0.12em] text-primary">Attached to sale</div>
+            <div className="mt-1 text-2xl font-bold">{props.selectedCustomer.name}</div>
+            <div className="mt-1 text-base text-white/60">{props.selectedCustomer.phone || props.selectedCustomer.email || props.selectedCustomer.rewards_number || 'No contact saved'}</div>
           </div>
           <div className="text-right">
-            <div className="text-sm text-white/50">Credit</div>
-            <div className="text-lg font-bold text-primary">{money(props.selectedCustomer.credit_balance)}</div>
-          </div>
-          <Button className="h-12 px-5 text-base" variant="outline" onClick={() => props.setSelectedCustomer(null)}>Remove</Button>
-        </div>
-      ) : (
-        <div className="grid gap-3 2xl:grid-cols-[1fr_1fr]">
-          <div>
-            <div className="flex gap-2">
-              <Input className="h-12 border-white/10 bg-black/40 text-base" value={props.customerSearch} onChange={(event) => props.setCustomerSearch(event.target.value)} placeholder="Search customer..." />
-              <Button className="h-12 px-5 text-base" variant="outline" onClick={() => props.loadCustomers(props.customerSearch)}>Search</Button>
-            </div>
-            <div className="mt-2 grid max-h-24 gap-1 overflow-auto">
-              {props.customers.map((customer) => (
-                <button key={customer.id} onClick={() => props.setSelectedCustomer(customer)} className="rounded-lg border border-white/10 bg-black/30 p-2 text-left hover:border-primary/35">
-                  <div className="text-base font-semibold">{customer.name}</div>
-                  <div className="text-sm text-white/50">Credit {money(customer.credit_balance)}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <div className="flex items-center gap-2 text-base font-semibold"><UserPlus className="h-4 w-4 text-primary" />New Rewards Customer</div>
-            <Input className="h-12 border-white/10 bg-black/40 text-base" value={props.customerForm.name} onChange={(event) => props.setCustomerForm({ ...props.customerForm, name: event.target.value })} placeholder="Name" />
-            <div className="grid grid-cols-2 gap-2">
-              <Input className="h-12 border-white/10 bg-black/40 text-base" value={props.customerForm.phone} onChange={(event) => props.setCustomerForm({ ...props.customerForm, phone: event.target.value })} placeholder="Phone" />
-              <Input className="h-12 border-white/10 bg-black/40 text-base" value={props.customerForm.email} onChange={(event) => props.setCustomerForm({ ...props.customerForm, email: event.target.value })} placeholder="Email" />
-            </div>
-            <Button className="h-12 text-base" onClick={props.handleCreateCustomer} disabled={props.saving}>Create Customer</Button>
+            <div className="text-sm font-semibold uppercase tracking-[0.12em] text-white/45">Credit</div>
+            <div className="text-3xl font-bold text-primary">{money(props.selectedCustomer.credit_balance)}</div>
           </div>
         </div>
-      )}
+      ) : null}
+
+      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(420px,1fr)]">
+        <section className="flex min-h-0 flex-col rounded-xl border border-white/10 bg-card p-4">
+          <div className="mb-3">
+            <div className="text-lg font-bold">Find Existing Customer</div>
+            <div className="mt-1 text-sm text-white/50">Tap a customer to attach them to this sale.</div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+            <Input
+              className="h-14 border-white/10 bg-black/40 text-lg"
+              value={props.customerSearch}
+              onChange={(event) => props.setCustomerSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') props.loadCustomers(props.customerSearch);
+              }}
+              placeholder="Name, phone, or email"
+            />
+            <Button className="h-14 px-6 text-lg" variant="outline" onClick={() => props.loadCustomers(props.customerSearch)}>
+              <Search className="mr-2 h-5 w-5" />
+              Search
+            </Button>
+          </div>
+          <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
+            {props.customers.length === 0 ? (
+              <div className="flex min-h-36 items-center justify-center rounded-xl border border-dashed border-white/15 p-6 text-center text-base text-white/45">
+                No customers found. Create a new rewards customer on the right.
+              </div>
+            ) : (
+              <div className="grid gap-2">
+                {props.customers.map((customer) => {
+                  const isSelected = props.selectedCustomer?.id === customer.id;
+                  return (
+                    <button
+                      key={customer.id}
+                      onClick={() => props.setSelectedCustomer(customer)}
+                      className={`rounded-xl border p-4 text-left transition ${isSelected ? 'border-primary/45 bg-primary/10' : 'border-white/10 bg-black/30 hover:border-primary/35 hover:bg-primary/10'}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-xl font-bold">{customer.name}</div>
+                          <div className="mt-1 text-base text-white/55">{customer.phone || customer.email || customer.rewards_number || 'No contact saved'}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs font-semibold uppercase tracking-[0.12em] text-white/40">Credit</div>
+                          <div className="text-xl font-bold text-primary">{money(customer.credit_balance)}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 text-sm text-white/45">Lifetime spend {money(customer.lifetime_spend)}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="flex min-h-0 flex-col rounded-xl border border-white/10 bg-card p-4">
+          <div className="mb-3">
+            <div className="flex items-center gap-2 text-lg font-bold">
+              <UserPlus className="h-5 w-5 text-primary" />
+              Create Rewards Customer
+            </div>
+            <div className="mt-1 text-sm text-white/50">Name is required. Phone or email helps find them later.</div>
+          </div>
+          <div className="grid gap-3">
+            <div>
+              <Label className="text-base">Customer Name</Label>
+              <Input
+                className="mt-2 h-14 border-white/10 bg-black/40 text-lg"
+                value={props.customerForm.name}
+                onChange={(event) => props.setCustomerForm({ ...props.customerForm, name: event.target.value })}
+                placeholder="Full name"
+              />
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <Label className="text-base">Phone</Label>
+                <Input
+                  className="mt-2 h-14 border-white/10 bg-black/40 text-lg"
+                  value={props.customerForm.phone}
+                  onChange={(event) => props.setCustomerForm({ ...props.customerForm, phone: event.target.value })}
+                  placeholder="Phone number"
+                />
+              </div>
+              <div>
+                <Label className="text-base">Email</Label>
+                <Input
+                  className="mt-2 h-14 border-white/10 bg-black/40 text-lg"
+                  value={props.customerForm.email}
+                  onChange={(event) => props.setCustomerForm({ ...props.customerForm, email: event.target.value })}
+                  placeholder="Email address"
+                />
+              </div>
+            </div>
+            <Button className="mt-1 h-16 text-xl" onClick={props.handleCreateCustomer} disabled={props.saving || !props.customerForm.name.trim()}>
+              Create Customer
+            </Button>
+            <div className="rounded-xl border border-white/10 bg-muted/50 p-4 text-base leading-relaxed text-white/55">
+              After creating a customer, tap their name in the list to attach them to the current sale.
+            </div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

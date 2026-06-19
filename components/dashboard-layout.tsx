@@ -155,8 +155,9 @@ function NavLink({ item, pathname, searchParams, onNavClick }: {
     <Link
       href={item.href}
       onClick={onNavClick}
+      style={{ minHeight: 44 }}
       className={cn(
-        'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-all duration-100',
+        'group relative flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-100',
         isActive
           ? 'bg-white/[0.055] text-white/90'
           : 'text-white/42 hover:bg-white/[0.035] hover:text-white/75'
@@ -166,7 +167,7 @@ function NavLink({ item, pathname, searchParams, onNavClick }: {
         <div className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r-full bg-primary" />
       )}
       <Icon className={cn(
-        'h-[16px] w-[16px] shrink-0 transition-colors',
+        'h-5 w-5 shrink-0 transition-colors',
         isActive ? 'text-primary' : 'text-white/28 group-hover:text-white/55'
       )} />
       <span className="truncate">{item.label}</span>
@@ -233,17 +234,18 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
             {group.label && group.items.length > 0 && (
               <button
                 type="button"
-                className="group flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.035]"
+                style={{ minHeight: 40 }}
+                className="group flex min-h-10 w-full items-center justify-between rounded-md px-2.5 py-2 text-left transition-colors hover:bg-white/[0.035]"
                 onClick={() => {
                   if (ALWAYS_OPEN_GROUPS.has(group.label)) return;
                   setOpenGroups((current) => ({ ...current, [group.label]: !isGroupOpen(group) }));
                 }}
               >
-                <span className="label-caps text-[9px]">{group.label}</span>
+                <span className="label-caps text-[10px]">{group.label}</span>
                 {!ALWAYS_OPEN_GROUPS.has(group.label) && (
                   <ChevronDown
                     className={cn(
-                      'h-3.5 w-3.5 text-white/20 transition-transform group-hover:text-white/45',
+                      'h-4 w-4 text-white/20 transition-transform group-hover:text-white/45',
                       isGroupOpen(group) && 'rotate-180'
                     )}
                   />
@@ -274,8 +276,9 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
           <Link
             href="/settings"
             onClick={onNavClick}
+            style={{ minHeight: 44 }}
             className={cn(
-              'group relative flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-all duration-100',
+              'group relative flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-100',
               pathname === '/settings'
                 ? 'bg-white/[0.055] text-white/90'
                 : 'text-white/42 hover:bg-white/[0.035] hover:text-white/75'
@@ -285,7 +288,7 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
               <div className="absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-r-full bg-primary" />
             )}
             <Settings className={cn(
-              'h-[16px] w-[16px] shrink-0',
+              'h-5 w-5 shrink-0',
               pathname === '/settings' ? 'text-primary' : 'text-white/28 group-hover:text-white/55'
             )} />
             <span>Settings</span>
@@ -301,9 +304,10 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
           )}
           <button
             onClick={signOut}
-            className="flex items-center gap-2 text-[12px] text-white/38 transition-colors hover:text-white/70"
+            style={{ minHeight: 44 }}
+            className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-white/45 transition-colors hover:bg-white/[0.035] hover:text-white/75"
           >
-            <LogOut className="h-3.5 w-3.5" />
+            <LogOut className="h-4 w-4" />
             Sign out
           </button>
         </div>
@@ -375,7 +379,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle compact />
-          <Button variant="ghost" size="icon" className="h-8 w-8 text-white/40 hover:text-white/70 hover:bg-white/[0.05]" onClick={() => setMobileOpen(!mobileOpen)}>
+          <Button variant="ghost" size="icon" className="h-11 w-11 text-white/40 hover:bg-white/[0.05] hover:text-white/70" onClick={() => setMobileOpen(!mobileOpen)}>
             {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
           </Button>
         </div>

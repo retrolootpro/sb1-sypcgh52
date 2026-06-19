@@ -28,7 +28,8 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
       type="button"
       variant="outline"
       size={compact ? 'icon' : 'sm'}
-      className={compact ? 'h-10 w-10' : 'h-9 w-full justify-start gap-2 text-xs'}
+      className={compact ? 'h-11 w-11' : 'h-11 w-full justify-start gap-2 text-sm'}
+      style={compact ? { minHeight: 44, minWidth: 44 } : { minHeight: 44 }}
       onClick={() => {
         setMode(nextMode);
         window.localStorage.setItem('retroloot-theme', nextMode);

@@ -20,9 +20,10 @@ export function ContextHelp({
           <Link
             href={href}
             aria-label={label}
-            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/10 text-white/35 transition-colors hover:border-primary/35 hover:text-primary"
+            style={{ minHeight: 36, minWidth: 36 }}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white/45 transition-colors hover:border-primary/35 hover:text-primary"
           >
-            <HelpCircle className="h-3.5 w-3.5" />
+            <HelpCircle className="h-4 w-4" />
           </Link>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs text-xs leading-relaxed">
