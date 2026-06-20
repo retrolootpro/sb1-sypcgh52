@@ -35,11 +35,11 @@ import { supabase } from '@/lib/supabase';
 import { inventoryLabelPrice } from '@/lib/label-pricing';
 import { isCloverBridgeAvailable, requestCloverCardPayment, requestCloverCashDrawerOpen, requestCloverReceiptPrint } from '@/lib/clover-pos-bridge';
 
-const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
 const cents = (value: number) => Math.round((Number(value) || 0) * 100);
 const fromCents = (value: number) => Number((value / 100).toFixed(2));
 const currency = (value: number) => fromCents(cents(value));
+const money = (value: number) => `$${currency(value).toFixed(2)}`;
 const CASH_OFFER_RATE = 0.35;
 const TRADE_OFFER_RATE = 0.6;
 const RECOMMENDED_OFFER_RATE = (CASH_OFFER_RATE + TRADE_OFFER_RATE) / 2;
@@ -629,8 +629,10 @@ export default function PosPage() {
 
   const handleCompleteSale = async () => {
     if (cart.length === 0) return toast.error('Add at least one item');
-    if ((paymentMethod === 'cash' || paymentMethod === 'split') && cents(tenderedAmount) < cents(dueAfterCredit)) {
-      return toast.error('Cash received is below the amount due');
+    const tenderedCents = cents(tenderedAmount);
+    const dueCents = cents(dueAfterCredit);
+    if ((paymentMethod === 'cash' || paymentMethod === 'split') && tenderedCents < dueCents) {
+      return toast.error(`Cash received is below the amount due. Received ${money(tenderedAmount)} / Due ${money(dueAfterCredit)}`);
     }
     if ((paymentMethod === 'external_card' || paymentMethod === 'square' || paymentMethod === 'stripe' || paymentMethod === 'split') && !processorReference.trim()) {
       return toast.error('Enter the card machine reference number');
@@ -1439,7 +1441,17 @@ export default function PosPage() {
             </div>
             {(paymentMethod === 'cash' || paymentMethod === 'split') && (
               <div>
-                <Label>Cash Received</Label>
+                <div className="flex items-center justify-between gap-3">
+                  <Label>Cash Received</Label>
+                  <Button
+                    type="button"
+                    className="h-9 px-3 text-sm"
+                    variant="outline"
+                    onClick={() => setCashReceived(dueAfterCredit.toFixed(2))}
+                  >
+                    Exact Cash
+                  </Button>
+                </div>
                 <Input className="mt-2 h-14 border-white/10 bg-black/40 text-xl" type="number" min="0" step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} />
               </div>
             )}
