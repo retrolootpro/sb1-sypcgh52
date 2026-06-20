@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getItemRegionDetails } from '@/lib/region';
 import { getServerAccountContext } from '@/lib/server-account';
 import { isBookLikeItem } from '@/lib/item-taxonomy';
+import { lookupBookMetadataByBarcode } from '@/lib/book-metadata-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,17 +40,6 @@ type MetadataResult = {
   category?: string;
   pcProductId?: string;
   source: string;
-};
-
-type BookMetadataResult = {
-  title: string;
-  platform: string;
-  category: string;
-  brand: string;
-  description: string;
-  imageUrl: string;
-  thumbnailUrl: string;
-  source: 'google_books' | 'open_library';
 };
 
 const PC_API_BASE = 'https://www.pricecharting.com/api';
@@ -124,77 +114,6 @@ function absoluteUrl(url: string, base = 'https://www.pricecharting.com') {
   if (/^https?:\/\//i.test(url)) return url;
   if (url.startsWith('//')) return `https:${url}`;
   return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
-}
-
-function cleanGoogleImage(url: string) {
-  if (!url) return '';
-  return url.replace(/^http:\/\//i, 'https://');
-}
-
-async function lookupGoogleBookByIsbn(isbn: string): Promise<BookMetadataResult | null> {
-  const response = await fetch(
-    `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}`,
-    { cache: 'no-store' }
-  );
-  if (!response.ok) return null;
-
-  const data = await response.json();
-  const volume = Array.isArray(data?.items) ? data.items[0]?.volumeInfo : null;
-  if (!volume?.title) return null;
-
-  const categories = Array.isArray(volume.categories) ? volume.categories : [];
-  const authors = Array.isArray(volume.authors) ? volume.authors : [];
-  const categoryText = categories.join(', ');
-  const isManga = /manga|comics|graphic novel/i.test(`${volume.title} ${categoryText}`);
-  const imageLinks = volume.imageLinks || {};
-  const thumbnailUrl = cleanGoogleImage(imageLinks.thumbnail || imageLinks.smallThumbnail || '');
-
-  return {
-    title: String(volume.title || '').trim(),
-    platform: isManga ? 'Manga' : 'Book',
-    category: `${isManga ? 'Manga' : 'Books'}${categoryText ? `, ${categoryText}` : ''}`,
-    brand: String(volume.publisher || authors.join(', ') || 'Books').trim(),
-    description: String(volume.description || '').trim(),
-    imageUrl: cleanGoogleImage(imageLinks.extraLarge || imageLinks.large || imageLinks.medium || thumbnailUrl),
-    thumbnailUrl,
-    source: 'google_books',
-  };
-}
-
-async function lookupOpenLibraryBookByIsbn(isbn: string): Promise<BookMetadataResult | null> {
-  const response = await fetch(
-    `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`,
-    { cache: 'no-store' }
-  );
-  if (!response.ok) return null;
-
-  const data = await response.json();
-  if (!data?.title) return null;
-
-  const publishers = Array.isArray(data.publishers) ? data.publishers : [];
-  const subjects = Array.isArray(data.subjects) ? data.subjects.slice(0, 5) : [];
-  const categoryText = subjects.join(', ');
-  const isManga = /manga|comics|graphic novel/i.test(`${data.title} ${categoryText}`);
-  const coverId = data.covers?.[0];
-  const imageUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : '';
-  const thumbnailUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : '';
-
-  return {
-    title: String(data.title || '').trim(),
-    platform: isManga ? 'Manga' : 'Book',
-    category: `${isManga ? 'Manga' : 'Books'}${categoryText ? `, ${categoryText}` : ''}`,
-    brand: String(publishers[0] || 'Books').trim(),
-    description: typeof data.description === 'string'
-      ? data.description
-      : String(data.description?.value || '').trim(),
-    imageUrl,
-    thumbnailUrl,
-    source: 'open_library',
-  };
-}
-
-async function lookupBookByIsbn(isbn: string): Promise<BookMetadataResult | null> {
-  return (await lookupGoogleBookByIsbn(isbn)) || (await lookupOpenLibraryBookByIsbn(isbn));
 }
 
 function decodeHtml(value: string) {
@@ -363,7 +282,12 @@ function chooseImage(...candidates: Array<string | undefined>) {
 
 async function enrichItem(item: InventoryRow, keys: Map<string, string>): Promise<MetadataResult> {
   if (isBookLikeItem(item)) {
-    const book = item.barcode ? await lookupBookByIsbn(item.barcode) : null;
+    const book = item.barcode
+      ? await lookupBookMetadataByBarcode(item.barcode, {
+          barcodeLookupKey: keys.get('barcode_lookup'),
+          upcItemDbKey: keys.get('upc_lookup'),
+        })
+      : null;
     return {
       title: book?.title || item.product_name,
       platform: book?.platform || item.console || 'Book',

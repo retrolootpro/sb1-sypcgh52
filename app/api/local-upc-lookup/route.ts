@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getServerAccountContext } from '@/lib/server-account';
+import { lookupBookMetadataByBarcode } from '@/lib/book-metadata-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,17 +16,6 @@ const BROWSER_HEADERS = {
 type ApiKeyRow = {
   provider: string;
   api_key: string;
-};
-
-type BookLookupResult = {
-  title: string;
-  platform: string;
-  category: string;
-  brand: string;
-  description: string;
-  imageUrl: string;
-  thumbnailUrl: string;
-  source: 'google_books' | 'open_library';
 };
 
 type LookupMode = 'auto' | 'book' | 'game';
@@ -126,77 +116,6 @@ function normalizeLookupMode(value: unknown): LookupMode {
   return 'auto';
 }
 
-function cleanGoogleImage(url: string) {
-  if (!url) return '';
-  return url.replace(/^http:\/\//i, 'https://');
-}
-
-async function lookupGoogleBookByIsbn(isbn: string): Promise<BookLookupResult | null> {
-  const response = await fetch(
-    `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}`,
-    { cache: 'no-store' }
-  );
-  if (!response.ok) return null;
-
-  const data = await response.json();
-  const volume = Array.isArray(data?.items) ? data.items[0]?.volumeInfo : null;
-  if (!volume?.title) return null;
-
-  const categories = Array.isArray(volume.categories) ? volume.categories : [];
-  const authors = Array.isArray(volume.authors) ? volume.authors : [];
-  const categoryText = categories.join(', ');
-  const isManga = /manga|comics|graphic novel/i.test(`${volume.title} ${categoryText}`);
-  const imageLinks = volume.imageLinks || {};
-  const thumbnailUrl = cleanGoogleImage(imageLinks.thumbnail || imageLinks.smallThumbnail || '');
-
-  return {
-    title: String(volume.title || '').trim(),
-    platform: isManga ? 'Manga' : 'Book',
-    category: `${isManga ? 'Manga' : 'Books'}${categoryText ? `, ${categoryText}` : ''}`,
-    brand: String(volume.publisher || authors.join(', ') || 'Books').trim(),
-    description: String(volume.description || '').trim(),
-    imageUrl: cleanGoogleImage(imageLinks.extraLarge || imageLinks.large || imageLinks.medium || thumbnailUrl),
-    thumbnailUrl,
-    source: 'google_books',
-  };
-}
-
-async function lookupOpenLibraryBookByIsbn(isbn: string): Promise<BookLookupResult | null> {
-  const response = await fetch(
-    `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`,
-    { cache: 'no-store' }
-  );
-  if (!response.ok) return null;
-
-  const data = await response.json();
-  if (!data?.title) return null;
-
-  const publishers = Array.isArray(data.publishers) ? data.publishers : [];
-  const subjects = Array.isArray(data.subjects) ? data.subjects.slice(0, 5) : [];
-  const categoryText = subjects.join(', ');
-  const isManga = /manga|comics|graphic novel/i.test(`${data.title} ${categoryText}`);
-  const coverId = data.covers?.[0];
-  const imageUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : '';
-  const thumbnailUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : '';
-
-  return {
-    title: String(data.title || '').trim(),
-    platform: isManga ? 'Manga' : 'Book',
-    category: `${isManga ? 'Manga' : 'Books'}${categoryText ? `, ${categoryText}` : ''}`,
-    brand: String(publishers[0] || 'Books').trim(),
-    description: typeof data.description === 'string'
-      ? data.description
-      : String(data.description?.value || '').trim(),
-    imageUrl,
-    thumbnailUrl,
-    source: 'open_library',
-  };
-}
-
-async function lookupBookByIsbn(isbn: string): Promise<BookLookupResult | null> {
-  return (await lookupGoogleBookByIsbn(isbn)) || (await lookupOpenLibraryBookByIsbn(isbn));
-}
-
 export async function GET() {
   return json({
     ok: true,
@@ -236,7 +155,10 @@ export async function POST(req: NextRequest) {
     const shouldLookupAsBook = mode === 'book' || (mode !== 'game' && isBookBarcode);
 
     if (shouldLookupAsBook) {
-      const book = await lookupBookByIsbn(cleanBarcode);
+      const book = await lookupBookMetadataByBarcode(cleanBarcode, {
+        barcodeLookupKey: keyMap.get('barcode_lookup'),
+        upcItemDbKey: keyMap.get('upc_lookup'),
+      });
       if (book) {
         return json({
           success: true,
