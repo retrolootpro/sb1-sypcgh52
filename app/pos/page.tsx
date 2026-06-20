@@ -30,6 +30,7 @@ import {
   type PosTaxSettings,
 } from '@/lib/pos-services';
 import { supabase } from '@/lib/supabase';
+import { inventoryLabelPrice } from '@/lib/label-pricing';
 
 const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -284,7 +285,7 @@ export default function PosPage() {
       item_name: item.title,
       platform: item.platform || '',
       quantity: 1,
-      unit_price: Number(item.sell_price || item.selected_market_value || item.purchase_price || 0),
+      unit_price: inventoryLabelPrice(item),
     }]);
   };
 
@@ -782,7 +783,7 @@ export default function PosPage() {
                         <div className="truncate text-base font-semibold">{item.title}</div>
                         <div className="text-sm text-white/50">{item.platform || 'No platform'} - {item.condition || 'No condition'}</div>
                       </div>
-                      <div className="text-right text-lg font-bold text-primary">{money(Number(item.sell_price || item.selected_market_value || item.purchase_price || 0))}</div>
+                      <div className="text-right text-lg font-bold text-primary">{money(inventoryLabelPrice(item))}</div>
                     </button>
                   ))}
                 </div>

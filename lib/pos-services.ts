@@ -25,6 +25,10 @@ export type PosInventoryItem = {
   thumbnail_url?: string | null;
   sell_price?: number | null;
   selected_market_value?: number | null;
+  price_loose?: number | null;
+  price_cib?: number | null;
+  price_new?: number | null;
+  price_graded?: number | null;
   purchase_price?: number | null;
   status: string;
 };
@@ -117,7 +121,7 @@ export async function searchPosInventory(search = ''): Promise<PosInventoryItem[
 
   let query = supabase
     .from('inventory_items')
-    .select('id, title:product_name, platform:console, condition, barcode, image_url, thumbnail_url, sell_price, selected_market_value, purchase_price, status')
+    .select('id, title:product_name, platform:console, condition, barcode, image_url, thumbnail_url, sell_price, selected_market_value, price_loose, price_cib, price_new, price_graded, purchase_price, status')
     .eq('user_id', accountId)
     .in('status', ['available', 'ready_to_list', 'listed', 'reserved'])
     .order('product_name', { ascending: true })

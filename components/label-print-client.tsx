@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
+import { inventoryLabelPrice } from '@/lib/label-pricing';
 import { toast } from 'sonner';
 
 const LABEL_QUEUE_KEY = 'retroloot-label-queue';
@@ -44,26 +45,6 @@ function writeQueue(ids: string[]) {
 
 function money(value: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
-}
-
-function labelPrice(item: LabelItem) {
-  return Number(item.sell_price)
-    || Number(item.selected_market_value)
-    || Number(item.price_cib)
-    || Number(item.price_loose)
-    || Number(item.price_new)
-    || Number(item.purchase_price)
-    || 0;
-}
-
-function retailLabelPrice(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return 0;
-  const whole = Math.floor(value);
-  const cents = value - whole;
-  if (cents < 0.5) {
-    return Math.max(0, whole - 0.01);
-  }
-  return Math.max(0, whole + 1 - 0.01);
 }
 
 function labelTitle(item: LabelItem) {
@@ -197,7 +178,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           <div className="label-sheet mx-auto flex max-w-5xl flex-wrap gap-4">
             {items.map((item) => {
               const title = labelTitle(item);
-              const price = money(retailLabelPrice(labelPrice(item)));
+              const price = money(inventoryLabelPrice(item));
               return (
               <div key={item.id} className="label-card-wrap">
                 <button
@@ -272,7 +253,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             align-items: flex-end;
             gap: 0.055in;
             min-width: 0;
-            padding: 0.055in 0.055in 0.055in 0.015in;
+            padding: 0.055in 0.025in 0.055in 0.015in;
             text-align: right;
             box-sizing: border-box;
           }
@@ -280,16 +261,19 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           .price-label-name {
             width: 100%;
             max-width: 100%;
+            margin-left: auto;
             font-size: var(--label-title-size, 8px);
             line-height: 1.28;
             overflow-wrap: anywhere;
             word-break: break-word;
             overflow: hidden;
+            text-align: right;
           }
 
           .price-label-price {
             width: 100%;
             max-width: 100%;
+            margin-left: auto;
             font-size: var(--label-price-size, 16px);
             line-height: 1;
             white-space: nowrap;
@@ -352,6 +336,17 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
               display: none !important;
             }
 
+            body * {
+              visibility: hidden !important;
+            }
+
+            .label-sheet,
+            .label-sheet *,
+            .price-label,
+            .price-label * {
+              visibility: visible !important;
+            }
+
             body > div,
             main,
             .label-sheet {
@@ -360,6 +355,13 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
               max-width: 2in !important;
               margin: 0 !important;
               padding: 0 !important;
+              background: white !important;
+            }
+
+            .label-sheet {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
             }
 
             .label-card-wrap {
@@ -370,6 +372,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
               border: 0 !important;
               border-radius: 0 !important;
               background: white !important;
+              overflow: hidden !important;
               break-after: page;
               page-break-after: always;
             }
