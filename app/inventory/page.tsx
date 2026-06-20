@@ -6,14 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { CONSOLES, CONDITIONS, REGIONS } from '@/lib/constants';
+import { CONDITIONS, PLATFORM_OPTIONS, REGIONS } from '@/lib/constants';
 import { lookupUPC } from '@/lib/api-services';
 import { getCanonicalPricing } from '@/lib/pricing-service';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
+import { getInventoryFamily, lookupModeForItem, productTypeLabel, supportsAutomatedGamePricing } from '@/lib/item-taxonomy';
 import { getItemRegionDetails } from '@/lib/region';
 import { getAgeStatus, getInventoryAgeDays, normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds, type AgingThresholds } from '@/lib/inventory-aging';
 import { toast } from 'sonner';
@@ -47,6 +48,11 @@ type InventoryItem = {
   thumbnail_url?: string;
   description?: string | null;
   brand?: string;
+  category?: string | null;
+  item_type?: string | null;
+  genre?: string | null;
+  source_metadata_provider?: string | null;
+  source_upc_provider?: string | null;
   collection_id?: string | null;
   pricing_matched_title?: string | null;
   pricing_matched_platform?: string | null;
@@ -78,6 +84,7 @@ export default function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [consoleFilter, setConsoleFilter] = useState('all');
   const [conditionFilter, setConditionFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
@@ -270,7 +277,7 @@ export default function InventoryPage() {
           if (!item.barcode) continue;
           let barcodeData: any = null;
           try {
-            barcodeData = await lookupUPC(item.barcode, accountId || user.id, item.product_name || undefined);
+            barcodeData = await lookupUPC(item.barcode, accountId || user.id, item.product_name || undefined, lookupModeForItem(item));
           } catch {
             if (item.product_name) {
               const steamImage = await fetchSteamImage(item.product_name);
@@ -319,7 +326,14 @@ export default function InventoryPage() {
   const filteredItems = useMemo(() => {
     const query = searchQuery.toLowerCase();
     const filtered = items.filter((item) => {
-      const matchesSearch = !query || item.product_name.toLowerCase().includes(query) || item.console.toLowerCase().includes(query);
+      const matchesSearch = !query
+        || item.product_name.toLowerCase().includes(query)
+        || item.console.toLowerCase().includes(query)
+        || String(item.category || '').toLowerCase().includes(query)
+        || String(item.brand || '').toLowerCase().includes(query)
+        || String(item.barcode || '').toLowerCase().includes(query);
+      const family = getInventoryFamily(item);
+      const matchesType = typeFilter === 'all' || family === typeFilter;
       const matchesConsole = consoleFilter === 'all' || item.console === consoleFilter;
       const matchesCondition = conditionFilter === 'all' || item.condition === conditionFilter;
       const normalizedRegion = getItemRegionDetails(item)?.value || 'unset';
@@ -335,7 +349,7 @@ export default function InventoryPage() {
       const matchesCollection = selectedCollectionId === null
         ? true
         : item.collection_id === selectedCollectionId;
-      return matchesSearch && matchesConsole && matchesCondition && matchesRegion && matchesAge && matchesCollection;
+      return matchesSearch && matchesType && matchesConsole && matchesCondition && matchesRegion && matchesAge && matchesCollection;
     });
 
     return [...filtered].sort((a, b) => {
@@ -387,12 +401,22 @@ export default function InventoryPage() {
           return nameCompare;
       }
     });
-  }, [items, searchQuery, consoleFilter, conditionFilter, regionFilter, ageFilter, agingThresholds, selectedCollectionId, sortBy, getItemMarketValue]);
+  }, [items, searchQuery, typeFilter, consoleFilter, conditionFilter, regionFilter, ageFilter, agingThresholds, selectedCollectionId, sortBy, getItemMarketValue]);
+
+  const platformOptions = useMemo(() => {
+    const defaults = PLATFORM_OPTIONS.map((value) => String(value));
+    const extras = items
+      .map((item) => item.console)
+      .filter((value): value is string => !!value && !defaults.includes(value))
+      .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+    return [...defaults, ...extras];
+  }, [items]);
 
   const collectionItemCount = useCallback((colId: string) =>
     items.filter((i) => i.collection_id === colId).length, [items]);
 
   const totalItems = filteredItems.length;
+  const bookMediaCount = filteredItems.filter((item) => getInventoryFamily(item) === 'books_media').length;
 
   const agingSummary = useMemo(() => {
     const availableItems = items.filter((item) => (item.status || 'available') !== 'sold');
@@ -429,8 +453,17 @@ export default function InventoryPage() {
     if (!user) return;
 
     const targets = filteredItems.length > 0 ? filteredItems : items;
+    const priceTargets = targets.filter(supportsAutomatedGamePricing);
+    const skippedManual = targets.length - priceTargets.length;
     if (targets.length === 0) {
       toast.info('No inventory items to price');
+      return;
+    }
+
+    if (priceTargets.length === 0) {
+      toast.info('No game items to price', {
+        description: 'Book and media items use manual pricing and were skipped.',
+      });
       return;
     }
 
@@ -440,9 +473,12 @@ export default function InventoryPage() {
     let failed = 0;
 
     try {
-      toast.info(`Refreshing prices for ${targets.length} item${targets.length === 1 ? '' : 's'}...`);
+      toast.info(`Refreshing prices for ${priceTargets.length} game item${priceTargets.length === 1 ? '' : 's'}...`);
+      if (skippedManual > 0) {
+        toast.info(`${skippedManual} book/media item${skippedManual === 1 ? '' : 's'} skipped for manual pricing`);
+      }
 
-      for (const item of targets) {
+      for (const item of priceTargets) {
         try {
           const result = await getCanonicalPricing(item.product_name, item.console, {
             upc: item.barcode || null,
@@ -583,6 +619,12 @@ export default function InventoryPage() {
               <div>
                 <div className="label-caps">Items</div>
                 <div className="text-[22px] font-bold stat-number mt-0.5">{totalItems}</div>
+                {bookMediaCount > 0 && (
+                  <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                    <BookOpen className="h-3 w-3" />
+                    {bookMediaCount} book/media
+                  </div>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-card">
@@ -777,7 +819,7 @@ export default function InventoryPage() {
                 <SelectItem value="oldest">Oldest Added</SelectItem>
                 <SelectItem value="age_high">Age High-Low</SelectItem>
                 <SelectItem value="age_low">Age Low-High</SelectItem>
-                <SelectItem value="console">Console A-Z</SelectItem>
+                <SelectItem value="console">Platform A-Z</SelectItem>
                 <SelectItem value="condition">Condition A-Z</SelectItem>
                 <SelectItem value="region">Region A-Z</SelectItem>
                 <SelectItem value="cost_high">Cost High-Low</SelectItem>
@@ -788,13 +830,25 @@ export default function InventoryPage() {
                 <SelectItem value="profit_low">Profit Low-High</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={consoleFilter} onValueChange={setConsoleFilter}>
-              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[170px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
-                <SelectValue placeholder="Console" />
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[165px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+                <SelectValue placeholder="Type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Consoles</SelectItem>
-                {CONSOLES.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="games">{productTypeLabel('games')}</SelectItem>
+                <SelectItem value="books_media">{productTypeLabel('books_media')}</SelectItem>
+                <SelectItem value="collectibles">{productTypeLabel('collectibles')}</SelectItem>
+                <SelectItem value="other">{productTypeLabel('other')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={consoleFilter} onValueChange={setConsoleFilter}>
+              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[170px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+                <SelectValue placeholder="Platform" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Platforms</SelectItem>
+                {platformOptions.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
               </SelectContent>
             </Select>
             <Select value={conditionFilter} onValueChange={setConditionFilter}>

@@ -28,6 +28,8 @@ type BookLookupResult = {
   source: 'google_books' | 'open_library';
 };
 
+type LookupMode = 'auto' | 'book' | 'game';
+
 const PLATFORM_SLUGS: Record<string, string> = {
   wii: 'wii',
   'wii u': 'wii-u',
@@ -117,6 +119,13 @@ function isLikelyBookBarcode(barcode: string) {
   return /^(978|979)\d{10}$/.test(barcode);
 }
 
+function normalizeLookupMode(value: unknown): LookupMode {
+  const mode = String(value || 'auto').toLowerCase();
+  if (mode === 'book' || mode === 'books' || mode === 'media') return 'book';
+  if (mode === 'game' || mode === 'games') return 'game';
+  return 'auto';
+}
+
 function cleanGoogleImage(url: string) {
   if (!url) return '';
   return url.replace(/^http:\/\//i, 'https://');
@@ -200,9 +209,10 @@ export async function POST(req: NextRequest) {
     const authHeader = req.headers.get('authorization') ?? '';
     if (!authHeader) return json({ success: false, message: 'Missing authorization' }, 401);
 
-    const { barcode, titleHint } = await req.json().catch(() => ({}));
+    const { barcode, titleHint, lookupMode } = await req.json().catch(() => ({}));
     const cleanBarcode = String(barcode ?? '').trim();
     if (!cleanBarcode) return json({ success: false, message: 'Barcode is required' }, 400);
+    const mode = normalizeLookupMode(lookupMode);
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -223,8 +233,9 @@ export async function POST(req: NextRequest) {
     const keyMap = new Map((apiKeys as ApiKeyRow[] | null ?? []).map((row) => [row.provider, row.api_key]));
     const pcKey = keyMap.get('pricecharting');
     const isBookBarcode = isLikelyBookBarcode(cleanBarcode);
+    const shouldLookupAsBook = mode === 'book' || (mode !== 'game' && isBookBarcode);
 
-    if (isBookBarcode) {
+    if (shouldLookupAsBook) {
       const book = await lookupBookByIsbn(cleanBarcode);
       if (book) {
         return json({
@@ -245,7 +256,7 @@ export async function POST(req: NextRequest) {
       return json({
         success: false,
         errorCode: 'BOOK_NO_MATCH',
-        message: `No book metadata found for ISBN ${cleanBarcode}.`,
+        message: `No book metadata found for barcode ${cleanBarcode}. Add the book manually and enter pricing yourself.`,
       }, 404);
     }
 

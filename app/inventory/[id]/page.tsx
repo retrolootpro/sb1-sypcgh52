@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
-import { ArrowLeft, Gamepad2, TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, CircleDot, Pencil, Save, X } from 'lucide-react';
+import { ArrowLeft, Gamepad2, TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, CircleDot, Pencil, Save, X, BookOpen } from 'lucide-react';
 import { PrepStageBar } from '@/components/prep-stage-bar';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -24,9 +24,10 @@ import {
   type ConditionSource,
 } from '@/lib/pricing-service';
 import { toast } from 'sonner';
-import { CONDITIONS, CONSOLES, REGIONS } from '@/lib/constants';
+import { CONDITIONS, PLATFORM_OPTIONS, REGIONS } from '@/lib/constants';
 import { buildItemBusinessPlan } from '@/lib/business-rules';
 import { ContextHelp } from '@/components/context-help';
+import { defaultConditionForPlatform, isBookLikeItem, isBookLikeValue } from '@/lib/item-taxonomy';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,9 @@ type InventoryItem = {
   description?: string;
   genre?: string;
   category?: string;
+  item_type?: string | null;
+  source_metadata_provider?: string | null;
+  source_upc_provider?: string | null;
   confidence_score?: number;
   pricing_confidence?: number;
   image_url?: string;
@@ -87,6 +91,7 @@ type MetadataForm = {
   thumbnail_url: string;
   description: string;
   notes: string;
+  manual_market_value: string;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -94,8 +99,12 @@ type MetadataForm = {
 function getConditionStyle(condition: string) {
   switch (condition) {
     case 'Graded': return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+    case 'Sealed':
     case 'New':    return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
     case 'CIB':    return 'bg-sky-500/10 text-sky-400 border-sky-500/30';
+    case 'Used':   return 'bg-violet-500/10 text-violet-300 border-violet-500/30';
+    case 'Damaged': return 'bg-red-500/10 text-red-300 border-red-500/30';
+    case 'Untested': return 'bg-zinc-500/10 text-zinc-300 border-zinc-500/30';
     default:       return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
   }
 }
@@ -160,6 +169,7 @@ export default function ItemDetailPage() {
     thumbnail_url: '',
     description: '',
     notes: '',
+    manual_market_value: '',
   });
 
   // Live canonical pricing state (null = not yet refreshed this session)
@@ -202,6 +212,7 @@ export default function ItemDetailPage() {
       thumbnail_url: item.thumbnail_url || '',
       description: item.description || '',
       notes: item.notes || '',
+      manual_market_value: item.selected_market_value ? String(item.selected_market_value) : '',
     });
   }, [item, editingMetadata]);
 
@@ -217,6 +228,12 @@ export default function ItemDetailPage() {
 
   const handleRefreshPricing = useCallback(async () => {
     if (!item || !user || !accountId) return;
+    if (isBookLikeItem(item)) {
+      toast.info('Book and media items use manual pricing', {
+        description: 'Edit the item metadata to enter a manual market value.',
+      });
+      return;
+    }
     setRefreshing(true);
     const checkedAt = new Date().toISOString();
     try {
@@ -342,6 +359,7 @@ export default function ItemDetailPage() {
 
   useEffect(() => {
     if (!item || autoRefreshAttempted || refreshing) return;
+    if (isBookLikeItem(item)) return;
     if (!isPricingStale(item)) return;
     setAutoRefreshAttempted(true);
     toast.info('Checking current market value...');
@@ -364,8 +382,21 @@ export default function ItemDetailPage() {
       const titleChanged = metadataForm.product_name.trim() !== item.product_name;
       const platformChanged = metadataForm.console !== item.console;
       const conditionChanged = metadataForm.condition !== item.condition;
+      const manualPricedItem = isBookLikeValue(metadataForm.console);
+      const manualMarketValue = metadataForm.manual_market_value.trim() === ''
+        ? Number(item.selected_market_value) || 0
+        : Number(metadataForm.manual_market_value);
+      if (Number.isNaN(manualMarketValue) || manualMarketValue < 0) {
+        toast.error('Manual market value must be 0 or higher');
+        setSavingMetadata(false);
+        return;
+      }
       const imageUrl = metadataForm.image_url.trim();
       const thumbnailUrl = metadataForm.thumbnail_url.trim() || imageUrl;
+      const estimatedProfit = manualMarketValue > 0 ? manualMarketValue - item.purchase_price : 0;
+      const estimatedMarginPercent = manualMarketValue > 0 && item.purchase_price > 0
+        ? (estimatedProfit / item.purchase_price) * 100
+        : 0;
 
       const { error } = await supabase
         .from('inventory_items')
@@ -382,10 +413,15 @@ export default function ItemDetailPage() {
           thumbnail_url: thumbnailUrl || null,
           description: metadataForm.description.trim() || null,
           notes: metadataForm.notes.trim() || null,
-          pc_source_product_id: titleChanged || platformChanged ? null : item.pc_source_product_id || null,
-          pricing_matched_title: titleChanged || platformChanged ? null : item.pricing_matched_title || null,
-          pricing_matched_platform: titleChanged || platformChanged ? null : item.pricing_matched_platform || null,
-          pricing_last_checked_at: titleChanged || platformChanged || conditionChanged ? null : item.pricing_last_checked_at || null,
+          selected_market_value: manualMarketValue,
+          estimated_profit: estimatedProfit,
+          estimated_margin_percent: estimatedMarginPercent,
+          pricing_source: manualPricedItem ? 'Manual / book metadata' : item.pricing_source || null,
+          pricing_status: manualPricedItem ? 'manual' : item.pricing_status || null,
+          pc_source_product_id: manualPricedItem || titleChanged || platformChanged ? null : item.pc_source_product_id || null,
+          pricing_matched_title: manualPricedItem || titleChanged || platformChanged ? null : item.pricing_matched_title || null,
+          pricing_matched_platform: manualPricedItem || titleChanged || platformChanged ? null : item.pricing_matched_platform || null,
+          pricing_last_checked_at: manualPricedItem || titleChanged || platformChanged || conditionChanged ? null : item.pricing_last_checked_at || null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', item.id)
@@ -424,7 +460,9 @@ export default function ItemDetailPage() {
   const newPrice    = canonical ? (canonical.prices.new.value    || Number(item.price_new)    || 0) : (Number(item.price_new)    || 0);
   const gradedPrice = canonical ? (canonical.prices.graded.value || Number(item.price_graded) || 0) : (Number(item.price_graded) || 0);
 
-  const marketValue = getMarketValueByCondition(item.condition, loosePrice, cibPrice, newPrice, gradedPrice);
+  const conditionMarketValue = getMarketValueByCondition(item.condition, loosePrice, cibPrice, newPrice, gradedPrice);
+  const savedMarketValue = Number(item.selected_market_value) || 0;
+  const marketValue = savedMarketValue > 0 ? savedMarketValue : conditionMarketValue;
   const profit      = marketValue - item.purchase_price;
   const profitMargin = item.purchase_price > 0 ? (profit / item.purchase_price) * 100 : 0;
 
@@ -446,6 +484,7 @@ export default function ItemDetailPage() {
   });
 
   const hasPricing = marketValue > 0;
+  const bookLike = isBookLikeItem(item);
   const imageUrl   = item.image_url || item.thumbnail_url;
 
   // Has the user ever refreshed? (either this session or previously saved)
@@ -492,7 +531,11 @@ export default function ItemDetailPage() {
                   onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                 />
               ) : (
-                <Gamepad2 className="w-16 h-16 text-muted-foreground/20" />
+                bookLike ? (
+                  <BookOpen className="w-16 h-16 text-muted-foreground/20" />
+                ) : (
+                  <Gamepad2 className="w-16 h-16 text-muted-foreground/20" />
+                )
               )}
             </div>
 
@@ -525,11 +568,11 @@ export default function ItemDetailPage() {
                     variant="outline"
                     size="sm"
                     onClick={handleRefreshPricing}
-                    disabled={refreshing}
+                    disabled={refreshing || bookLike}
                     className="h-8 px-3 text-xs border-border/50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
-                    {refreshing ? 'Refreshing...' : 'Refresh Pricing'}
+                    {bookLike ? 'Manual Pricing' : refreshing ? 'Refreshing...' : 'Refresh Pricing'}
                   </Button>
                 </div>
               </div>
@@ -539,7 +582,10 @@ export default function ItemDetailPage() {
                 </p>
               )}
               <div className="flex items-center gap-2 flex-wrap">
-                <Badge variant="outline" className="border-border/50 text-xs">{item.console}</Badge>
+                <Badge variant="outline" className="border-border/50 text-xs">
+                  {bookLike && <BookOpen className="mr-1 h-3 w-3" />}
+                  {item.console}
+                </Badge>
                 <Badge variant="outline" className={`text-xs ${getConditionStyle(item.condition)}`}>
                   {item.condition}
                 </Badge>
@@ -596,13 +642,19 @@ export default function ItemDetailPage() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Console / Platform</Label>
-                      <Select value={metadataForm.console} onValueChange={(value) => updateMetadataForm('console', value)}>
+                      <Label className="text-xs text-muted-foreground">Platform / Category</Label>
+                      <Select
+                        value={metadataForm.console}
+                        onValueChange={(value) => {
+                          updateMetadataForm('console', value);
+                          updateMetadataForm('condition', defaultConditionForPlatform(value));
+                        }}
+                      >
                         <SelectTrigger className="h-9">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {CONSOLES.map((consoleName) => (
+                          {PLATFORM_OPTIONS.map((consoleName) => (
                             <SelectItem key={consoleName} value={consoleName}>{consoleName}</SelectItem>
                           ))}
                         </SelectContent>
@@ -661,6 +713,19 @@ export default function ItemDetailPage() {
                         value={metadataForm.category}
                         onChange={(event) => updateMetadataForm('category', event.target.value)}
                         className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Manual Market Value</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={metadataForm.manual_market_value}
+                        onChange={(event) => updateMetadataForm('manual_market_value', event.target.value)}
+                        className="h-9"
+                        placeholder="0.00"
                       />
                     </div>
 
@@ -766,7 +831,9 @@ export default function ItemDetailPage() {
                     </ContextHelp>
                   </div>
                   <p className="text-[10px] text-muted-foreground/50 mt-0.5">
-                    {diagData?.pcApiUsed
+                    {bookLike
+                      ? 'Manual value for books and media'
+                      : diagData?.pcApiUsed
                       ? 'Sourced from PriceCharting API + eBay fallback'
                       : 'Aggregated from eBay completed listings'}
                   </p>
@@ -779,16 +846,25 @@ export default function ItemDetailPage() {
                     variant="ghost"
                     size="sm"
                     onClick={handleRefreshPricing}
-                    disabled={refreshing}
+                    disabled={refreshing || bookLike}
                     className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshing ? 'animate-spin' : ''}`} />
-                    {refreshing ? 'Fetching...' : 'Refresh'}
+                    {bookLike ? 'Manual' : refreshing ? 'Fetching...' : 'Refresh'}
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                {hasPricing || hasEverRefreshed ? (
+                {bookLike ? (
+                  <div className="rounded-lg border border-border/40 bg-secondary/20 p-3">
+                    <div className="text-sm font-semibold">
+                      {hasPricing ? `$${marketValue.toFixed(2)} manual market value` : 'No manual market value set'}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Edit metadata to enter a manual value after checking eBay, Amazon, local comps, or your own sales history.
+                    </p>
+                  </div>
+                ) : hasPricing || hasEverRefreshed ? (
                   <>
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {allConditions.map((c) => {

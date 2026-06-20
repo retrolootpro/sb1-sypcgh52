@@ -11,7 +11,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { CircleCheck as CheckCircle2, Circle as XCircle, Search, Package, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import { CONSOLES, CONDITIONS } from '@/lib/constants';
+import { CONDITIONS, PLATFORM_OPTIONS } from '@/lib/constants';
 import { normalizeTitle } from '@/lib/barcode-lookup';
 
 type ReviewItem = {
@@ -276,7 +276,7 @@ export default function ReviewQueuePage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {CONSOLES.map((c) => (
+                              {PLATFORM_OPTIONS.map((c) => (
                                 <SelectItem key={c} value={c}>{c}</SelectItem>
                               ))}
                             </SelectContent>

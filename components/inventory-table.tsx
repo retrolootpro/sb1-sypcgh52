@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus, Clock } from 'lucide-react';
+import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus, Clock, BookOpen, Package } from 'lucide-react';
 import { PrepStageMini } from '@/components/prep-stage-bar';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { getItemRegionDetails, getRegionStyle } from '@/lib/region';
@@ -31,6 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { Collection } from '@/components/create-collection-dialog';
+import { getInventoryFamily, isBookLikeItem, productTypeLabel } from '@/lib/item-taxonomy';
 
 type InventoryItem = {
   id: string;
@@ -42,11 +43,15 @@ type InventoryItem = {
   quantity: number;
   status?: string | null;
   created_at: string;
-  image_url?: string;
-  thumbnail_url?: string;
+  image_url?: string | null;
+  thumbnail_url?: string | null;
   barcode?: string;
   description?: string | null;
-  genre?: string;
+  category?: string | null;
+  item_type?: string | null;
+  genre?: string | null;
+  source_metadata_provider?: string | null;
+  source_upc_provider?: string | null;
   pricing_matched_title?: string | null;
   pricing_matched_platform?: string | null;
   collection_id?: string | null;
@@ -88,8 +93,12 @@ type InventoryTableProps = {
 function getConditionStyle(condition: string) {
   switch (condition) {
     case 'Graded': return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+    case 'Sealed':
     case 'New': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
     case 'CIB': return 'bg-sky-500/10 text-sky-400 border-sky-500/30';
+    case 'Used': return 'bg-violet-500/10 text-violet-300 border-violet-500/30';
+    case 'Damaged': return 'bg-red-500/10 text-red-300 border-red-500/30';
+    case 'Untested': return 'bg-zinc-500/10 text-zinc-300 border-zinc-500/30';
     default: return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
   }
 }
@@ -151,9 +160,9 @@ export function InventoryTable({
   if (items.length === 0) {
     return (
       <div className="text-center py-16 border border-border/50 rounded-xl bg-card/30">
-        <Gamepad2 className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
+        <Package className="w-10 h-10 mx-auto mb-3 text-muted-foreground/40" />
         <p className="text-muted-foreground font-medium">No items found</p>
-        <p className="text-sm text-muted-foreground/60 mt-1">Scan or add your first item to get started</p>
+        <p className="text-sm text-muted-foreground/60 mt-1">Scan or add your first game, book, or resale item to get started</p>
       </div>
     );
   }
@@ -269,6 +278,9 @@ export function InventoryTable({
         }
 
         const hasPricing = marketValue > 0;
+        const bookLike = isBookLikeItem(item);
+        const family = getInventoryFamily(item);
+        const FallbackIcon = bookLike ? BookOpen : Gamepad2;
         const imageUrl = item.thumbnail_url || item.image_url;
         const isSelected = selectedIds.has(item.id);
         const hasCollections = collections.length > 0 && onMoveToCollection;
@@ -319,7 +331,7 @@ export function InventoryTable({
                   }}
                 />
               ) : null}
-              <Gamepad2 className={`w-6 h-6 text-muted-foreground/30 ${imageUrl ? 'hidden' : ''}`} />
+              <FallbackIcon className={`w-6 h-6 text-muted-foreground/30 ${imageUrl ? 'hidden' : ''}`} />
               {item.needs_review && (
                 <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-yellow-500 rounded-full border-2 border-card" />
               )}
@@ -337,10 +349,13 @@ export function InventoryTable({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-muted-foreground">{item.console}</span>
                 <span className="text-muted-foreground/30 text-sm">|</span>
+                <Badge variant="outline" className="text-[11px] px-2 py-0 h-5 border-border/45 text-muted-foreground">
+                  {productTypeLabel(family)}
+                </Badge>
                 <Badge variant="outline" className={`text-[11px] px-2 py-0 h-5 ${getConditionStyle(item.condition)}`}>
                   {item.condition}
                 </Badge>
-                {region && (
+                {region && !bookLike && (
                   <Badge
                     variant="outline"
                     className={`text-[11px] px-2 py-0 h-5 font-bold tracking-[0.04em] ${getRegionStyle(region)}`}
@@ -349,10 +364,10 @@ export function InventoryTable({
                     {region.shortLabel}
                   </Badge>
                 )}
-                {item.genre && (
+                {(item.genre || item.category) && (
                   <>
                     <span className="text-muted-foreground/30 text-sm hidden md:inline">|</span>
-                    <span className="text-xs text-muted-foreground/60 hidden md:inline">{item.genre}</span>
+                    <span className="text-xs text-muted-foreground/60 hidden md:inline">{item.genre || item.category}</span>
                   </>
                 )}
                 {item.quantity > 1 && (
@@ -405,7 +420,7 @@ export function InventoryTable({
               <div className="text-right hidden sm:block">
                 <div className="text-xs text-muted-foreground/60 mb-1">Market</div>
                 <div className="text-base font-medium text-primary">
-                  {hasPricing ? `$${marketValue.toFixed(2)}` : '--'}
+                  {hasPricing ? `$${marketValue.toFixed(2)}` : bookLike ? 'Manual' : '--'}
                 </div>
               </div>
 

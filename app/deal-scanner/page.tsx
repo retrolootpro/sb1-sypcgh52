@@ -47,12 +47,16 @@ type DealLookup = {
 
 type LookupStatus = 'idle' | 'looking_up' | 'pricing' | 'ready' | 'error';
 
-const conditionKeys = {
+const conditionKeys: Record<string, 'loose' | 'cib' | 'new' | 'graded'> = {
   Loose: 'loose',
+  Used: 'cib',
   CIB: 'cib',
   New: 'new',
+  Sealed: 'new',
   Graded: 'graded',
-} as const;
+  Damaged: 'loose',
+  Untested: 'loose',
+};
 
 function money(value: number) {
   return value > 0 ? `$${value.toFixed(2)}` : '--';

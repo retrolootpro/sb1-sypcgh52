@@ -29,7 +29,20 @@ export const CONSOLES = [
   'Other',
 ];
 
-export const CONDITIONS = ['Loose', 'CIB', 'New', 'Graded'] as const;
+export const MEDIA_PLATFORMS = [
+  'Book',
+  'Manga',
+  'Comic',
+  'Graphic Novel',
+  'Strategy Guide',
+] as const;
+
+export const PLATFORM_OPTIONS = [
+  ...MEDIA_PLATFORMS,
+  ...CONSOLES,
+] as const;
+
+export const CONDITIONS = ['Loose', 'CIB', 'Used', 'New', 'Sealed', 'Graded', 'Damaged', 'Untested'] as const;
 
 export const REGIONS = [
   { value: 'US', label: 'US / NTSC', shortLabel: 'NTSC-US' },

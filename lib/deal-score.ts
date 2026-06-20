@@ -174,12 +174,19 @@ export function getMarketValueByCondition(
   switch (condition) {
     case 'Loose':
       return loosePrice || cibPrice || newPrice;
+    case 'Used':
+      return cibPrice || loosePrice || newPrice;
     case 'CIB':
       return cibPrice || loosePrice || newPrice;
+    case 'Sealed':
     case 'New':
       return newPrice || cibPrice || loosePrice;
     case 'Graded':
       return gradedPrice || newPrice || cibPrice || loosePrice;
+    case 'Damaged':
+      return Math.round((loosePrice || cibPrice || newPrice || 0) * 0.5 * 100) / 100;
+    case 'Untested':
+      return Math.round((loosePrice || cibPrice || newPrice || 0) * 0.6 * 100) / 100;
     default:
       return loosePrice || cibPrice || newPrice;
   }

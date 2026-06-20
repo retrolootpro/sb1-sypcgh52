@@ -14,7 +14,7 @@ import { ScanResult } from '@/lib/barcode-scanner';
 import {
   Camera, Keyboard, History, CircleCheck as CheckCircle2,
   CircleAlert as AlertCircle, Loader as Loader2, Undo2, Trash2,
-  User, TrendingUp, Layers, Play, ScanBarcode, PackageCheck, Calculator, Search,
+  User, TrendingUp, Layers, Play, ScanBarcode, PackageCheck, Calculator, Search, BookOpen,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -24,8 +24,10 @@ import { lookupUPC, getActiveEmployees, type Employee } from '@/lib/api-services
 import { allocateLotCost, formatCurrency, getLotCostSummaries, type LotCostSummary } from '@/lib/finance-services';
 import { getCanonicalPricing, getPricingData, getPricingStatusMessage, toDatabaseStatus, type PricingResult } from '@/lib/pricing-service';
 import { calculateSimpleDealScore, getMarketValueByCondition, shouldSkipReview } from '@/lib/deal-score';
+import { defaultConditionForPlatform, isBookLikeItem, type UPCLookupMode } from '@/lib/item-taxonomy';
 
 type ScanMode = 'single' | 'continuous';
+type IntakeItemType = 'game' | 'book' | 'mixed';
 
 const INTAKE_SESSION_KEY = 'retroloot-intake-session';
 
@@ -68,6 +70,7 @@ function toDatabaseItemType(itemType: string | undefined) {
 export default function ScanPage() {
   const { user, accountId } = useAuth();
   const [scanMode, setScanMode] = useState<ScanMode>('single');
+  const [intakeItemType, setIntakeItemType] = useState<IntakeItemType>('game');
   const [batchMode, setBatchMode] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
   const [manualBarcode, setManualBarcode] = useState('');
@@ -107,6 +110,7 @@ export default function ScanPage() {
         const session = JSON.parse(saved);
         if (session.selectedLotId) setSelectedLotId(session.selectedLotId);
         if (session.scanMode) setScanMode(session.scanMode);
+        if (session.intakeItemType) setIntakeItemType(session.intakeItemType);
         if (typeof session.batchMode === 'boolean') setBatchMode(session.batchMode);
         if (Array.isArray(session.pendingBarcodes)) setPendingBarcodes(session.pendingBarcodes);
         if (Array.isArray(session.queue)) setQueue(session.queue);
@@ -119,10 +123,12 @@ export default function ScanPage() {
         ]);
       } else {
         setScanMode('continuous');
+        setIntakeItemType('game');
         setBatchMode(true);
       }
     } catch {
       setScanMode('continuous');
+      setIntakeItemType('game');
       setBatchMode(true);
     }
     setIntakeActive(true);
@@ -135,6 +141,7 @@ export default function ScanPage() {
       window.localStorage.setItem(INTAKE_SESSION_KEY, JSON.stringify({
         selectedLotId,
         scanMode,
+        intakeItemType,
         batchMode,
         pendingBarcodes,
         queue: queue.filter((item) => item.status !== 'scanning' && item.status !== 'looking_up' && item.status !== 'pricing' && item.status !== 'calculating'),
@@ -148,7 +155,7 @@ export default function ScanPage() {
     setIntakeActive(false);
     setSavedIntakeAvailable(true);
     toast.success('Intake saved');
-  }, [batchMode, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, queue, scanMode, selectedLotId]);
+  }, [batchMode, intakeItemType, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, queue, scanMode, selectedLotId]);
 
   const updateQueueItem = useCallback((id: string, updates: Partial<QueueItem>) => {
     setQueue((prev) =>
@@ -199,7 +206,8 @@ export default function ScanPage() {
 
       let upcLookupResult;
       try {
-        upcLookupResult = await lookupUPC(queueItem.barcode, accountId || user.id);
+        const lookupMode: UPCLookupMode = intakeItemType === 'book' ? 'book' : 'auto';
+        upcLookupResult = await lookupUPC(queueItem.barcode, accountId || user.id, undefined, lookupMode);
       } catch (lookupError: any) {
         if (lookupError.message?.includes('API key not configured')) {
           throw new Error('Please configure a barcode lookup API key in Settings');
@@ -210,13 +218,20 @@ export default function ScanPage() {
       if (!upcLookupResult) throw new Error('Product not found in any database');
       if (!upcLookupResult.title?.trim()) throw new Error('Invalid product data: missing title');
 
-      const classification = classifyItem(
-        upcLookupResult.title,
-        upcLookupResult.category || '',
-        upcLookupResult.brand || ''
-      );
+      const forcedBook = intakeItemType === 'book' || isBookLikeItem(upcLookupResult);
+      const classification = forcedBook
+        ? {
+            itemType: upcLookupResult.platform === 'Manga' ? 'manga' : 'book',
+            confidence: 96,
+            reasoning: 'Book/media intake mode',
+          }
+        : classifyItem(
+            upcLookupResult.title,
+            upcLookupResult.category || '',
+            upcLookupResult.brand || ''
+          );
 
-      const platform = upcLookupResult.platform || extractPlatform(upcLookupResult.title);
+      const platform = upcLookupResult.platform || (forcedBook ? 'Book' : extractPlatform(upcLookupResult.title));
       const edition = detectEdition(upcLookupResult.title);
 
       let pricingResult: PricingResult | null = null;
@@ -257,12 +272,15 @@ export default function ScanPage() {
       if (errorMessage.includes('API key')) {
         toast.error('Configuration Required', { description: errorMessage, duration: 5000 });
       } else if (errorMessage.includes('not found')) {
-        toast.error('Not Found', { description: `Barcode ${queueItem.barcode} not in database`, duration: 3000 });
+        const description = intakeItemType === 'book'
+          ? 'No book match found. Use the manual title option and enter price manually.'
+          : `Barcode ${queueItem.barcode} not in database`;
+        toast.error('Not Found', { description, duration: 3000 });
       } else {
         toast.error('Scan Failed', { description: errorMessage, duration: 4000 });
       }
     }
-  }, [user, accountId, updateQueueItem, findDuplicateInventoryItems]);
+  }, [user, accountId, intakeItemType, updateQueueItem, findDuplicateInventoryItems]);
 
   const handleScan = useCallback((result: ScanResult) => {
     const barcode = result.barcode.trim();
@@ -361,7 +379,7 @@ export default function ScanPage() {
     if (!user) throw new Error('Not authenticated');
 
     const pricingStatus = pricingResult ? toDatabaseStatus(pricingResult) : 'pending';
-    const condition = 'CIB';
+    const condition = defaultConditionForPlatform(selectedConsole || lookupResult.platform);
     const normalizedTitleStr = normalizeTitle(lookupResult.title || '');
 
     let selectedMarketValue = 0;
@@ -413,10 +431,10 @@ export default function ScanPage() {
         thumbnail_url: lookupResult.thumbnailUrl || null,
         added_by_employee_id: selectedEmployeeId || null,
         lot_id: selectedLotId !== 'none' ? selectedLotId : null,
-        pricing_source: pricingResult?.status === 'success' ? 'PriceCharting' : 'pending',
-        pricing_status: pricingStatus,
-        pricing_attempted_at: new Date().toISOString(),
-        pricing_last_checked_at: new Date().toISOString(),
+        pricing_source: pricingResult?.status === 'success' ? 'PriceCharting' : isBookLikeItem({ ...lookupResult, console: selectedConsole }) ? 'Manual / book metadata' : 'pending',
+        pricing_status: isBookLikeItem({ ...lookupResult, console: selectedConsole }) ? 'manual' : pricingStatus,
+        pricing_attempted_at: isBookLikeItem({ ...lookupResult, console: selectedConsole }) ? null : new Date().toISOString(),
+        pricing_last_checked_at: isBookLikeItem({ ...lookupResult, console: selectedConsole }) ? null : new Date().toISOString(),
         pricing_error_message: pricingResult?.error || null,
         pricing_error_code: pricingResult?.errorCode || null,
         pricing_confidence: pricingResult?.data?.confidence || null,
@@ -574,7 +592,7 @@ export default function ScanPage() {
     }
 
     const hasPricing = pricingResult?.status === 'success' && pricingResult.data;
-    const condition = 'CIB';
+    const condition = defaultConditionForPlatform(selectedConsole || lookupResult.platform);
     let dealScoreData = null;
     let marketValue = 0;
 
@@ -673,8 +691,11 @@ export default function ScanPage() {
     const title = manualTitle.trim();
     if (!title) return;
 
-    const platform = manualPlatform.trim() || extractPlatform(title) || '';
-    const classification = classifyItem(title, '', '');
+    const manualBook = intakeItemType === 'book';
+    const platform = manualPlatform.trim() || (manualBook ? 'Book' : extractPlatform(title) || '');
+    const classification = manualBook
+      ? { itemType: 'book', confidence: 90, reasoning: 'Manual book/media entry' }
+      : classifyItem(title, '', '');
     const confidence = calculateConfidence({
       barcodeMatch: false,
       titleSimilarity: 85,
@@ -707,7 +728,7 @@ export default function ScanPage() {
       result: {
         title,
         platform,
-        category: 'Manual Entry',
+        category: manualBook ? 'Books' : 'Manual Entry',
         classification,
         confidence,
         pricingResult,
@@ -838,6 +859,26 @@ export default function ScanPage() {
               <span className="font-semibold text-[14px] tracking-tight">Camera Scanner</span>
             </div>
             <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label className="label-caps flex items-center gap-1.5">
+                  <BookOpen className="h-3.5 w-3.5" />
+                  Intake Type
+                </Label>
+                <Select value={intakeItemType} onValueChange={(value) => setIntakeItemType(value as IntakeItemType)}>
+                  <SelectTrigger className="bg-secondary/40 h-9 rounded-lg text-[13px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="game">Games / Consoles</SelectItem>
+                    <SelectItem value="book">Books / Manga</SelectItem>
+                    <SelectItem value="mixed">Mixed Lot</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground/70">
+                  Book mode skips PriceCharting and saves items for manual pricing.
+                </p>
+              </div>
+
               <div className="flex gap-2">
                 <Button
                   onClick={() => setScannerActive(!scannerActive)}
@@ -895,7 +936,7 @@ export default function ScanPage() {
                 <Input
                   id="barcode"
                   type="text"
-                  placeholder="Enter barcode..."
+                  placeholder={intakeItemType === 'book' ? 'Enter ISBN / book barcode...' : 'Enter barcode...'}
                   value={manualBarcode}
                   onChange={(e) => setManualBarcode(e.target.value)}
                   className="bg-secondary/40 border-border/60 h-9 rounded-lg text-[13px]"
@@ -956,6 +997,7 @@ export default function ScanPage() {
                     if (event.key === 'Enter') handleManualTitleSubmit();
                   }}
                   placeholder="Game or item title..."
+                  aria-label={intakeItemType === 'book' ? 'Book title' : 'Game or item title'}
                   className="bg-secondary/40 border-border/60 h-9 rounded-lg text-[13px]"
                 />
                 <Input
@@ -964,7 +1006,7 @@ export default function ScanPage() {
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') handleManualTitleSubmit();
                   }}
-                  placeholder="Platform, category, or system..."
+                  placeholder={intakeItemType === 'book' ? 'Book, Manga, Comic...' : 'Platform, category, or system...'}
                   className="bg-secondary/40 border-border/60 h-9 rounded-lg text-[13px]"
                 />
                 <Button type="button" variant="outline" className="w-full h-9 rounded-lg text-[13px]" disabled={!manualTitle.trim()} onClick={handleManualTitleSubmit}>

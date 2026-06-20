@@ -10,9 +10,10 @@ import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
-import { CONSOLES, CONDITIONS, REGIONS } from '@/lib/constants';
+import { CONDITIONS, PLATFORM_OPTIONS, REGIONS } from '@/lib/constants';
 import { getCanonicalPricing } from '@/lib/pricing-service';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
+import { defaultConditionForPlatform, isBookLikeValue } from '@/lib/item-taxonomy';
 
 type AddItemDialogProps = {
   open: boolean;
@@ -31,7 +32,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
   const [formData, setFormData] = useState({
     product_name: '',
     console: 'Nintendo Switch',
-    condition: 'CIB' as 'Loose' | 'CIB' | 'New',
+    condition: 'CIB',
     region: 'US',
     purchase_price: '',
     quantity: '1',
@@ -81,6 +82,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
 
     try {
       if (!user || !accountId) throw new Error('Not authenticated');
+      const manualPricedItem = isBookLikeValue(formData.console);
       const { data: inventoryItem, error } = await supabase
         .from('inventory_items')
         .insert({
@@ -95,6 +97,11 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           barcode: formData.barcode?.trim() || null,
           collection_id: defaultCollectionId || null,
           lot_id: formData.lot_id || null,
+          category: manualPricedItem ? 'Books & Media' : 'Video Games',
+          item_type: manualPricedItem ? 'accessory' : 'game',
+          pricing_source: manualPricedItem ? 'Manual / book metadata' : 'pending',
+          pricing_status: manualPricedItem ? 'manual' : 'pending',
+          source_metadata_provider: 'manual_entry',
         })
         .select()
         .single();
@@ -102,59 +109,61 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
       if (error) throw new Error(error.message || 'Failed to add item');
       if (!inventoryItem) throw new Error('Item created but no data returned');
 
-      try {
-        const pricingData = await getCanonicalPricing(formData.product_name.trim(), formData.console, {
-          upc: formData.barcode?.trim() || null,
-          forceRefresh: true,
-        });
-
-        if (pricingData.status !== 'api_error') {
-          const loosePrice = pricingData.prices.loose.value || 0;
-          const cibPrice = pricingData.prices.cib.value || 0;
-          const newPrice = pricingData.prices.new.value || 0;
-          const gradedPrice = pricingData.prices.graded.value || 0;
-          const marketValue = getMarketValueByCondition(formData.condition, loosePrice, cibPrice, newPrice, gradedPrice);
-          const estimatedProfit = marketValue > 0 ? marketValue - price : 0;
-          const estimatedMarginPercent = marketValue > 0 && price > 0 ? (estimatedProfit / price) * 100 : 0;
-          const dealScore = marketValue > 0 ? calculateDealScore(price, marketValue) : null;
-
-          const { error: pricingUpdateError } = await supabase
-            .from('inventory_items')
-            .update({
-              price_loose: loosePrice,
-              price_cib: cibPrice,
-              price_new: newPrice,
-              price_graded: gradedPrice,
-              selected_market_value: marketValue,
-              estimated_profit: estimatedProfit,
-              estimated_margin_percent: estimatedMarginPercent,
-              deal_score: dealScore?.score ?? 0,
-              deal_score_label: dealScore?.label ?? '',
-              pricing_status: marketValue > 0 ? 'found' : 'missing',
-              pricing_last_checked_at: new Date().toISOString(),
-              pricing_source: pricingData.source || 'pricecharting',
-              pricing_confidence: pricingData.pcMatch ? 90 : null,
-              pricing_matched_title: pricingData.pcMatch?.productName ?? null,
-              pricing_matched_platform: pricingData.pcMatch?.platform ?? null,
-              pc_source_product_id: pricingData.pcMatch?.productId ?? null,
-              pricing_diagnostics: pricingData.diagnostics,
-            })
-            .eq('id', inventoryItem.id);
-
-          if (pricingUpdateError) throw pricingUpdateError;
-
-          const { error: pricingDataError } = await supabase.from('pricing_data').insert({
-            item_id: inventoryItem.id,
-            loose_price: loosePrice,
-            cib_price: cibPrice,
-            new_price: newPrice,
-            fetched_at: new Date().toISOString(),
+      if (!manualPricedItem) {
+        try {
+          const pricingData = await getCanonicalPricing(formData.product_name.trim(), formData.console, {
+            upc: formData.barcode?.trim() || null,
+            forceRefresh: true,
           });
-          if (pricingDataError) throw pricingDataError;
+
+          if (pricingData.status !== 'api_error') {
+            const loosePrice = pricingData.prices.loose.value || 0;
+            const cibPrice = pricingData.prices.cib.value || 0;
+            const newPrice = pricingData.prices.new.value || 0;
+            const gradedPrice = pricingData.prices.graded.value || 0;
+            const marketValue = getMarketValueByCondition(formData.condition, loosePrice, cibPrice, newPrice, gradedPrice);
+            const estimatedProfit = marketValue > 0 ? marketValue - price : 0;
+            const estimatedMarginPercent = marketValue > 0 && price > 0 ? (estimatedProfit / price) * 100 : 0;
+            const dealScore = marketValue > 0 ? calculateDealScore(price, marketValue) : null;
+
+            const { error: pricingUpdateError } = await supabase
+              .from('inventory_items')
+              .update({
+                price_loose: loosePrice,
+                price_cib: cibPrice,
+                price_new: newPrice,
+                price_graded: gradedPrice,
+                selected_market_value: marketValue,
+                estimated_profit: estimatedProfit,
+                estimated_margin_percent: estimatedMarginPercent,
+                deal_score: dealScore?.score ?? 0,
+                deal_score_label: dealScore?.label ?? '',
+                pricing_status: marketValue > 0 ? 'found' : 'missing',
+                pricing_last_checked_at: new Date().toISOString(),
+                pricing_source: pricingData.source || 'pricecharting',
+                pricing_confidence: pricingData.pcMatch ? 90 : null,
+                pricing_matched_title: pricingData.pcMatch?.productName ?? null,
+                pricing_matched_platform: pricingData.pcMatch?.platform ?? null,
+                pc_source_product_id: pricingData.pcMatch?.productId ?? null,
+                pricing_diagnostics: pricingData.diagnostics,
+              })
+              .eq('id', inventoryItem.id);
+
+            if (pricingUpdateError) throw pricingUpdateError;
+
+            const { error: pricingDataError } = await supabase.from('pricing_data').insert({
+              item_id: inventoryItem.id,
+              loose_price: loosePrice,
+              cib_price: cibPrice,
+              new_price: newPrice,
+              fetched_at: new Date().toISOString(),
+            });
+            if (pricingDataError) throw pricingDataError;
+          }
+        } catch (pricingError) {
+          console.error('[Add Item] Pricing refresh failed:', pricingError);
+          toast.warning('Item was added, but pricing could not be refreshed automatically.');
         }
-      } catch (pricingError) {
-        console.error('[Add Item] Pricing refresh failed:', pricingError);
-        toast.warning('Item was added, but pricing could not be refreshed automatically.');
       }
 
       toast.success('Item added successfully!');
@@ -184,7 +193,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
         <DialogHeader>
           <DialogTitle>Add Inventory Item</DialogTitle>
           <DialogDescription>
-            Add a new item to your inventory. Pricing data will be fetched automatically.
+            Add games, books, manga, comics, or other resale inventory. Book and media items use manual pricing by default.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
@@ -203,16 +212,16 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="console">Console</Label>
+                <Label htmlFor="console">Platform / Category</Label>
                 <Select
                   value={formData.console}
-                  onValueChange={(value) => setFormData({ ...formData, console: value })}
+                  onValueChange={(value) => setFormData({ ...formData, console: value, condition: defaultConditionForPlatform(value) })}
                 >
                   <SelectTrigger className="bg-secondary/50">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CONSOLES.map((c) => (
+                    {PLATFORM_OPTIONS.map((c) => (
                       <SelectItem key={c} value={c}>{c}</SelectItem>
                     ))}
                   </SelectContent>
@@ -223,7 +232,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
                 <Label htmlFor="condition">Condition</Label>
                 <Select
                   value={formData.condition}
-                  onValueChange={(value) => setFormData({ ...formData, condition: value as 'Loose' | 'CIB' | 'New' })}
+                  onValueChange={(value) => setFormData({ ...formData, condition: value })}
                 >
                   <SelectTrigger className="bg-secondary/50">
                     <SelectValue />

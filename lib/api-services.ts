@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { getPricingData } from './pricing-service';
 import { getActiveAccountId } from './account';
+import type { UPCLookupMode } from './item-taxonomy';
 
 export interface UPCLookupResult {
   barcode: string;
@@ -24,7 +25,7 @@ export interface PriceChartingResult {
   genre?: string;
 }
 
-export async function lookupUPC(barcode: string, userId: string, titleHint?: string): Promise<UPCLookupResult | null> {
+export async function lookupUPC(barcode: string, userId: string, titleHint?: string, lookupMode: UPCLookupMode = 'auto'): Promise<UPCLookupResult | null> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     throw new Error('No active session. Please log in again.');
@@ -35,7 +36,11 @@ export async function lookupUPC(barcode: string, userId: string, titleHint?: str
   }
 
   const cleanBarcode = barcode.trim();
-  const requestBody = { barcode: cleanBarcode, titleHint: titleHint?.trim() || undefined };
+  const requestBody = {
+    barcode: cleanBarcode,
+    titleHint: titleHint?.trim() || undefined,
+    lookupMode,
+  };
   let routeErrorMessage = '';
 
   try {
@@ -73,7 +78,11 @@ export async function lookupUPC(barcode: string, userId: string, titleHint?: str
     throw new Error('API key not configured. Please add a PriceCharting, Barcode Lookup, or UPCitemDB API key in Settings.');
   }
 
-  if (routeErrorMessage.includes('not found')) {
+  if (/book metadata/i.test(routeErrorMessage)) {
+    throw new Error(`No book metadata found for barcode ${barcode}. Add it manually and enter pricing yourself.`);
+  }
+
+  if (/not found/i.test(routeErrorMessage)) {
     throw new Error(`Product not found for barcode ${barcode}. This barcode may not exist in the lookup databases.`);
   }
 
