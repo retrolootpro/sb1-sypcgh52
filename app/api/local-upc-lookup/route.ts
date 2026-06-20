@@ -241,15 +241,19 @@ export async function POST(req: NextRequest) {
           source: book.source,
         });
       }
+
+      return json({
+        success: false,
+        errorCode: 'BOOK_NO_MATCH',
+        message: `No book metadata found for ISBN ${cleanBarcode}.`,
+      }, 404);
     }
 
     if (!pcKey) {
       return json({
         success: false,
         errorCode: 'CONFIG_ERROR',
-        message: isBookBarcode
-          ? 'No book metadata was found for this ISBN, and PriceCharting is not configured for game UPC fallback.'
-          : 'PriceCharting API key is required for game UPC lookup.',
+        message: 'PriceCharting API key is required for game UPC lookup.',
       });
     }
 
@@ -268,9 +272,7 @@ export async function POST(req: NextRequest) {
       return json({
         success: false,
         errorCode: 'NO_MATCH',
-        message: isBookBarcode
-          ? `No book metadata or PriceCharting product found for UPC ${cleanBarcode}.`
-          : `No PriceCharting product found for UPC ${cleanBarcode}.`,
+        message: `No PriceCharting product found for UPC ${cleanBarcode}.`,
       });
     }
 

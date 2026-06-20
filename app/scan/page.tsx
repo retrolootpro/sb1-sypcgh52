@@ -503,11 +503,13 @@ export default function ScanPage() {
     const { result: lookupResult } = queueItem;
     let { pricingResult } = lookupResult;
     const { classification, confidence } = lookupResult;
+    const usesAutomatedPricing = classification.itemType === 'game' || classification.itemType === 'console';
 
     updateQueueItem(queueItem.id, { status: 'calculating', purchasePrice, selectedConsole });
 
     const confirmedConsole = selectedConsole.trim();
     const shouldRetryPricing =
+      usesAutomatedPricing &&
       confirmedConsole &&
       (
         !pricingResult ||
@@ -538,35 +540,37 @@ export default function ScanPage() {
       }
     }
 
-    try {
-      const marketPricing = await getCanonicalPricing(lookupResult.title, confirmedConsole, {
-        upc: queueItem.barcode,
-        storedPcProductId: pricingResult?.data?.pcProductId || null,
-        forceRefresh: true,
-      });
-      const p = marketPricing.prices;
-      const hasMarketPrice = p.loose.value > 0 || p.cib.value > 0 || p.new.value > 0 || p.graded.value > 0;
-      if (marketPricing.status !== 'api_error' && hasMarketPrice) {
-        pricingResult = {
-          status: 'success',
-          data: {
-            productName: marketPricing.pcMatch?.productName || pricingResult?.data?.productName || lookupResult.title,
-            console: marketPricing.pcMatch?.platform || confirmedConsole,
-            loosePrice: p.loose.value,
-            cibPrice: p.cib.value,
-            newPrice: p.new.value,
-            gradedPrice: p.graded.value,
-            pcProductId: marketPricing.pcMatch?.productId || pricingResult?.data?.pcProductId || '',
-            matchedTitle: marketPricing.pcMatch?.productName || pricingResult?.data?.matchedTitle || undefined,
-            matchedPlatform: marketPricing.pcMatch?.platform || confirmedConsole,
-            confidence: marketPricing.diagnostics.pcApiUsed ? 90 : 75,
-            strategy: marketPricing.pcMatch?.strategy || 'recent_sales_90d',
-            genre: pricingResult?.data?.genre || '',
-          },
-        };
+    if (usesAutomatedPricing) {
+      try {
+        const marketPricing = await getCanonicalPricing(lookupResult.title, confirmedConsole, {
+          upc: queueItem.barcode,
+          storedPcProductId: pricingResult?.data?.pcProductId || null,
+          forceRefresh: true,
+        });
+        const p = marketPricing.prices;
+        const hasMarketPrice = p.loose.value > 0 || p.cib.value > 0 || p.new.value > 0 || p.graded.value > 0;
+        if (marketPricing.status !== 'api_error' && hasMarketPrice) {
+          pricingResult = {
+            status: 'success',
+            data: {
+              productName: marketPricing.pcMatch?.productName || pricingResult?.data?.productName || lookupResult.title,
+              console: marketPricing.pcMatch?.platform || confirmedConsole,
+              loosePrice: p.loose.value,
+              cibPrice: p.cib.value,
+              newPrice: p.new.value,
+              gradedPrice: p.graded.value,
+              pcProductId: marketPricing.pcMatch?.productId || pricingResult?.data?.pcProductId || '',
+              matchedTitle: marketPricing.pcMatch?.productName || pricingResult?.data?.matchedTitle || undefined,
+              matchedPlatform: marketPricing.pcMatch?.platform || confirmedConsole,
+              confidence: marketPricing.diagnostics.pcApiUsed ? 90 : 75,
+              strategy: marketPricing.pcMatch?.strategy || 'recent_sales_90d',
+              genre: pricingResult?.data?.genre || '',
+            },
+          };
+        }
+      } catch {
+        // Keep the PriceCharting-only result if the 90-day market refresh is unavailable.
       }
-    } catch {
-      // Keep the PriceCharting-only result if the 90-day market refresh is unavailable.
     }
 
     const hasPricing = pricingResult?.status === 'success' && pricingResult.data;
@@ -590,9 +594,13 @@ export default function ScanPage() {
 
     const normalizedTitleStr = normalizeTitle(lookupResult.title || '');
     const lotAllocationPending = selectedLotId !== 'none' && purchasePrice <= 0;
-    const reviewCheck = lotAllocationPending && marketValue > 0
+    const reviewCheck = lotAllocationPending
       ? { skip: true, reason: 'Lot COGS will be allocated after this lot is complete' }
-      : shouldSkipReview(
+      : !usesAutomatedPricing
+        ? purchasePrice > 0
+          ? { skip: true, reason: 'Manual-priced item saved without automated market pricing' }
+          : { skip: false, reason: 'Missing purchase price' }
+        : shouldSkipReview(
         queueItem.barcode,
         normalizedTitleStr,
         selectedConsole,
@@ -607,11 +615,15 @@ export default function ScanPage() {
       if (reviewCheck.skip) {
         const inventoryItem = await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, false);
         updateQueueItem(queueItem.id, { status: 'added', inventoryItemId: inventoryItem.id });
-        const pricingMsg = pricingResult?.status === 'success'
-          ? purchasePrice > 0
-            ? `$${purchasePrice} → ${dealScoreData?.emoji ?? ''} ${dealScoreData?.label ?? ''}`
-            : 'Saved for lot COGS allocation'
-          : getPricingStatusMessage(pricingResult!);
+        const pricingMsg = !usesAutomatedPricing
+          ? reviewCheck.reason
+          : pricingResult?.status === 'success'
+            ? purchasePrice > 0
+              ? `$${purchasePrice} → ${dealScoreData?.emoji ?? ''} ${dealScoreData?.label ?? ''}`
+              : 'Saved for lot COGS allocation'
+            : pricingResult
+              ? getPricingStatusMessage(pricingResult)
+              : 'Pricing unavailable';
         toast.success(`Added: ${lookupResult.title}`, { description: pricingMsg, duration: 2500 });
       } else {
         const inventoryItem = await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, true);
