@@ -212,6 +212,43 @@ export default function ScanPage() {
         if (lookupError.message?.includes('API key not configured')) {
           throw new Error('Please configure a barcode lookup API key in Settings');
         }
+        if (intakeItemType === 'book' && /book metadata|not found|Product not found/i.test(lookupError.message || '')) {
+          const classification = { itemType: 'book', confidence: 70, reasoning: 'Book barcode kept; title required' };
+          const confidence = calculateConfidence({
+            barcodeMatch: true,
+            titleSimilarity: 0,
+            platformMatch: true,
+            itemTypeConfidence: classification.confidence,
+            hasImage: false,
+            hasPricing: false,
+            editionMatch: false,
+          });
+          const title = `Book ${queueItem.barcode}`;
+          const result = {
+            barcode: queueItem.barcode,
+            title,
+            platform: 'Book',
+            category: 'Books',
+            brand: 'Books',
+            description: 'Manual book intake from scanned barcode.',
+            imageUrl: '',
+            thumbnailUrl: '',
+            source: 'manual_book_barcode',
+            pricingResult: null,
+            classification,
+            confidence,
+            manualTitleRequired: true,
+          };
+
+          updateQueueItem(queueItem.id, { status: 'awaiting_price', result, productName: title });
+          setCurrentQueueItemForDialog({ ...queueItem, status: 'awaiting_price', result, productName: title });
+          setShowItemDialog(true);
+          toast.info('Book title needed', {
+            description: 'No reliable barcode match found. Enter the title to save this scan.',
+            duration: 3500,
+          });
+          return;
+        }
         throw lookupError;
       }
 
@@ -509,7 +546,7 @@ export default function ScanPage() {
     }
   }, [selectedLot]);
 
-  const handleItemConfirm = useCallback(async (purchasePrice: number, selectedConsole: string, selectedRegion: string) => {
+  const handleItemConfirm = useCallback(async (purchasePrice: number, selectedConsole: string, selectedRegion: string, titleOverride?: string) => {
     if (!currentQueueItemForDialog || !user) return;
 
     setShowItemDialog(false);
@@ -518,7 +555,13 @@ export default function ScanPage() {
       ?? currentQueueItemForDialog;
     if (!queueItem?.result) return;
 
-    const { result: lookupResult } = queueItem;
+    const { result } = queueItem;
+    const lookupResult = titleOverride?.trim()
+      ? { ...result, title: titleOverride.trim(), productName: titleOverride.trim(), manualTitleRequired: false }
+      : result;
+    if (titleOverride?.trim()) {
+      updateQueueItem(queueItem.id, { result: lookupResult, productName: titleOverride.trim() });
+    }
     let { pricingResult } = lookupResult;
     const { classification, confidence } = lookupResult;
     const usesAutomatedPricing = classification.itemType === 'game' || classification.itemType === 'console';
@@ -1185,6 +1228,7 @@ export default function ScanPage() {
           productName={currentQueueItemForDialog?.result?.title || currentQueueItemForDialog?.productName || ''}
           detectedConsole={detectedConsoleForDialog}
           duplicateMatches={currentQueueItemForDialog?.duplicateMatches || []}
+          allowTitleEdit={Boolean(currentQueueItemForDialog?.result?.manualTitleRequired)}
         />
       </div>
     </DashboardLayout>

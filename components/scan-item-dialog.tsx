@@ -23,11 +23,12 @@ export const ALL_CONSOLES = CONSOLE_OPTIONS.flatMap((g) => g.options);
 interface ScanItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (purchasePrice: number, console: string, region: string) => void;
+  onConfirm: (purchasePrice: number, console: string, region: string, titleOverride?: string) => void;
   onSkip: () => void;
   productName: string;
   detectedConsole: string | null;
   suggestedPrice?: number;
+  allowTitleEdit?: boolean;
   duplicateMatches?: Array<{
     id: string;
     product_name: string;
@@ -45,32 +46,49 @@ export function ScanItemDialog({
   productName,
   detectedConsole,
   suggestedPrice,
+  allowTitleEdit = false,
   duplicateMatches = [],
 }: ScanItemDialogProps) {
+  const [editableTitle, setEditableTitle] = useState(productName || '');
   const [price, setPrice] = useState<string>(suggestedPrice?.toString() || '');
   const [consoleValue, setConsoleValue] = useState<string>(detectedConsole || '');
   const [region, setRegion] = useState('US');
+  const [titleError, setTitleError] = useState('');
   const [priceError, setPriceError] = useState('');
   const [consoleError, setConsoleError] = useState('');
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
+      setEditableTitle(productName || '');
       setConsoleValue(detectedConsole || '');
       setRegion('US');
+      setTitleError('');
       setPrice(suggestedPrice?.toString() || '');
       setPriceError('');
       setConsoleError('');
       setTimeout(() => {
+        if (allowTitleEdit) {
+          titleInputRef.current?.focus();
+          titleInputRef.current?.select();
+          return;
+        }
         if (!detectedConsole) return;
         priceInputRef.current?.focus();
         priceInputRef.current?.select();
       }, 120);
     }
-  }, [open, detectedConsole, suggestedPrice]);
+  }, [open, detectedConsole, productName, suggestedPrice, allowTitleEdit]);
 
   const handleConfirm = () => {
     let valid = true;
+    const cleanTitle = editableTitle.trim();
+
+    if (allowTitleEdit && !cleanTitle) {
+      setTitleError('Enter the book title');
+      valid = false;
+    }
 
     const numPrice = price.trim() === '' ? 0 : parseFloat(price);
     if (isNaN(numPrice) || numPrice < 0) {
@@ -88,19 +106,23 @@ export function ScanItemDialog({
 
     if (!valid) return;
 
-    onConfirm(numPrice, consoleValue.trim(), region);
+    onConfirm(numPrice, consoleValue.trim(), region, allowTitleEdit ? cleanTitle : undefined);
+    setEditableTitle('');
     setPrice('');
     setConsoleValue('');
     setRegion('US');
+    setTitleError('');
     setPriceError('');
     setConsoleError('');
   };
 
   const handleSkip = () => {
     onSkip();
+    setEditableTitle('');
     setPrice('');
     setConsoleValue('');
     setRegion('US');
+    setTitleError('');
     setPriceError('');
     setConsoleError('');
   };
@@ -127,11 +149,31 @@ export function ScanItemDialog({
         </DialogHeader>
 
         <div className="space-y-5 py-2">
-          <div className="px-3 py-2.5 rounded-md bg-secondary/50 border border-border/40">
-            <p className="text-[13px] font-medium text-foreground/90 leading-snug line-clamp-2">
-              {productName || 'Unknown Product'}
-            </p>
-          </div>
+          {allowTitleEdit ? (
+            <div className="space-y-1.5">
+              <Label className="text-[12px] text-muted-foreground">
+                Book Title
+              </Label>
+              <Input
+                ref={titleInputRef}
+                value={editableTitle}
+                onChange={(e) => { setEditableTitle(e.target.value); setTitleError(''); }}
+                onKeyDown={handleKeyDown}
+                className="h-10 bg-secondary/40 border-border/60 text-[13px]"
+                placeholder="Enter book title..."
+              />
+              {titleError && <p className="text-[12px] text-red-400">{titleError}</p>}
+              <p className="text-[11px] text-muted-foreground/70">
+                No reliable barcode match was found. The barcode will still be saved with this item.
+              </p>
+            </div>
+          ) : (
+            <div className="px-3 py-2.5 rounded-md bg-secondary/50 border border-border/40">
+              <p className="text-[13px] font-medium text-foreground/90 leading-snug line-clamp-2">
+                {productName || 'Unknown Product'}
+              </p>
+            </div>
+          )}
 
           {duplicateMatches.length > 0 && (
             <div className="rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2.5">
