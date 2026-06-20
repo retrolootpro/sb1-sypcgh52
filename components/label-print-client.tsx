@@ -56,6 +56,16 @@ function labelPrice(item: LabelItem) {
     || 0;
 }
 
+function retailLabelPrice(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  const whole = Math.floor(value);
+  const cents = value - whole;
+  if (cents < 0.5) {
+    return Math.max(0, whole - 0.01);
+  }
+  return Math.max(0, whole + 1 - 0.01);
+}
+
 function labelTitle(item: LabelItem) {
   return item.product_name || item.console || 'Inventory Item';
 }
@@ -189,7 +199,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
                   </div>
                   <div className="price-label-copy">
                     <div className="price-label-name">{labelTitle(item)}</div>
-                    <div className="price-label-price">{money(labelPrice(item))}</div>
+                    <div className="price-label-price">{money(retailLabelPrice(labelPrice(item)))}</div>
                   </div>
                 </div>
               </div>
