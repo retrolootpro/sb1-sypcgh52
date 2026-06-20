@@ -428,7 +428,8 @@ export default function ScanPage() {
     selectedConsole: string,
     selectedRegion: string,
     dealScoreData: any,
-    needsReview: boolean
+    needsReview: boolean,
+    askingPrice?: number
   ) => {
     if (!user) throw new Error('Not authenticated');
 
@@ -444,6 +445,9 @@ export default function ScanPage() {
     let priceCib = 0;
     let priceNew = 0;
     let priceGraded = 0;
+    const manualAskingPrice = Number.isFinite(Number(askingPrice)) && Number(askingPrice) > 0
+      ? Number(askingPrice)
+      : 0;
 
     if (pricingResult?.status === 'success' && pricingResult.data) {
       priceLoose = pricingResult.data.loosePrice;
@@ -451,10 +455,13 @@ export default function ScanPage() {
       priceNew = pricingResult.data.newPrice;
       priceGraded = pricingResult.data.gradedPrice || 0;
       selectedMarketValue = getMarketValueByCondition(condition, priceLoose, priceCib, priceNew, priceGraded);
-      if (purchasePrice > 0) {
-        estimatedProfit = selectedMarketValue - purchasePrice;
-        estimatedMarginPercent = (estimatedProfit / purchasePrice) * 100;
-      }
+    }
+    if (manualAskingPrice > 0) {
+      selectedMarketValue = manualAskingPrice;
+    }
+    if (purchasePrice > 0 && selectedMarketValue > 0) {
+      estimatedProfit = selectedMarketValue - purchasePrice;
+      estimatedMarginPercent = (estimatedProfit / purchasePrice) * 100;
     }
 
     const { data: inventoryItem, error: inventoryError } = await supabase
@@ -466,6 +473,7 @@ export default function ScanPage() {
         condition,
         region: selectedRegion,
         purchase_price: Math.max(0, purchasePrice),
+        sell_price: manualAskingPrice > 0 ? manualAskingPrice : null,
         quantity: Math.max(1, Number(queueItem.scanCount || 1)),
         barcode: queueItem.barcode || null,
         raw_scanned_title: lookupResult.title?.trim() || '',
@@ -588,7 +596,8 @@ export default function ScanPage() {
     selectedConsole: string,
     selectedRegion: string,
     titleOverride?: string,
-    bookMetadataOverride?: Record<string, unknown>
+    bookMetadataOverride?: Record<string, unknown>,
+    askingPrice?: number
   ) => {
     if (!currentQueueItemForDialog || !user) return;
 
@@ -739,7 +748,7 @@ export default function ScanPage() {
 
     try {
       if (reviewCheck.skip) {
-        const inventoryItem = await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, false);
+        const inventoryItem = await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, false, askingPrice);
         updateQueueItem(queueItem.id, { status: 'added', inventoryItemId: inventoryItem.id });
         const pricingMsg = !usesAutomatedPricing
           ? reviewCheck.reason
@@ -752,7 +761,7 @@ export default function ScanPage() {
               : 'Pricing unavailable';
         toast.success(`Added: ${lookupResult.title}`, { description: pricingMsg, duration: 2500 });
       } else {
-        const inventoryItem = await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, true);
+        const inventoryItem = await createInventoryItem(queueItem, lookupResult, classification, confidence, pricingResult, purchasePrice, selectedConsole, selectedRegion, dealScoreData, true, askingPrice);
         updateQueueItem(queueItem.id, { status: 'needs_review', inventoryItemId: inventoryItem.id });
         toast.warning(`${lookupResult.title} — Needs Review`, { description: reviewCheck.reason, duration: 3000 });
       }

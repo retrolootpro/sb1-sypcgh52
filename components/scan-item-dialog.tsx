@@ -24,7 +24,14 @@ export const ALL_CONSOLES = CONSOLE_OPTIONS.flatMap((g) => g.options);
 interface ScanItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (purchasePrice: number, console: string, region: string, titleOverride?: string, bookMetadataOverride?: Record<string, unknown>) => void;
+  onConfirm: (
+    purchasePrice: number,
+    console: string,
+    region: string,
+    titleOverride?: string,
+    bookMetadataOverride?: Record<string, unknown>,
+    askingPrice?: number
+  ) => void;
   onSkip: () => void;
   productName: string;
   detectedConsole: string | null;
@@ -108,10 +115,12 @@ export function ScanItemDialog({
   const [coverImageUrl, setCoverImageUrl] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState<string>(suggestedPrice?.toString() || '');
+  const [askingPrice, setAskingPrice] = useState('');
   const [consoleValue, setConsoleValue] = useState<string>(detectedConsole || '');
   const [region, setRegion] = useState('US');
   const [titleError, setTitleError] = useState('');
   const [priceError, setPriceError] = useState('');
+  const [askingPriceError, setAskingPriceError] = useState('');
   const [consoleError, setConsoleError] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
@@ -135,7 +144,9 @@ export function ScanItemDialog({
       setRegion('US');
       setTitleError('');
       setPrice(suggestedPrice?.toString() || '');
+      setAskingPrice('');
       setPriceError('');
+      setAskingPriceError('');
       setConsoleError('');
       setTimeout(() => {
         const compactViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
@@ -162,11 +173,20 @@ export function ScanItemDialog({
     }
 
     const numPrice = price.trim() === '' ? 0 : parseFloat(price);
+    const numAskingPrice = askingPrice.trim() === '' ? undefined : parseFloat(askingPrice);
     if (isNaN(numPrice) || numPrice < 0) {
       setPriceError('Enter a valid price (0 or more)');
       valid = false;
     } else if (numPrice > 100000) {
       setPriceError('Price seems too high');
+      valid = false;
+    }
+
+    if (numAskingPrice !== undefined && (isNaN(numAskingPrice) || numAskingPrice < 0)) {
+      setAskingPriceError('Enter a valid asking price');
+      valid = false;
+    } else if (numAskingPrice !== undefined && numAskingPrice > 100000) {
+      setAskingPriceError('Asking price seems too high');
       valid = false;
     }
 
@@ -195,13 +215,15 @@ export function ScanItemDialog({
       sourcesTried: bookMetadata?.sourcesTried || [],
     } : undefined;
 
-    onConfirm(numPrice, consoleValue.trim(), region, allowTitleEdit ? cleanTitle : undefined, metadataOverride);
+    onConfirm(numPrice, consoleValue.trim(), region, allowTitleEdit ? cleanTitle : undefined, metadataOverride, numAskingPrice);
     setEditableTitle('');
     setPrice('');
+    setAskingPrice('');
     setConsoleValue('');
     setRegion('US');
     setTitleError('');
     setPriceError('');
+    setAskingPriceError('');
     setConsoleError('');
   };
 
@@ -209,10 +231,12 @@ export function ScanItemDialog({
     onSkip();
     setEditableTitle('');
     setPrice('');
+    setAskingPrice('');
     setConsoleValue('');
     setRegion('US');
     setTitleError('');
     setPriceError('');
+    setAskingPriceError('');
     setConsoleError('');
   };
 
@@ -391,6 +415,30 @@ export function ScanItemDialog({
               Optional for single-item buys. Lot scans will allocate cost after market values are totaled.
               {' '}Press <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to save
               {' '}or <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Esc</kbd> to skip
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-[12px] text-muted-foreground flex items-center gap-1.5">
+              <DollarSign className="w-3.5 h-3.5" />
+              Asking Price
+            </Label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Enter list / sale price"
+                value={askingPrice}
+                onChange={(e) => { setAskingPrice(e.target.value); setAskingPriceError(''); }}
+                onKeyDown={handleKeyDown}
+                className="pl-7 h-10 bg-secondary/40 border-border/60 text-[13px]"
+              />
+            </div>
+            {askingPriceError && <p className="text-[12px] text-red-400">{askingPriceError}</p>}
+            <p className="text-[11px] text-muted-foreground/60">
+              Used as the manual market value for books/media so profit can calculate from asking price minus cost.
             </p>
           </div>
 
