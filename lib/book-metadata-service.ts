@@ -35,6 +35,12 @@ type UpcItemDbProduct = {
   images?: string[];
 };
 
+const AMBIGUOUS_BOOK_UPC_PREFIXES = [
+  // Scholastic/children's book club UPCs are often reused or poorly mapped in
+  // generic UPC databases. They should not be trusted as unique book identity.
+  '078073',
+];
+
 function cleanImage(url: string) {
   if (!url) return '';
   return url.replace(/^http:\/\//i, 'https://');
@@ -58,6 +64,7 @@ function isbnCandidates(barcode: string) {
 function upcCandidates(barcode: string) {
   const digitsOnly = barcode.replace(/\D/g, '');
   if (/^(978|979)\d{10}\d{2,5}$/.test(digitsOnly)) return [];
+  if (AMBIGUOUS_BOOK_UPC_PREFIXES.some((prefix) => digitsOnly.startsWith(prefix))) return [];
   return barcodeCandidates(barcode).filter((candidate) => /^\d{8,14}$/.test(candidate));
 }
 
