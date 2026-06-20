@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, Printer, Trash2, X } from 'lucide-react';
@@ -68,6 +68,18 @@ function retailLabelPrice(value: number) {
 
 function labelTitle(item: LabelItem) {
   return item.product_name || item.console || 'Inventory Item';
+}
+
+function labelTextStyle(title: string, price: string): CSSProperties {
+  const titleLength = title.length;
+  const priceLength = price.length;
+  const titleSize = titleLength <= 12 ? 10 : titleLength <= 22 ? 8 : titleLength <= 34 ? 6.8 : 5.8;
+  const priceSize = priceLength <= 5 ? 20 : priceLength <= 6 ? 17 : priceLength <= 7 ? 14.5 : 12.5;
+
+  return {
+    '--label-title-size': `${titleSize}px`,
+    '--label-price-size': `${priceSize}px`,
+  } as CSSProperties;
 }
 
 export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
@@ -183,7 +195,10 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           </div>
         ) : (
           <div className="label-sheet mx-auto flex max-w-5xl flex-wrap gap-4">
-            {items.map((item) => (
+            {items.map((item) => {
+              const title = labelTitle(item);
+              const price = money(retailLabelPrice(labelPrice(item)));
+              return (
               <div key={item.id} className="label-card-wrap">
                 <button
                   type="button"
@@ -193,17 +208,18 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
-                <div className={`price-label ${fontClassName}`}>
+                <div className={`price-label ${fontClassName}`} style={labelTextStyle(title, price)}>
                   <div className="price-label-logo">
                     <img src={LOGO_SRC} alt="Pixel & Page" />
                   </div>
                   <div className="price-label-copy">
-                    <div className="price-label-name">{labelTitle(item)}</div>
-                    <div className="price-label-price">{money(retailLabelPrice(labelPrice(item)))}</div>
+                    <div className="price-label-name">{title}</div>
+                    <div className="price-label-price">{price}</div>
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -228,7 +244,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             overflow: hidden;
             background: white;
             color: black;
-            border: 1px solid #111;
+            border: 0;
             box-sizing: border-box;
           }
 
@@ -237,13 +253,13 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 0.07in;
+            padding: 0.035in;
             box-sizing: border-box;
           }
 
           .price-label-logo img {
-            width: 0.76in;
-            height: 0.76in;
+            width: 0.77in;
+            height: 0.77in;
             object-fit: contain;
             display: block;
           }
@@ -254,24 +270,31 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             flex-direction: column;
             justify-content: center;
             align-items: flex-end;
-            gap: 0.07in;
-            padding: 0.08in 0.09in 0.08in 0.02in;
+            gap: 0.055in;
+            min-width: 0;
+            padding: 0.055in 0.055in 0.055in 0.015in;
             text-align: right;
             box-sizing: border-box;
           }
 
           .price-label-name {
+            width: 100%;
             max-width: 100%;
-            font-size: clamp(8px, 0.115in, 11px);
+            font-size: var(--label-title-size, 8px);
             line-height: 1.28;
             overflow-wrap: anywhere;
+            word-break: break-word;
+            overflow: hidden;
           }
 
           .price-label-price {
+            width: 100%;
             max-width: 100%;
-            font-size: clamp(17px, 0.28in, 27px);
+            font-size: var(--label-price-size, 16px);
             line-height: 1;
             white-space: nowrap;
+            overflow: hidden;
+            text-align: right;
           }
 
           .label-card-wrap {
@@ -299,6 +322,11 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           }
 
           @media print {
+            @page {
+              size: 2in 1in;
+              margin: 0;
+            }
+
             html,
             body {
               width: 2in;
@@ -308,8 +336,10 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             }
 
             .label-screen {
+              width: 2in !important;
               min-height: auto !important;
               padding: 0 !important;
+              margin: 0 !important;
               background: white !important;
             }
 
@@ -322,6 +352,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
               display: none !important;
             }
 
+            body > div,
             main,
             .label-sheet {
               display: block !important;
