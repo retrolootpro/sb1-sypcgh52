@@ -48,8 +48,17 @@ function barcodeCandidates(barcode: string) {
   const digitsOnly = barcode.replace(/\D/g, '');
   const candidates = [barcode, digitsOnly];
   if (/^(978|979)\d{10}\d{2,5}$/.test(digitsOnly)) candidates.push(digitsOnly.slice(0, 13));
-  if (/^\d{17,18}$/.test(digitsOnly)) candidates.push(digitsOnly.slice(0, 12));
   return Array.from(new Set(candidates.map((candidate) => candidate.trim()).filter(Boolean)));
+}
+
+function isbnCandidates(barcode: string) {
+  return barcodeCandidates(barcode).filter((candidate) => /^(978|979)\d{10}$/.test(candidate));
+}
+
+function upcCandidates(barcode: string) {
+  const digitsOnly = barcode.replace(/\D/g, '');
+  if (/^(978|979)\d{10}\d{2,5}$/.test(digitsOnly)) return [];
+  return barcodeCandidates(barcode).filter((candidate) => /^\d{8,14}$/.test(candidate));
 }
 
 function bookPlatform(title: string, category: string) {
@@ -77,6 +86,10 @@ function looksLikeBook(product: BarcodeLookupProduct | UpcItemDbProduct) {
   return /book|books|fiction|paperback|hardcover|scholastic|publisher|reading|novel|manga|comic|graphic novel|children/i.test(text);
 }
 
+function isLowConfidenceBookTitle(title: string) {
+  return /^(untitled|unknown|not specified|n\/a|na)\b/i.test(title.trim());
+}
+
 function fromBookFields(input: {
   title: unknown;
   category?: unknown;
@@ -88,6 +101,7 @@ function fromBookFields(input: {
 }): BookMetadataResult | null {
   const title = cleanText(input.title);
   if (!title) return null;
+  if (isLowConfidenceBookTitle(title)) return null;
   const category = cleanText(input.category);
   const platform = bookPlatform(title, category);
   const imageUrl = cleanImage(cleanText(input.imageUrl));
@@ -195,7 +209,7 @@ async function lookupBarcodeLookup(barcode: string, apiKey?: string): Promise<Bo
   if (!response.ok) return null;
   const data = await response.json();
   const products = Array.isArray(data?.products) ? data.products as BarcodeLookupProduct[] : [];
-  const product = products.find(looksLikeBook) || products[0];
+  const product = products.find(looksLikeBook);
   if (!product) return null;
 
   return fromBookFields({
@@ -220,7 +234,7 @@ async function lookupUpcItemDb(barcode: string, apiKey?: string): Promise<BookMe
   if (!response.ok) return null;
   const data = await response.json();
   const items = Array.isArray(data?.items) ? data.items as UpcItemDbProduct[] : [];
-  const item = items.find(looksLikeBook) || items[0];
+  const item = items.find(looksLikeBook);
   if (!item) return null;
 
   return fromBookFields({
@@ -241,15 +255,18 @@ export async function lookupBookMetadataByBarcode(
   const cleanBarcode = cleanText(barcode);
   if (!cleanBarcode) return null;
 
-  for (const candidate of barcodeCandidates(cleanBarcode)) {
+  for (const candidate of isbnCandidates(cleanBarcode)) {
     const match =
       (await lookupGoogleBooks(`isbn:${candidate}`, 'google_books')) ||
-      (await lookupOpenLibraryIsbn(candidate)) ||
+      (await lookupOpenLibraryIsbn(candidate));
+
+    if (match) return match;
+  }
+
+  for (const candidate of upcCandidates(cleanBarcode)) {
+    const match =
       (await lookupBarcodeLookup(candidate, options.barcodeLookupKey)) ||
-      (await lookupUpcItemDb(candidate, options.upcItemDbKey)) ||
-      (await lookupGoogleBooks(candidate, 'google_books_search')) ||
-      (await lookupGoogleBooks(`${candidate} book`, 'google_books_search')) ||
-      (await lookupOpenLibrarySearch(candidate));
+      (await lookupUpcItemDb(candidate, options.upcItemDbKey));
 
     if (match) return match;
   }
