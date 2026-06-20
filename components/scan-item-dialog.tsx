@@ -138,6 +138,8 @@ export function ScanItemDialog({
       setPriceError('');
       setConsoleError('');
       setTimeout(() => {
+        const compactViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches;
+        if (compactViewport) return;
         if (allowTitleEdit) {
           titleInputRef.current?.focus();
           titleInputRef.current?.select();
@@ -228,14 +230,14 @@ export function ScanItemDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-card border-border/60">
-        <DialogHeader>
-          <DialogTitle className="text-[16px] font-semibold tracking-tight">
+      <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[min(34rem,calc(100vw-1rem))] flex-col gap-0 overflow-hidden border-border/60 bg-card p-0 sm:max-w-md">
+        <DialogHeader className="shrink-0 border-b border-border/50 px-4 py-3 pr-12 text-left sm:px-6">
+          <DialogTitle className="text-[16px] font-semibold tracking-tight leading-snug">
             Confirm Item Details
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-3 sm:px-6">
           {allowTitleEdit ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
@@ -411,8 +413,8 @@ export function ScanItemDialog({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" size="sm" onClick={handleSkip} className="text-[13px]">
+        <DialogFooter className="shrink-0 flex-row gap-2 border-t border-border/50 bg-card px-4 py-3 sm:gap-2 sm:px-6">
+          <Button variant="outline" size="sm" onClick={handleSkip} className="flex-1 text-[13px] sm:flex-none">
             Skip
           </Button>
           <Button size="sm" onClick={handleConfirm} className="text-[13px] flex-1">
