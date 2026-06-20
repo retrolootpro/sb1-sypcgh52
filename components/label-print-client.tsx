@@ -83,6 +83,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
   const [manualPrintLabel, setManualPrintLabel] = useState<PrintableLabel | null>(null);
+  const [manualPrintRequested, setManualPrintRequested] = useState(false);
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
@@ -138,6 +139,12 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     loadItems();
   }, [loadItems]);
 
+  useEffect(() => {
+    if (searchParams.get('manual') === '1') {
+      setManualOpen(true);
+    }
+  }, [searchParams]);
+
   const removeItem = (id: string) => {
     if (queryIds.length > 0) {
       setItems((current) => current.filter((item) => item.id !== id));
@@ -176,8 +183,8 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       title,
       price: money(price),
     });
+    setManualPrintRequested(true);
     setManualOpen(false);
-    window.setTimeout(() => window.print(), 75);
   };
 
   useEffect(() => {
@@ -186,9 +193,43 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     return () => window.removeEventListener('afterprint', clearManualPrint);
   }, []);
 
+  useEffect(() => {
+    if (!manualPrintLabel || !manualPrintRequested) return;
+    let cancelled = false;
+
+    const waitForLogo = () => new Promise<void>((resolve) => {
+      const image = new Image();
+      const done = () => resolve();
+      image.onload = done;
+      image.onerror = done;
+      image.src = LOGO_SRC;
+      if (image.complete) resolve();
+      window.setTimeout(done, 1200);
+    });
+
+    const printWhenReady = async () => {
+      try {
+        await document.fonts?.ready;
+      } catch {
+        // If the browser does not expose font readiness, keep printing.
+      }
+      await waitForLogo();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      if (!cancelled) {
+        window.print();
+        setManualPrintRequested(false);
+      }
+    };
+
+    printWhenReady();
+    return () => { cancelled = true; };
+  }, [manualPrintLabel, manualPrintRequested]);
+
   return (
     <DashboardLayout>
       <div className="label-screen min-h-screen bg-background px-4 py-6 text-foreground sm:px-8">
+        <img className="label-logo-preload label-controls" src={LOGO_SRC} alt="" aria-hidden="true" />
         <div className="label-controls mx-auto mb-6 flex max-w-5xl flex-col gap-3 rounded-xl border border-border/50 bg-card p-4 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
             <Link href="/inventory" className="mb-2 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
@@ -306,6 +347,14 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
 
           .press-start-label-font {
             font-family: 'Press Start 2P', monospace;
+          }
+
+          .label-logo-preload {
+            position: absolute;
+            height: 1px;
+            width: 1px;
+            opacity: 0;
+            pointer-events: none;
           }
 
           .price-label {

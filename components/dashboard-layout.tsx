@@ -29,6 +29,7 @@ import {
   Boxes,
   FileLock2,
   MonitorUp,
+  Printer,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -42,6 +43,12 @@ const navGroups = [
     items: [
       { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/assistant', label: 'AI Assistant', icon: Bot, featured: true },
+    ],
+  },
+  {
+    label: 'Tools',
+    items: [
+      { href: '/labels?manual=1', label: 'Manual Label', icon: Printer },
     ],
   },
   {
