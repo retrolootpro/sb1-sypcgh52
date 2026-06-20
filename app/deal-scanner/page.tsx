@@ -682,6 +682,8 @@ export default function DealScannerPage() {
         isActive={scannerActive}
         onScan={handleScan}
         onStop={() => setScannerActive(false)}
+        variant="compact"
+        title="Deal Scanner"
       />
     </>
   );

@@ -1027,6 +1027,8 @@ export default function ScanPage() {
                     onScan={handleScan}
                     isActive={scannerActive}
                     onStop={() => setScannerActive(false)}
+                    variant="compact"
+                    title="Scan Intake"
                   />
                 </div>
               )}

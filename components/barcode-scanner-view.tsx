@@ -22,7 +22,7 @@ export function BarcodeScannerView({
   isActive,
   onStop,
   soundEnabled = true,
-  variant = 'fullscreen',
+  variant = 'compact',
   title = 'Scanning Barcode...',
 }: BarcodeScannerViewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);

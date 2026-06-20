@@ -636,6 +636,8 @@ export default function ScanPage() {
         isActive={scannerActive}
         onScan={handleScan}
         onStop={() => setScannerActive(false)}
+        variant="compact"
+        title="Scan Intake"
       />
     </DashboardLayout>
   );
