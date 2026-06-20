@@ -11,6 +11,7 @@ import { getAgeActionLabel, getAgeStatus, getInventoryAgeDays, type AgingThresho
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -127,6 +128,7 @@ export function InventoryTable({
   onBulkMoveToCollection,
 }: InventoryTableProps) {
   const router = useRouter();
+  const { user, accountId } = useAuth();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const isSelectionMode = selectedIds.size > 0;
   const allSelected = items.length > 0 && selectedIds.size === items.length;
@@ -145,13 +147,36 @@ export function InventoryTable({
   const clearSelection = () => setSelectedIds(new Set());
 
   const handleDelete = async (id: string) => {
+    if (!user) return;
     try {
-      const { error } = await supabase.from('inventory_items').delete().eq('id', id);
+      const { error } = await supabase
+        .from('inventory_items')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', accountId || user.id);
       if (error) throw error;
       toast.success('Item deleted');
       onRefresh();
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete item');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (!user || selectedIds.size === 0) return;
+    const ids = selectedIdList();
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .delete()
+        .in('id', ids)
+        .eq('user_id', accountId || user.id);
+      if (error) throw error;
+      toast.success(`Deleted ${ids.length} item${ids.length === 1 ? '' : 's'}`);
+      clearSelection();
+      onRefresh();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete selected items');
     }
   };
 
@@ -288,6 +313,36 @@ export function InventoryTable({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 text-sm gap-1.5 border-destructive/40 text-destructive hover:bg-destructive/10"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Selected
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent className="bg-card border-border">
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete Selected Items?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete {selectedIds.size} selected inventory item{selectedIds.size === 1 ? '' : 's'}. Use this for accidental duplicate scans only.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleBulkDelete}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  Delete Items
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
 
           <Button
             size="sm"
@@ -556,7 +611,10 @@ export function InventoryTable({
                       variant="ghost"
                       size="icon"
                       className="h-9 w-9 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => e.preventDefault()}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>

@@ -10,10 +10,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
-import { ArrowLeft, Gamepad2, TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, CircleDot, Pencil, Save, X, BookOpen } from 'lucide-react';
+import { ArrowLeft, Gamepad2, TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, CircleDot, Pencil, Save, X, BookOpen, Trash2 } from 'lucide-react';
 import { PrepStageBar } from '@/components/prep-stage-bar';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -38,6 +49,8 @@ type InventoryItem = {
   condition: string;
   purchase_price: number;
   quantity: number;
+  status?: string | null;
+  sell_price?: number | null;
   notes: string;
   barcode: string;
   region?: string | null;
@@ -91,6 +104,14 @@ type MetadataForm = {
   thumbnail_url: string;
   description: string;
   notes: string;
+  status: string;
+  purchase_price: string;
+  quantity: string;
+  sell_price: string;
+  price_loose: string;
+  price_cib: string;
+  price_new: string;
+  price_graded: string;
   manual_market_value: string;
 };
 
@@ -142,6 +163,19 @@ function RefreshStatusIcon({ status }: { status: 'success' | 'partial' | 'failed
   return <AlertCircle className="w-3.5 h-3.5 text-red-400" />;
 }
 
+const INVENTORY_STATUSES = [
+  { value: 'available', label: 'Available' },
+  { value: 'needs_testing', label: 'Needs Testing' },
+  { value: 'needs_cleaning', label: 'Needs Cleaning' },
+  { value: 'ready_to_list', label: 'Ready to List' },
+  { value: 'listed', label: 'Listed' },
+  { value: 'reserved', label: 'Reserved' },
+  { value: 'sold', label: 'Sold' },
+  { value: 'shipped', label: 'Shipped' },
+  { value: 'returned', label: 'Returned' },
+  { value: 'dead_stock', label: 'Dead Stock' },
+];
+
 // ─── Page component ───────────────────────────────────────────────────────────
 
 export default function ItemDetailPage() {
@@ -169,6 +203,14 @@ export default function ItemDetailPage() {
     thumbnail_url: '',
     description: '',
     notes: '',
+    status: 'available',
+    purchase_price: '0',
+    quantity: '1',
+    sell_price: '',
+    price_loose: '',
+    price_cib: '',
+    price_new: '',
+    price_graded: '',
     manual_market_value: '',
   });
 
@@ -212,6 +254,14 @@ export default function ItemDetailPage() {
       thumbnail_url: item.thumbnail_url || '',
       description: item.description || '',
       notes: item.notes || '',
+      status: item.status || 'available',
+      purchase_price: String(Number(item.purchase_price) || 0),
+      quantity: String(Number(item.quantity) || 1),
+      sell_price: item.sell_price != null ? String(Number(item.sell_price) || 0) : '',
+      price_loose: item.price_loose != null ? String(Number(item.price_loose) || 0) : '',
+      price_cib: item.price_cib != null ? String(Number(item.price_cib) || 0) : '',
+      price_new: item.price_new != null ? String(Number(item.price_new) || 0) : '',
+      price_graded: item.price_graded != null ? String(Number(item.price_graded) || 0) : '',
       manual_market_value: item.selected_market_value ? String(item.selected_market_value) : '',
     });
   }, [item, editingMetadata]);
@@ -391,11 +441,33 @@ export default function ItemDetailPage() {
         setSavingMetadata(false);
         return;
       }
+      const purchasePrice = Number(metadataForm.purchase_price);
+      const quantity = Number(metadataForm.quantity);
+      const sellPrice = metadataForm.sell_price.trim() === '' ? null : Number(metadataForm.sell_price);
+      const priceLoose = metadataForm.price_loose.trim() === '' ? null : Number(metadataForm.price_loose);
+      const priceCib = metadataForm.price_cib.trim() === '' ? null : Number(metadataForm.price_cib);
+      const priceNew = metadataForm.price_new.trim() === '' ? null : Number(metadataForm.price_new);
+      const priceGraded = metadataForm.price_graded.trim() === '' ? null : Number(metadataForm.price_graded);
+      const numericChecks = [
+        { label: 'Purchase price', value: purchasePrice, min: 0 },
+        { label: 'Quantity', value: quantity, min: 1 },
+        ...(sellPrice == null ? [] : [{ label: 'Sell price', value: sellPrice, min: 0 }]),
+        ...(priceLoose == null ? [] : [{ label: 'Loose price', value: priceLoose, min: 0 }]),
+        ...(priceCib == null ? [] : [{ label: 'CIB price', value: priceCib, min: 0 }]),
+        ...(priceNew == null ? [] : [{ label: 'New price', value: priceNew, min: 0 }]),
+        ...(priceGraded == null ? [] : [{ label: 'Graded price', value: priceGraded, min: 0 }]),
+      ];
+      const invalidNumber = numericChecks.find((check) => !Number.isFinite(check.value) || check.value < check.min);
+      if (invalidNumber) {
+        toast.error(`${invalidNumber.label} must be ${invalidNumber.min} or higher`);
+        setSavingMetadata(false);
+        return;
+      }
       const imageUrl = metadataForm.image_url.trim();
       const thumbnailUrl = metadataForm.thumbnail_url.trim() || imageUrl;
-      const estimatedProfit = manualMarketValue > 0 ? manualMarketValue - item.purchase_price : 0;
-      const estimatedMarginPercent = manualMarketValue > 0 && item.purchase_price > 0
-        ? (estimatedProfit / item.purchase_price) * 100
+      const estimatedProfit = manualMarketValue > 0 ? manualMarketValue - purchasePrice : 0;
+      const estimatedMarginPercent = manualMarketValue > 0 && purchasePrice > 0
+        ? (estimatedProfit / purchasePrice) * 100
         : 0;
 
       const { error } = await supabase
@@ -405,6 +477,10 @@ export default function ItemDetailPage() {
           console: metadataForm.console,
           condition: metadataForm.condition,
           region: metadataForm.region,
+          status: metadataForm.status,
+          purchase_price: purchasePrice,
+          quantity: Math.floor(quantity),
+          sell_price: sellPrice,
           brand: metadataForm.brand.trim() || null,
           category: metadataForm.category.trim() || null,
           genre: metadataForm.genre.trim() || null,
@@ -413,6 +489,10 @@ export default function ItemDetailPage() {
           thumbnail_url: thumbnailUrl || null,
           description: metadataForm.description.trim() || null,
           notes: metadataForm.notes.trim() || null,
+          price_loose: priceLoose,
+          price_cib: priceCib,
+          price_new: priceNew,
+          price_graded: priceGraded,
           selected_market_value: manualMarketValue,
           estimated_profit: estimatedProfit,
           estimated_margin_percent: estimatedMarginPercent,
@@ -437,6 +517,22 @@ export default function ItemDetailPage() {
       toast.error(error.message || 'Failed to update item');
     } finally {
       setSavingMetadata(false);
+    }
+  };
+
+  const handleDeleteItem = async () => {
+    if (!item || !user || !accountId) return;
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .delete()
+        .eq('id', item.id)
+        .eq('user_id', accountId);
+      if (error) throw error;
+      toast.success('Item deleted');
+      router.push('/inventory');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete item');
     }
   };
 
@@ -574,6 +670,35 @@ export default function ItemDetailPage() {
                     <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
                     {bookLike ? 'Manual Pricing' : refreshing ? 'Refreshing...' : 'Refresh Pricing'}
                   </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 px-3 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                        Delete
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="bg-card border-border">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Item?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This permanently removes &quot;{item.product_name}&quot; from inventory. This is best for accidental duplicate scans.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={handleDeleteItem}
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                          Delete Item
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
               {item.description && (
@@ -676,6 +801,20 @@ export default function ItemDetailPage() {
                     </div>
 
                     <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Status</Label>
+                      <Select value={metadataForm.status} onValueChange={(value) => updateMetadataForm('status', value)}>
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {INVENTORY_STATUSES.map((status) => (
+                            <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Region</Label>
                       <Select value={metadataForm.region} onValueChange={(value) => updateMetadataForm('region', value)}>
                         <SelectTrigger className="h-9">
@@ -699,6 +838,43 @@ export default function ItemDetailPage() {
                     </div>
 
                     <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Cost</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={metadataForm.purchase_price}
+                        onChange={(event) => updateMetadataForm('purchase_price', event.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Quantity</Label>
+                      <Input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={metadataForm.quantity}
+                        onChange={(event) => updateMetadataForm('quantity', event.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Sell Price</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={metadataForm.sell_price}
+                        onChange={(event) => updateMetadataForm('sell_price', event.target.value)}
+                        className="h-9"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Publisher / Brand</Label>
                       <Input
                         value={metadataForm.brand}
@@ -713,6 +889,58 @@ export default function ItemDetailPage() {
                         value={metadataForm.category}
                         onChange={(event) => updateMetadataForm('category', event.target.value)}
                         className="h-9"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Loose Price</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={metadataForm.price_loose}
+                        onChange={(event) => updateMetadataForm('price_loose', event.target.value)}
+                        className="h-9"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">CIB Price</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={metadataForm.price_cib}
+                        onChange={(event) => updateMetadataForm('price_cib', event.target.value)}
+                        className="h-9"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">New Price</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={metadataForm.price_new}
+                        onChange={(event) => updateMetadataForm('price_new', event.target.value)}
+                        className="h-9"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Graded Price</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={metadataForm.price_graded}
+                        onChange={(event) => updateMetadataForm('price_graded', event.target.value)}
+                        className="h-9"
+                        placeholder="0.00"
                       />
                     </div>
 
