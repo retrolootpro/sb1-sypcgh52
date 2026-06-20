@@ -64,6 +64,13 @@ const API_SERVICES = [
     required: false,
     optional: true,
   },
+  {
+    name: 'google_books',
+    label: 'Google Books',
+    description: 'Optional free Google Books API key for ISBN book metadata. Helps avoid rate limits when scanning books.',
+    required: false,
+    optional: true,
+  },
 ];
 
 export default function SettingsPage() {

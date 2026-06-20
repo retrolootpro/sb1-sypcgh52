@@ -13,6 +13,10 @@ export type NormalizedBookIdentifier = {
 
 export type BookMetadataSource = 'google_books' | 'open_library';
 
+export type BookLookupOptions = {
+  googleBooksApiKey?: string | null;
+};
+
 export type BookMetadataResult = {
   title: string;
   subtitle: string;
@@ -162,15 +166,40 @@ function googleRetailPrice(saleInfo: any) {
   };
 }
 
-async function fetchJson(url: string, timeoutMs = 4500) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
-    return response;
-  } finally {
-    clearTimeout(timeout);
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchJson(url: string, timeoutMs = 5500) {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, {
+        cache: 'no-store',
+        signal: controller.signal,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'RetroLootPro/1.0 (book metadata lookup)',
+        },
+      });
+      if (response.status >= 500 && attempt === 0) {
+        await wait(250);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) {
+        await wait(250);
+        continue;
+      }
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+  throw lastError instanceof Error ? lastError : new Error('Book metadata request failed');
 }
 
 function fromGoogleItem(item: any, fallback: NormalizedBookIdentifier): BookMetadataResult | null {
@@ -215,10 +244,16 @@ function fromGoogleItem(item: any, fallback: NormalizedBookIdentifier): BookMeta
   };
 }
 
-async function lookupGoogleBooks(identifier: NormalizedBookIdentifier): Promise<BookMetadataResult | null> {
+async function lookupGoogleBooks(identifier: NormalizedBookIdentifier, apiKey?: string | null): Promise<BookMetadataResult | null> {
   const queries = Array.from(new Set([identifier.queryIsbn, identifier.isbn13, identifier.isbn10].filter(Boolean)));
   for (const isbn of queries) {
-    const response = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`isbn:${isbn}`)}&maxResults=3`);
+    const params = new URLSearchParams({
+      q: `isbn:${isbn}`,
+      maxResults: '5',
+      printType: 'books',
+    });
+    if (apiKey) params.set('key', apiKey);
+    const response = await fetchJson(`https://www.googleapis.com/books/v1/volumes?${params.toString()}`);
     if (!response.ok) throw new Error(`Google Books request failed (${response.status})`);
     const data = await response.json();
     const items = Array.isArray(data?.items) ? data.items : [];
@@ -277,20 +312,25 @@ async function lookupOpenLibrary(identifier: NormalizedBookIdentifier): Promise<
   if (!isbn) return null;
 
   let record: any = null;
-  const recordResponse = await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`);
-  if (recordResponse.ok) {
-    record = await recordResponse.json();
-  } else if (recordResponse.status >= 500) {
-    throw new Error(`Open Library request failed (${recordResponse.status})`);
+  let searchDoc: any = null;
+
+  try {
+    const searchResponse = await fetchJson(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=3`);
+    if (searchResponse.ok) {
+      const search = await searchResponse.json();
+      searchDoc = Array.isArray(search?.docs) ? search.docs.find((doc: any) => cleanText(doc?.title)) || search.docs[0] : null;
+    }
+  } catch {
+    searchDoc = null;
   }
 
-  let searchDoc: any = null;
-  const searchResponse = await fetchJson(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=1`);
-  if (searchResponse.ok) {
-    const search = await searchResponse.json();
-    searchDoc = Array.isArray(search?.docs) ? search.docs[0] : null;
-  } else if (searchResponse.status >= 500) {
-    throw new Error(`Open Library search failed (${searchResponse.status})`);
+  try {
+    const recordResponse = await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`);
+    if (recordResponse.ok) {
+      record = await recordResponse.json();
+    }
+  } catch {
+    record = null;
   }
 
   return fromOpenLibraryRecord(record, identifier, searchDoc);
@@ -321,27 +361,26 @@ function mergeBookMetadata(primary: BookMetadataResult, fallback: BookMetadataRe
   };
 }
 
-export async function lookupBookMetadataByBarcode(barcode: string): Promise<BookMetadataResult | null> {
+export async function lookupBookMetadataByBarcode(barcode: string, options: BookLookupOptions = {}): Promise<BookMetadataResult | null> {
   const identifier = normalizeBookIdentifier(barcode);
   if (!identifier.valid) return null;
 
   const sourcesTried: BookMetadataSource[] = [];
   let google: BookMetadataResult | null = null;
   let openLibrary: BookMetadataResult | null = null;
-  let lastError: Error | null = null;
-
-  try {
-    sourcesTried.push('google_books');
-    google = await lookupGoogleBooks(identifier);
-  } catch (error) {
-    lastError = error instanceof Error ? error : new Error('Google Books lookup failed');
-  }
 
   try {
     sourcesTried.push('open_library');
     openLibrary = await lookupOpenLibrary(identifier);
   } catch (error) {
-    lastError = error instanceof Error ? error : new Error('Open Library lookup failed');
+    openLibrary = null;
+  }
+
+  try {
+    sourcesTried.push('google_books');
+    google = await lookupGoogleBooks(identifier, options.googleBooksApiKey);
+  } catch (error) {
+    google = null;
   }
 
   const result = google ? mergeBookMetadata(google, openLibrary) : openLibrary;

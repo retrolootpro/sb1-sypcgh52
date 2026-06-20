@@ -20,6 +20,16 @@ type ApiKeyRow = {
 
 type LookupMode = 'auto' | 'book' | 'game';
 
+type RetailBarcodeResult = {
+  title: string;
+  description: string;
+  brand: string;
+  category: string;
+  imageUrl: string;
+  thumbnailUrl: string;
+  source: string;
+};
+
 const PLATFORM_SLUGS: Record<string, string> = {
   wii: 'wii',
   'wii u': 'wii-u',
@@ -81,6 +91,90 @@ async function pcFetch(url: string) {
   if (!response.ok) return null;
   const data = await response.json();
   return data?.status === 'success' && data['product-name'] ? data : null;
+}
+
+async function timedFetchJson(url: string, init: RequestInit = {}, timeoutMs = 4500) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, cache: 'no-store', signal: controller.signal });
+    if (!response.ok) return null;
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function cleanProductText(value: unknown) {
+  return String(value || '').trim().replace(/\s+/g, ' ');
+}
+
+function imageFromList(value: unknown) {
+  return Array.isArray(value) ? cleanProductText(value[0]) : '';
+}
+
+async function lookupBarcodeLookupProduct(barcode: string, apiKey?: string | null): Promise<RetailBarcodeResult | null> {
+  if (!apiKey) return null;
+  const data = await timedFetchJson(
+    `https://api.barcodelookup.com/v3/products?barcode=${encodeURIComponent(barcode)}&formatted=y&key=${encodeURIComponent(apiKey)}`
+  );
+  const product = Array.isArray(data?.products) ? data.products[0] : null;
+  const title = cleanProductText(product?.title || product?.product_name);
+  if (!title) return null;
+  const imageUrl = imageFromList(product?.images);
+  return {
+    title,
+    description: cleanProductText(product?.description),
+    brand: cleanProductText(product?.brand || product?.manufacturer || 'Books'),
+    category: cleanProductText(product?.category || 'Books'),
+    imageUrl,
+    thumbnailUrl: imageUrl,
+    source: 'barcode_lookup',
+  };
+}
+
+async function lookupUpcItemDbProduct(barcode: string, apiKey?: string | null): Promise<RetailBarcodeResult | null> {
+  if (!apiKey) return null;
+  const data = await timedFetchJson(
+    `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`,
+    {
+      headers: {
+        Accept: 'application/json',
+        user_key: apiKey,
+      },
+    }
+  );
+  const item = Array.isArray(data?.items) ? data.items[0] : null;
+  const title = cleanProductText(item?.title);
+  if (!title) return null;
+  const imageUrl = imageFromList(item?.images);
+  return {
+    title,
+    description: cleanProductText(item?.description),
+    brand: cleanProductText(item?.brand || 'Books'),
+    category: cleanProductText(item?.category || 'Books'),
+    imageUrl,
+    thumbnailUrl: imageUrl,
+    source: 'upcitemdb',
+  };
+}
+
+async function lookupRetailBookProduct(barcode: string, keyMap: Map<string, string>): Promise<RetailBarcodeResult | null> {
+  const providers = [
+    () => lookupBarcodeLookupProduct(barcode, keyMap.get('barcode_lookup')),
+    () => lookupUpcItemDbProduct(barcode, keyMap.get('upc_lookup')),
+  ];
+
+  for (const provider of providers) {
+    try {
+      const result = await provider();
+      if (result?.title) return result;
+    } catch {
+      // Continue to the next provider; this path is a rescue lookup, not a hard failure.
+    }
+  }
+
+  return null;
 }
 
 async function fetchPriceChartingImage(productName: string, platform: string) {
@@ -150,6 +244,13 @@ function manualBookFallback(barcode: string, message: string, sourcesTried: stri
   };
 }
 
+function googleBooksKeyFromSettings(keyMap: Map<string, string>) {
+  const explicit = keyMap.get('google_books');
+  if (explicit) return explicit.trim();
+  const googleSearch = keyMap.get('google_search') || '';
+  return googleSearch.split(':')[0]?.trim() || '';
+}
+
 export async function GET() {
   return json({
     ok: true,
@@ -199,7 +300,9 @@ export async function POST(req: NextRequest) {
 
       let book = null;
       try {
-        book = await lookupBookMetadataByBarcode(cleanBarcode);
+        book = await lookupBookMetadataByBarcode(cleanBarcode, {
+          googleBooksApiKey: googleBooksKeyFromSettings(keyMap),
+        });
       } catch {
         book = null;
       }
@@ -241,10 +344,47 @@ export async function POST(req: NextRequest) {
         });
       }
 
+      const retailProduct = await lookupRetailBookProduct(cleanBarcode, keyMap);
+      if (retailProduct) {
+        return json({
+          success: true,
+          barcode: cleanBarcode,
+          title: retailProduct.title,
+          platform: 'Book',
+          category: retailProduct.category || 'Books',
+          brand: retailProduct.brand || 'Books',
+          description: retailProduct.description,
+          imageUrl: retailProduct.imageUrl,
+          thumbnailUrl: retailProduct.thumbnailUrl,
+          pcProductId: '',
+          source: retailProduct.source,
+          bookMetadata: {
+            title: retailProduct.title,
+            subtitle: '',
+            authors: [],
+            publisher: retailProduct.brand || '',
+            publishedDate: '',
+            publishedYear: '',
+            description: retailProduct.description,
+            pageCount: null,
+            categories: [retailProduct.category || 'Books'].filter(Boolean),
+            language: '',
+            isbn10: bookIdentifier.isbn10,
+            isbn13: bookIdentifier.isbn13,
+            coverImageUrl: retailProduct.imageUrl,
+            retailPrice: null,
+            retailPriceCurrency: '',
+            retailPriceSource: '',
+            source: retailProduct.source,
+            sourcesTried: ['open_library', 'google_books', 'barcode_lookup', 'upcitemdb'],
+          },
+        });
+      }
+
       return json(manualBookFallback(
         cleanBarcode,
         `No book metadata found for barcode ${cleanBarcode}. Enter the book title and price manually.`,
-        bookIdentifier.valid ? ['google_books', 'open_library'] : []
+        bookIdentifier.valid ? ['open_library', 'google_books', 'barcode_lookup', 'upcitemdb'] : []
       ));
     }
 
