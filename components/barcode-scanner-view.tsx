@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { BarcodeScanner, ScanResult } from '@/lib/barcode-scanner';
+import { BarcodeScanner, type ScanResult } from '@/lib/barcode-scanner';
 import { Camera, X, Volume2, VolumeX } from 'lucide-react';
 import { toast } from 'sonner';
+
+export type { ScanResult } from '@/lib/barcode-scanner';
 
 type BarcodeScannerViewProps = {
   onScan: (result: ScanResult) => void;

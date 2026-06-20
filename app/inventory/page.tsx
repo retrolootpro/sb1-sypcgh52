@@ -6,9 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, ScanBarcode } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
+import { BarcodeScannerView, type ScanResult } from '@/components/barcode-scanner-view';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CONDITIONS, PLATFORM_OPTIONS, REGIONS } from '@/lib/constants';
 import { lookupUPC } from '@/lib/api-services';
@@ -51,6 +52,7 @@ type InventoryItem = {
   category?: string | null;
   item_type?: string | null;
   genre?: string | null;
+  raw_lookup_payload?: Record<string, unknown> | null;
   source_metadata_provider?: string | null;
   source_upc_provider?: string | null;
   collection_id?: string | null;
@@ -83,6 +85,7 @@ export default function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [inventoryScannerActive, setInventoryScannerActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [consoleFilter, setConsoleFilter] = useState('all');
@@ -323,15 +326,38 @@ export default function InventoryPage() {
     return savedMarketValue > 0 ? savedMarketValue : conditionMarketValue;
   }, []);
 
+  const handleInventorySearchScan = useCallback((result: ScanResult) => {
+    const barcode = result.barcode.trim();
+    if (!barcode) return;
+    setSearchQuery(barcode);
+    setInventoryScannerActive(false);
+    toast.success('Searching scanned barcode', { description: barcode });
+  }, []);
+
   const filteredItems = useMemo(() => {
-    const query = searchQuery.toLowerCase();
+    const query = searchQuery.trim().toLowerCase();
     const filtered = items.filter((item) => {
+      const metadata = item.raw_lookup_payload && typeof item.raw_lookup_payload === 'object' ? item.raw_lookup_payload : {};
+      const authors = Array.isArray(metadata.authors) ? metadata.authors.join(' ') : '';
+      const categories = Array.isArray(metadata.categories) ? metadata.categories.join(' ') : '';
+      const metadataText = [
+        metadata.title,
+        metadata.subtitle,
+        authors,
+        metadata.publisher,
+        metadata.publishedYear,
+        metadata.isbn10,
+        metadata.isbn13,
+        categories,
+        metadata.language,
+      ].map((value) => String(value || '')).join(' ').toLowerCase();
       const matchesSearch = !query
         || item.product_name.toLowerCase().includes(query)
         || item.console.toLowerCase().includes(query)
         || String(item.category || '').toLowerCase().includes(query)
         || String(item.brand || '').toLowerCase().includes(query)
-        || String(item.barcode || '').toLowerCase().includes(query);
+        || String(item.barcode || '').toLowerCase().includes(query)
+        || metadataText.includes(query);
       const family = getInventoryFamily(item);
       const matchesType = typeFilter === 'all' || family === typeFilter;
       const matchesConsole = consoleFilter === 'all' || item.console === consoleFilter;
@@ -796,17 +822,28 @@ export default function InventoryPage() {
               <div className="text-xs text-muted-foreground">{filteredItems.length} item{filteredItems.length === 1 ? '' : 's'} shown</div>
             </div>
           </div>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/40" />
-            <Input
-              placeholder="Search inventory..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9 bg-card border-border/50 h-11 text-base rounded-xl"
-            />
-          </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-1 gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/40" />
+                <Input
+                  placeholder="Search name, UPC, ISBN, author, platform..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 bg-card border-border/50 h-11 text-base rounded-xl"
+                />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setInventoryScannerActive(true)}
+                className="h-11 shrink-0 rounded-xl border-border/50 px-4"
+              >
+                <ScanBarcode className="mr-2 h-4 w-4" />
+                Scan
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="w-full min-w-[155px] flex-1 sm:w-[180px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
                 <ArrowUpDown className="mr-2 h-4 w-4 text-muted-foreground/50" />
@@ -935,6 +972,14 @@ export default function InventoryPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <BarcodeScannerView
+          isActive={inventoryScannerActive}
+          onStop={() => setInventoryScannerActive(false)}
+          onScan={handleInventorySearchScan}
+          variant="compact"
+          title="Search Inventory"
+        />
       </div>
     </DashboardLayout>
   );

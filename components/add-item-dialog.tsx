@@ -14,6 +14,8 @@ import { CONDITIONS, PLATFORM_OPTIONS, REGIONS } from '@/lib/constants';
 import { getCanonicalPricing } from '@/lib/pricing-service';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { defaultConditionForPlatform, isBookLikeValue } from '@/lib/item-taxonomy';
+import { lookupUPC, type UPCLookupResult } from '@/lib/api-services';
+import { BookOpen, Search } from 'lucide-react';
 
 type AddItemDialogProps = {
   open: boolean;
@@ -28,6 +30,8 @@ type Lot = { id: string; name: string };
 export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollectionId, defaultLotId }: AddItemDialogProps) {
   const { user, accountId } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [bookLookupLoading, setBookLookupLoading] = useState(false);
+  const [bookLookupResult, setBookLookupResult] = useState<UPCLookupResult | null>(null);
   const [lots, setLots] = useState<Lot[]>([]);
   const [formData, setFormData] = useState({
     product_name: '',
@@ -40,6 +44,21 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
     barcode: '',
     lot_id: defaultLotId ?? '',
   });
+
+  const resetForm = () => {
+    setBookLookupResult(null);
+    setFormData({
+      product_name: '',
+      console: 'Nintendo Switch',
+      condition: 'CIB',
+      region: 'US',
+      purchase_price: '',
+      quantity: '1',
+      notes: '',
+      barcode: '',
+      lot_id: defaultLotId ?? '',
+    });
+  };
 
   useEffect(() => {
     if (open && user && accountId) {
@@ -57,6 +76,43 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
       setFormData(prev => ({ ...prev, lot_id: defaultLotId ?? '' }));
     }
   }, [defaultLotId]);
+
+  const handleBookMetadataLookup = async () => {
+    if (!user || !accountId) {
+      toast.error('Log in before looking up book metadata');
+      return;
+    }
+
+    const barcode = formData.barcode.trim();
+    if (!barcode) {
+      toast.error('Enter or scan the book UPC / ISBN first');
+      return;
+    }
+
+    setBookLookupLoading(true);
+    try {
+      const result = await lookupUPC(barcode, accountId || user.id, undefined, 'book');
+      if (!result) throw new Error('No book metadata found');
+
+      const metadata = result.bookMetadata;
+      setBookLookupResult(result);
+      setFormData((prev) => ({
+        ...prev,
+        product_name: result.title || metadata?.title || prev.product_name,
+        console: result.platform || prev.console || 'Book',
+        condition: prev.condition || defaultConditionForPlatform(result.platform || 'Book'),
+        notes: prev.notes || metadata?.description || result.description || '',
+      }));
+      toast.success('Book metadata found', {
+        description: result.title || barcode,
+      });
+    } catch (error: unknown) {
+      setBookLookupResult(null);
+      toast.warning((error as Error).message || 'No book metadata found. You can still save it manually.');
+    } finally {
+      setBookLookupLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +139,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
     try {
       if (!user || !accountId) throw new Error('Not authenticated');
       const manualPricedItem = isBookLikeValue(formData.console);
+      const bookMetadata = bookLookupResult?.bookMetadata || null;
       const { data: inventoryItem, error } = await supabase
         .from('inventory_items')
         .insert({
@@ -95,13 +152,37 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           quantity: qty,
           notes: formData.notes?.trim() || null,
           barcode: formData.barcode?.trim() || null,
+          description: bookLookupResult?.description || bookMetadata?.description || null,
+          brand: bookLookupResult?.brand || bookMetadata?.publisher || null,
+          image_url: bookLookupResult?.imageUrl || bookMetadata?.coverImageUrl || null,
+          thumbnail_url: bookLookupResult?.thumbnailUrl || bookMetadata?.coverImageUrl || null,
           collection_id: defaultCollectionId || null,
           lot_id: formData.lot_id || null,
-          category: manualPricedItem ? 'Books & Media' : 'Video Games',
-          item_type: manualPricedItem ? 'accessory' : 'game',
+          category: manualPricedItem ? (bookLookupResult?.category || 'Books & Media') : 'Video Games',
+          item_type: manualPricedItem ? (formData.console === 'Manga' ? 'manga' : 'book') : 'game',
           pricing_source: manualPricedItem ? 'Manual / book metadata' : 'pending',
           pricing_status: manualPricedItem ? 'manual' : 'pending',
-          source_metadata_provider: 'manual_entry',
+          source_metadata_provider: bookLookupResult?.source || 'manual_entry',
+          source_upc_provider: bookLookupResult?.source || null,
+          raw_lookup_payload: bookMetadata ? {
+            type: 'book_metadata',
+            barcode: formData.barcode?.trim() || '',
+            title: bookMetadata.title || bookLookupResult?.title || '',
+            subtitle: bookMetadata.subtitle || '',
+            authors: Array.isArray(bookMetadata.authors) ? bookMetadata.authors : [],
+            publisher: bookMetadata.publisher || '',
+            publishedDate: bookMetadata.publishedDate || '',
+            publishedYear: bookMetadata.publishedYear || '',
+            description: bookMetadata.description || bookLookupResult?.description || '',
+            pageCount: bookMetadata.pageCount ?? null,
+            categories: Array.isArray(bookMetadata.categories) ? bookMetadata.categories : [],
+            language: bookMetadata.language || '',
+            isbn10: bookMetadata.isbn10 || '',
+            isbn13: bookMetadata.isbn13 || '',
+            coverImageUrl: bookMetadata.coverImageUrl || bookLookupResult?.imageUrl || '',
+            source: bookMetadata.source || bookLookupResult?.source || '',
+            sourcesTried: Array.isArray(bookMetadata.sourcesTried) ? bookMetadata.sourcesTried : [],
+          } : {},
         })
         .select()
         .single();
@@ -167,17 +248,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
       }
 
       toast.success('Item added successfully!');
-      setFormData({
-        product_name: '',
-        console: 'Nintendo Switch',
-        condition: 'CIB',
-        region: 'US',
-        purchase_price: '',
-        quantity: '1',
-        notes: '',
-        barcode: '',
-        lot_id: defaultLotId ?? '',
-      });
+      resetForm();
       onOpenChange(false);
       onSuccess();
     } catch (error: unknown) {
@@ -215,7 +286,10 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
                 <Label htmlFor="console">Platform / Category</Label>
                 <Select
                   value={formData.console}
-                  onValueChange={(value) => setFormData({ ...formData, console: value, condition: defaultConditionForPlatform(value) })}
+                  onValueChange={(value) => {
+                    setBookLookupResult(isBookLikeValue(value) ? bookLookupResult : null);
+                    setFormData({ ...formData, console: value, condition: defaultConditionForPlatform(value) });
+                  }}
                 >
                   <SelectTrigger className="bg-secondary/50">
                     <SelectValue />
@@ -312,14 +386,53 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="barcode">Barcode / UPC <span className="text-muted-foreground font-normal">(Optional)</span></Label>
-              <Input
-                id="barcode"
-                placeholder="Enter barcode"
-                value={formData.barcode}
-                onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                className="bg-secondary/50"
-              />
+              <Label htmlFor="barcode">Barcode / UPC / ISBN <span className="text-muted-foreground font-normal">(Optional)</span></Label>
+              <div className="flex gap-2">
+                <Input
+                  id="barcode"
+                  placeholder={isBookLikeValue(formData.console) ? 'Scan or enter ISBN / book barcode' : 'Enter barcode'}
+                  value={formData.barcode}
+                  onChange={(e) => {
+                    setBookLookupResult(null);
+                    setFormData({ ...formData, barcode: e.target.value });
+                  }}
+                  className="bg-secondary/50"
+                />
+                {isBookLikeValue(formData.console) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleBookMetadataLookup}
+                    disabled={bookLookupLoading || !formData.barcode.trim()}
+                    className="shrink-0"
+                  >
+                    {bookLookupLoading ? (
+                      'Looking...'
+                    ) : (
+                      <>
+                        <Search className="mr-2 h-4 w-4" />
+                        Lookup
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+              {isBookLikeValue(formData.console) && (
+                <p className="text-xs text-muted-foreground">
+                  ISBN-10, ISBN-13, and Bookland EANs can auto-fill metadata. Retail UPCs are saved for search/POS even when no book metadata exists.
+                </p>
+              )}
+              {bookLookupResult?.bookMetadata && (
+                <div className="rounded-lg border border-primary/25 bg-primary/5 p-3 text-sm">
+                  <div className="flex items-center gap-2 font-medium text-primary">
+                    <BookOpen className="h-4 w-4" />
+                    Book metadata ready
+                  </div>
+                  <div className="mt-1 text-muted-foreground">
+                    {[bookLookupResult.bookMetadata.authors?.join(', '), bookLookupResult.bookMetadata.publisher, bookLookupResult.bookMetadata.publishedYear].filter(Boolean).join(' - ')}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
