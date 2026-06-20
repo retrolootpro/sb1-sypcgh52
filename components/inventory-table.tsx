@@ -3,12 +3,13 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus, Clock, BookOpen, Package } from 'lucide-react';
+import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus, Clock, BookOpen, Package, Printer, Tags } from 'lucide-react';
 import { PrepStageMini } from '@/components/prep-stage-bar';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { getItemRegionDetails, getRegionStyle } from '@/lib/region';
 import { getAgeActionLabel, getAgeStatus, getInventoryAgeDays, type AgingThresholds } from '@/lib/inventory-aging';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
@@ -32,6 +33,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { Collection } from '@/components/create-collection-dialog';
 import { getInventoryFamily, isBookLikeItem, productTypeLabel } from '@/lib/item-taxonomy';
+
+const LABEL_QUEUE_KEY = 'retroloot-label-queue';
 
 type InventoryItem = {
   id: string;
@@ -123,6 +126,7 @@ export function InventoryTable({
   onMoveToCollection,
   onBulkMoveToCollection,
 }: InventoryTableProps) {
+  const router = useRouter();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const isSelectionMode = selectedIds.size > 0;
   const allSelected = items.length > 0 && selectedIds.size === items.length;
@@ -157,6 +161,31 @@ export function InventoryTable({
     clearSelection();
   };
 
+  const selectedIdList = () => Array.from(selectedIds);
+
+  const handlePrintSelectedLabels = () => {
+    const ids = selectedIdList();
+    if (ids.length === 0) return;
+    router.push(`/labels?ids=${encodeURIComponent(ids.join(','))}`);
+  };
+
+  const handleQueueSelectedLabels = () => {
+    const ids = selectedIdList();
+    if (ids.length === 0 || typeof window === 'undefined') return;
+    let existing: string[] = [];
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(LABEL_QUEUE_KEY) || '[]');
+      existing = Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    } catch {
+      existing = [];
+    }
+    const next = Array.from(new Set([...existing, ...ids]));
+    window.localStorage.setItem(LABEL_QUEUE_KEY, JSON.stringify(next));
+    window.dispatchEvent(new CustomEvent('retroloot-label-queue-change'));
+    toast.success(`Queued ${ids.length} label${ids.length === 1 ? '' : 's'}`);
+    clearSelection();
+  };
+
   if (items.length === 0) {
     return (
       <div className="text-center py-16 border border-border/50 rounded-xl bg-card/30">
@@ -170,7 +199,7 @@ export function InventoryTable({
   return (
     <div className="space-y-3">
       {isSelectionMode && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 sticky top-2 z-10 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 sticky top-2 z-10 backdrop-blur-sm">
           <div
             className="w-6 h-6 flex items-center justify-center rounded-sm border border-primary/60 bg-primary/10 cursor-pointer hover:bg-primary/20 transition-colors flex-shrink-0"
             onClick={allSelected ? clearSelection : selectAll}
@@ -196,6 +225,34 @@ export function InventoryTable({
           )}
 
           <div className="flex-1" />
+
+          <Button
+            size="sm"
+            className="h-9 text-sm gap-1.5"
+            onClick={handlePrintSelectedLabels}
+          >
+            <Printer className="w-4 h-4" />
+            Print Labels
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 text-sm gap-1.5 border-border/60"
+            onClick={handleQueueSelectedLabels}
+          >
+            <Tags className="w-4 h-4" />
+            Add to Queue
+          </Button>
+
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-9 text-sm text-muted-foreground"
+            onClick={() => router.push('/labels')}
+          >
+            Open Queue
+          </Button>
 
           {collections.length > 0 && onBulkMoveToCollection && (
             <DropdownMenu>

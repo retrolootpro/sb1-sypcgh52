@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, ScanBarcode } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, ScanBarcode, Tags } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { BarcodeScannerView, type ScanResult } from '@/components/barcode-scanner-view';
@@ -21,6 +21,7 @@ import { getAgeStatus, getInventoryAgeDays, normalizeAgingThresholds, readAgingT
 import { toast } from 'sonner';
 import { CreateCollectionDialog, type Collection } from '@/components/create-collection-dialog';
 import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -629,6 +630,12 @@ export default function InventoryPage() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <Button asChild variant="outline" size="sm" className="h-10 rounded-lg text-sm">
+              <Link href="/labels">
+                <Tags className="mr-1.5 h-4 w-4" />
+                Labels
+              </Link>
+            </Button>
             <Button size="sm" className="h-10 rounded-lg text-sm" onClick={() => setShowAddDialog(true)}>
               <Plus className="w-4 h-4 mr-1.5" />
               Add Item
