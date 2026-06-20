@@ -17,6 +17,17 @@ type ApiKeyRow = {
   api_key: string;
 };
 
+type BookLookupResult = {
+  title: string;
+  platform: string;
+  category: string;
+  brand: string;
+  description: string;
+  imageUrl: string;
+  thumbnailUrl: string;
+  source: 'google_books' | 'open_library';
+};
+
 const PLATFORM_SLUGS: Record<string, string> = {
   wii: 'wii',
   'wii u': 'wii-u',
@@ -102,6 +113,81 @@ async function fetchPriceChartingImage(productName: string, platform: string) {
   };
 }
 
+function isLikelyBookBarcode(barcode: string) {
+  return /^(978|979)\d{10}$/.test(barcode);
+}
+
+function cleanGoogleImage(url: string) {
+  if (!url) return '';
+  return url.replace(/^http:\/\//i, 'https://');
+}
+
+async function lookupGoogleBookByIsbn(isbn: string): Promise<BookLookupResult | null> {
+  const response = await fetch(
+    `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}`,
+    { cache: 'no-store' }
+  );
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  const volume = Array.isArray(data?.items) ? data.items[0]?.volumeInfo : null;
+  if (!volume?.title) return null;
+
+  const categories = Array.isArray(volume.categories) ? volume.categories : [];
+  const authors = Array.isArray(volume.authors) ? volume.authors : [];
+  const categoryText = categories.join(', ');
+  const isManga = /manga|comics|graphic novel/i.test(`${volume.title} ${categoryText}`);
+  const imageLinks = volume.imageLinks || {};
+  const thumbnailUrl = cleanGoogleImage(imageLinks.thumbnail || imageLinks.smallThumbnail || '');
+
+  return {
+    title: String(volume.title || '').trim(),
+    platform: isManga ? 'Manga' : 'Book',
+    category: `${isManga ? 'Manga' : 'Books'}${categoryText ? `, ${categoryText}` : ''}`,
+    brand: String(volume.publisher || authors.join(', ') || 'Books').trim(),
+    description: String(volume.description || '').trim(),
+    imageUrl: cleanGoogleImage(imageLinks.extraLarge || imageLinks.large || imageLinks.medium || thumbnailUrl),
+    thumbnailUrl,
+    source: 'google_books',
+  };
+}
+
+async function lookupOpenLibraryBookByIsbn(isbn: string): Promise<BookLookupResult | null> {
+  const response = await fetch(
+    `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`,
+    { cache: 'no-store' }
+  );
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  if (!data?.title) return null;
+
+  const publishers = Array.isArray(data.publishers) ? data.publishers : [];
+  const subjects = Array.isArray(data.subjects) ? data.subjects.slice(0, 5) : [];
+  const categoryText = subjects.join(', ');
+  const isManga = /manga|comics|graphic novel/i.test(`${data.title} ${categoryText}`);
+  const coverId = data.covers?.[0];
+  const imageUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : '';
+  const thumbnailUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : '';
+
+  return {
+    title: String(data.title || '').trim(),
+    platform: isManga ? 'Manga' : 'Book',
+    category: `${isManga ? 'Manga' : 'Books'}${categoryText ? `, ${categoryText}` : ''}`,
+    brand: String(publishers[0] || 'Books').trim(),
+    description: typeof data.description === 'string'
+      ? data.description
+      : String(data.description?.value || '').trim(),
+    imageUrl,
+    thumbnailUrl,
+    source: 'open_library',
+  };
+}
+
+async function lookupBookByIsbn(isbn: string): Promise<BookLookupResult | null> {
+  return (await lookupGoogleBookByIsbn(isbn)) || (await lookupOpenLibraryBookByIsbn(isbn));
+}
+
 export async function GET() {
   return json({
     ok: true,
@@ -136,11 +222,34 @@ export async function POST(req: NextRequest) {
 
     const keyMap = new Map((apiKeys as ApiKeyRow[] | null ?? []).map((row) => [row.provider, row.api_key]));
     const pcKey = keyMap.get('pricecharting');
+    const isBookBarcode = isLikelyBookBarcode(cleanBarcode);
+
+    if (isBookBarcode) {
+      const book = await lookupBookByIsbn(cleanBarcode);
+      if (book) {
+        return json({
+          success: true,
+          barcode: cleanBarcode,
+          title: book.title,
+          platform: book.platform,
+          category: book.category,
+          brand: book.brand,
+          description: book.description,
+          imageUrl: book.imageUrl,
+          thumbnailUrl: book.thumbnailUrl,
+          pcProductId: '',
+          source: book.source,
+        });
+      }
+    }
+
     if (!pcKey) {
       return json({
         success: false,
         errorCode: 'CONFIG_ERROR',
-        message: 'PriceCharting API key is required for local UPC lookup.',
+        message: isBookBarcode
+          ? 'No book metadata was found for this ISBN, and PriceCharting is not configured for game UPC fallback.'
+          : 'PriceCharting API key is required for game UPC lookup.',
       });
     }
 
@@ -159,7 +268,9 @@ export async function POST(req: NextRequest) {
       return json({
         success: false,
         errorCode: 'NO_MATCH',
-        message: `No PriceCharting product found for UPC ${cleanBarcode}.`,
+        message: isBookBarcode
+          ? `No book metadata or PriceCharting product found for UPC ${cleanBarcode}.`
+          : `No PriceCharting product found for UPC ${cleanBarcode}.`,
       });
     }
 

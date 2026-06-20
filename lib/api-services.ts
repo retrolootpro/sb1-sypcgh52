@@ -5,11 +5,14 @@ import { getActiveAccountId } from './account';
 export interface UPCLookupResult {
   barcode: string;
   title: string;
+  platform?: string;
   description?: string;
   brand?: string;
   category?: string;
   imageUrl?: string;
   thumbnailUrl?: string;
+  pcProductId?: string;
+  source?: string;
 }
 
 export interface PriceChartingResult {
@@ -50,11 +53,14 @@ export async function lookupUPC(barcode: string, userId: string, titleHint?: str
       return {
         barcode: cleanBarcode,
         title: routeData.title,
+        platform: routeData.platform,
         description: routeData.description,
         brand: routeData.brand,
         category: routeData.category,
         imageUrl: routeData.imageUrl,
         thumbnailUrl: routeData.thumbnailUrl,
+        pcProductId: routeData.pcProductId,
+        source: routeData.source,
       };
     }
 

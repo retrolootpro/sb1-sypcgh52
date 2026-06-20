@@ -1,4 +1,4 @@
-export type ItemType = 'game' | 'console' | 'controller' | 'memory_card' | 'cable' | 'accessory' | 'unknown';
+export type ItemType = 'game' | 'console' | 'controller' | 'memory_card' | 'cable' | 'accessory' | 'book' | 'manga' | 'collectible' | 'mixed_lot' | 'unknown';
 
 export type LookupResult = {
   barcode: string;
@@ -77,6 +77,25 @@ const ACCESSORY_KEYWORDS = [
   'carrying case', 'travel case', 'battery pack', 'cooling fan', 'usb hub'
 ];
 
+const BOOK_KEYWORDS = [
+  'book', 'paperback', 'hardcover', 'hardback', 'isbn', 'novel', 'reader',
+  'textbook', 'guidebook', 'strategy guide', 'manual', 'author', 'publisher'
+];
+
+const MANGA_KEYWORDS = [
+  'manga', 'graphic novel', 'comic', 'volume', 'viz media', 'shonen', 'shojo',
+  'tokyopop', 'kodansha'
+];
+
+const COLLECTIBLE_KEYWORDS = [
+  'collectible', 'figure', 'figurine', 'statue', 'trading card', 'card game',
+  'pokemon card', 'sports card', 'toy', 'plush', 'sealed box', 'blind box'
+];
+
+const MIXED_LOT_KEYWORDS = [
+  'lot', 'bundle', 'assortment', 'collection', 'mixed lot', 'bulk'
+];
+
 const EDITION_PATTERNS = [
   { pattern: /\bgreatest hits\b/i, edition: 'Greatest Hits' },
   { pattern: /\bplayer'?s choice\b/i, edition: "Player's Choice" },
@@ -124,6 +143,10 @@ export function classifyItem(title: string, category: string, brand: string): Cl
   let memoryScore = 0;
   let cableScore = 0;
   let accessoryScore = 0;
+  let bookScore = 0;
+  let mangaScore = 0;
+  let collectibleScore = 0;
+  let mixedLotScore = 0;
 
   GAME_KEYWORDS.forEach(keyword => {
     if (normalizedText.includes(keyword)) gameScore += 2;
@@ -149,6 +172,22 @@ export function classifyItem(title: string, category: string, brand: string): Cl
     if (normalizedText.includes(keyword)) accessoryScore += 2;
   });
 
+  BOOK_KEYWORDS.forEach(keyword => {
+    if (normalizedText.includes(keyword)) bookScore += 3;
+  });
+
+  MANGA_KEYWORDS.forEach(keyword => {
+    if (normalizedText.includes(keyword)) mangaScore += 4;
+  });
+
+  COLLECTIBLE_KEYWORDS.forEach(keyword => {
+    if (normalizedText.includes(keyword)) collectibleScore += 3;
+  });
+
+  MIXED_LOT_KEYWORDS.forEach(keyword => {
+    if (normalizedText.includes(keyword)) mixedLotScore += 4;
+  });
+
   const categoryLower = category.toLowerCase();
   if (categoryLower.includes('video game') || categoryLower.includes('software')) {
     gameScore += 10;
@@ -168,6 +207,18 @@ export function classifyItem(title: string, category: string, brand: string): Cl
   if (categoryLower.includes('accessory') || categoryLower.includes('peripheral')) {
     accessoryScore += 5;
   }
+  if (categoryLower.includes('book') || categoryLower.includes('literature')) {
+    bookScore += 12;
+  }
+  if (categoryLower.includes('manga') || categoryLower.includes('comics') || categoryLower.includes('graphic novel')) {
+    mangaScore += 12;
+  }
+  if (categoryLower.includes('collectible') || categoryLower.includes('toy') || categoryLower.includes('trading card')) {
+    collectibleScore += 10;
+  }
+  if (categoryLower.includes('lot') || categoryLower.includes('bundle')) {
+    mixedLotScore += 10;
+  }
 
   const scores = [
     { type: 'game' as ItemType, score: gameScore, keyword: 'game' },
@@ -176,6 +227,10 @@ export function classifyItem(title: string, category: string, brand: string): Cl
     { type: 'memory_card' as ItemType, score: memoryScore, keyword: 'memory card' },
     { type: 'cable' as ItemType, score: cableScore, keyword: 'cable' },
     { type: 'accessory' as ItemType, score: accessoryScore, keyword: 'accessory' },
+    { type: 'book' as ItemType, score: bookScore, keyword: 'book' },
+    { type: 'manga' as ItemType, score: mangaScore, keyword: 'manga' },
+    { type: 'collectible' as ItemType, score: collectibleScore, keyword: 'collectible' },
+    { type: 'mixed_lot' as ItemType, score: mixedLotScore, keyword: 'mixed lot' },
   ];
 
   scores.sort((a, b) => b.score - a.score);

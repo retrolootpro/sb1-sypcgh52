@@ -10,6 +10,7 @@ import { AlertTriangle, DollarSign, Monitor, ChevronDown } from 'lucide-react';
 import { REGIONS } from '@/lib/constants';
 
 export const CONSOLE_OPTIONS = [
+  { group: 'Books & Media', options: ['Book', 'Manga', 'Comic', 'Graphic Novel', 'Strategy Guide'] },
   { group: 'Sony', options: ['PlayStation 5', 'PlayStation 4', 'PlayStation 3', 'PlayStation 2', 'PlayStation', 'PS Vita', 'PSP'] },
   { group: 'Microsoft', options: ['Xbox Series X/S', 'Xbox One', 'Xbox 360', 'Xbox'] },
   { group: 'Nintendo', options: ['Switch', 'Wii U', 'Wii', 'GameCube', 'N64', 'SNES', 'NES', '3DS', 'DS', 'Game Boy Advance', 'Game Boy Color', 'Game Boy'] },

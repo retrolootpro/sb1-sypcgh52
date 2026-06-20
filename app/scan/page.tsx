@@ -58,6 +58,13 @@ type PendingBarcode = {
   scanCount?: number;
 };
 
+const DATABASE_SAFE_ITEM_TYPES = new Set(['game', 'console', 'accessory', 'unknown']);
+
+function toDatabaseItemType(itemType: string | undefined) {
+  if (!itemType) return 'unknown';
+  return DATABASE_SAFE_ITEM_TYPES.has(itemType) ? itemType : 'accessory';
+}
+
 export default function ScanPage() {
   const { user, accountId } = useAuth();
   const [scanMode, setScanMode] = useState<ScanMode>('single');
@@ -209,7 +216,7 @@ export default function ScanPage() {
         upcLookupResult.brand || ''
       );
 
-      const platform = extractPlatform(upcLookupResult.title);
+      const platform = upcLookupResult.platform || extractPlatform(upcLookupResult.title);
       const edition = detectEdition(upcLookupResult.title);
 
       let pricingResult: PricingResult | null = null;
@@ -393,12 +400,12 @@ export default function ScanPage() {
         platform_raw: lookupResult.platform || '',
         platform_normalized: selectedConsole || lookupResult.platform || '',
         category: lookupResult.category || '',
-        item_type: classification.itemType || 'unknown',
+        item_type: toDatabaseItemType(classification.itemType),
         brand: lookupResult.brand || null,
         confidence_score: confidence.overall || 0,
-        source_upc_provider: queueItem.barcode ? 'upcitemdb' : 'manual_title_search',
-        source_metadata_provider: pricingResult?.status === 'success' ? 'pricecharting' : null,
-        source_image_provider: lookupResult.imageUrl ? 'upcitemdb' : null,
+        source_upc_provider: queueItem.barcode ? (lookupResult.source || 'local_upc_lookup') : 'manual_title_search',
+        source_metadata_provider: pricingResult?.status === 'success' ? 'pricecharting' : (lookupResult.source || null),
+        source_image_provider: lookupResult.imageUrl ? (lookupResult.source || 'local_upc_lookup') : null,
         description: lookupResult.description || '',
         genre: pricingResult?.data?.genre || '',
         scan_created_at: new Date().toISOString(),
