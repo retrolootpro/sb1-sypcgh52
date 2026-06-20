@@ -37,6 +37,9 @@ import { isCloverBridgeAvailable, requestCloverCardPayment, requestCloverCashDra
 
 const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
+const cents = (value: number) => Math.round((Number(value) || 0) * 100);
+const fromCents = (value: number) => Number((value / 100).toFixed(2));
+const currency = (value: number) => fromCents(cents(value));
 const CASH_OFFER_RATE = 0.35;
 const TRADE_OFFER_RATE = 0.6;
 const RECOMMENDED_OFFER_RATE = (CASH_OFFER_RATE + TRADE_OFFER_RATE) / 2;
@@ -229,24 +232,24 @@ export default function PosPage() {
     }
   };
 
-  const subtotal = useMemo(() => cart.reduce((sum, line) => sum + line.quantity * line.unit_price, 0), [cart]);
+  const subtotal = useMemo(() => currency(cart.reduce((sum, line) => sum + line.quantity * line.unit_price, 0)), [cart]);
   const cartItemCount = useMemo(() => cart.reduce((sum, line) => sum + Number(line.quantity || 0), 0), [cart]);
   const discountRaw = Math.max(0, Number(discount || 0));
-  const discountAmount = Math.min(discountType === 'percent' ? subtotal * Math.min(discountRaw, 100) / 100 : discountRaw, subtotal);
-  const taxable = Math.max(0, subtotal - discountAmount);
+  const discountAmount = currency(Math.min(discountType === 'percent' ? subtotal * Math.min(discountRaw, 100) / 100 : discountRaw, subtotal));
+  const taxable = currency(Math.max(0, subtotal - discountAmount));
   const activeTaxRate = Math.max(0, Number(taxSettings?.default_tax_rate || 0));
-  const taxAmount = taxable * activeTaxRate;
-  const total = taxable + taxAmount;
-  const creditUsed = Math.min(Number(creditToUse || 0), selectedCustomer?.credit_balance || 0, total);
-  const dueAfterCredit = Math.max(0, total - creditUsed);
-  const cashAmount = Number(cashReceived || 0);
-  const cardTenderAmount = Number(cardAmount || 0);
+  const taxAmount = currency(taxable * activeTaxRate);
+  const total = currency(taxable + taxAmount);
+  const creditUsed = currency(Math.min(Number(creditToUse || 0), selectedCustomer?.credit_balance || 0, total));
+  const dueAfterCredit = currency(Math.max(0, total - creditUsed));
+  const cashAmount = currency(Number(cashReceived || 0));
+  const cardTenderAmount = currency(Number(cardAmount || 0));
   const tenderedAmount = paymentMethod === 'cash'
     ? cashAmount
     : paymentMethod === 'split'
-      ? cashAmount + cardTenderAmount
+      ? currency(cashAmount + cardTenderAmount)
       : dueAfterCredit;
-  const changeDue = Math.max(0, tenderedAmount - dueAfterCredit);
+  const changeDue = currency(Math.max(0, tenderedAmount - dueAfterCredit));
   const tradeMarketTotal = useMemo(
     () => tradeItems.reduce((sum, item) => sum + Number(item.market_value || 0) * Number(item.quantity || 1), 0),
     [tradeItems]
@@ -626,7 +629,7 @@ export default function PosPage() {
 
   const handleCompleteSale = async () => {
     if (cart.length === 0) return toast.error('Add at least one item');
-    if ((paymentMethod === 'cash' || paymentMethod === 'split') && tenderedAmount < dueAfterCredit) {
+    if ((paymentMethod === 'cash' || paymentMethod === 'split') && cents(tenderedAmount) < cents(dueAfterCredit)) {
       return toast.error('Cash received is below the amount due');
     }
     if ((paymentMethod === 'external_card' || paymentMethod === 'square' || paymentMethod === 'stripe' || paymentMethod === 'split') && !processorReference.trim()) {

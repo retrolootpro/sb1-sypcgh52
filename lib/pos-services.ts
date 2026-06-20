@@ -1,6 +1,9 @@
 import { supabase } from './supabase';
 import { getActiveAccountId } from './account';
 
+const cents = (value: number) => Math.round((Number(value) || 0) * 100);
+const currency = (value: number) => Number((cents(value) / 100).toFixed(2));
+
 export type PosCustomer = {
   id: string;
   user_id: string;
@@ -257,12 +260,12 @@ export async function completePosSale(input: {
   if (!session) throw new Error('Not authenticated');
   const accountId = await getActiveAccountId(session.user);
 
-  const subtotal = input.lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_price || 0), 0);
-  const discount = Math.min(Number(input.discount_amount || 0), subtotal);
-  const taxableSubtotal = Math.max(0, subtotal - discount);
-  const taxAmount = taxableSubtotal * Number(input.tax_rate || 0);
-  const total = taxableSubtotal + taxAmount;
-  const creditUsed = Math.min(Number(input.trade_credit_used || 0), total);
+  const subtotal = currency(input.lines.reduce((sum, line) => sum + Number(line.quantity || 0) * Number(line.unit_price || 0), 0));
+  const discount = currency(Math.min(Number(input.discount_amount || 0), subtotal));
+  const taxableSubtotal = currency(Math.max(0, subtotal - discount));
+  const taxAmount = currency(taxableSubtotal * Number(input.tax_rate || 0));
+  const total = currency(taxableSubtotal + taxAmount);
+  const creditUsed = currency(Math.min(Number(input.trade_credit_used || 0), total));
 
   const { data: sale, error: saleError } = await supabase
     .from('pos_sales')
@@ -296,7 +299,7 @@ export async function completePosSale(input: {
     platform: line.platform || '',
     quantity: Number(line.quantity || 1),
     unit_price: Number(line.unit_price || 0),
-    line_total: Number(line.quantity || 1) * Number(line.unit_price || 0),
+    line_total: currency(Number(line.quantity || 1) * Number(line.unit_price || 0)),
     item_source: line.source,
   }));
 
