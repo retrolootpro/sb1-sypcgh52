@@ -43,6 +43,19 @@ export type PosCartLine = {
   unit_price: number;
 };
 
+export type PosSaleItem = {
+  id: string;
+  sale_id: string;
+  inventory_item_id?: string | null;
+  item_name: string;
+  platform?: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  item_source: 'inventory' | 'manual';
+  created_at: string;
+};
+
 export type PosSale = {
   id: string;
   sale_number: string;
@@ -54,14 +67,17 @@ export type PosSale = {
   tax_zip?: string;
   tax_source?: string;
   total_amount: number;
-  payment_method: 'cash' | 'external_card' | 'square' | 'stripe' | 'trade_credit' | 'split' | 'other';
+  payment_method: 'cash' | 'clover_card' | 'external_card' | 'square' | 'stripe' | 'trade_credit' | 'split' | 'other';
   trade_credit_used: number;
   cash_received: number;
   processor_reference?: string;
   status: 'draft' | 'completed' | 'voided' | 'refunded';
   notes?: string;
   sold_at: string;
+  pos_sale_items?: PosSaleItem[];
 };
+
+export type PosSaleActionStatus = 'voided' | 'refunded';
 
 export type PosTaxSettings = {
   user_id: string;
@@ -356,6 +372,114 @@ export async function completePosSale(input: {
   }
 
   return sale as PosSale;
+}
+
+export async function getRecentPosSales(limit = 30): Promise<PosSale[]> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data, error } = await supabase
+    .from('pos_sales')
+    .select('*, pos_sale_items(*)')
+    .eq('user_id', accountId)
+    .order('sold_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw error;
+  return (data || []) as PosSale[];
+}
+
+export async function updatePosSaleStatus(saleId: string, status: PosSaleActionStatus): Promise<PosSale> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data: sale, error: saleError } = await supabase
+    .from('pos_sales')
+    .select('*')
+    .eq('id', saleId)
+    .eq('user_id', accountId)
+    .single();
+  if (saleError) throw saleError;
+  if (!sale) throw new Error('Sale not found');
+  if (sale.status !== 'completed') throw new Error(`Sale is already ${sale.status}`);
+
+  const { error: updateError } = await supabase
+    .from('pos_sales')
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq('id', saleId)
+    .eq('user_id', accountId);
+  if (updateError) throw updateError;
+
+  const reversalLabel = status === 'refunded' ? 'POS refund' : 'POS void';
+  const { error: financeError } = await supabase.from('financial_transactions').insert({
+    user_id: accountId,
+    date: new Date().toISOString().slice(0, 10),
+    description: `${reversalLabel} ${sale.sale_number}`,
+    amount: -Math.abs(Number(sale.total_amount || 0)),
+    type: 'refund',
+    category: 'Refunds',
+    subcategory: 'POS',
+    source: 'show',
+    platform: 'POS Register',
+    reference_id: sale.id,
+    merchant_name: 'RetroLootPro POS',
+    notes: `Reversal for POS sale ${sale.sale_number}`,
+    is_reconciled: false,
+  });
+  if (financeError) throw financeError;
+
+  const { data: saleItems, error: itemError } = await supabase
+    .from('pos_sale_items')
+    .select('inventory_item_id')
+    .eq('sale_id', saleId)
+    .eq('user_id', accountId);
+  if (itemError) throw itemError;
+
+  const inventoryIds = (saleItems || [])
+    .map((item: any) => item.inventory_item_id)
+    .filter(Boolean);
+
+  if (inventoryIds.length > 0) {
+    const { error: inventoryError } = await supabase
+      .from('inventory_items')
+      .update({ status: 'available', sold_at: null })
+      .in('id', inventoryIds)
+      .eq('user_id', accountId);
+    if (inventoryError) throw inventoryError;
+  }
+
+  const creditUsed = Number(sale.trade_credit_used || 0);
+  if (sale.customer_id && creditUsed > 0) {
+    const { data: customer } = await supabase
+      .from('pos_customers')
+      .select('credit_balance')
+      .eq('id', sale.customer_id)
+      .eq('user_id', accountId)
+      .single();
+
+    const nextCredit = Number(customer?.credit_balance || 0) + creditUsed;
+    const { error: customerError } = await supabase
+      .from('pos_customers')
+      .update({ credit_balance: nextCredit })
+      .eq('id', sale.customer_id)
+      .eq('user_id', accountId);
+    if (customerError) throw customerError;
+
+    const { error: ledgerError } = await supabase.from('pos_customer_credit_ledger').insert({
+      user_id: accountId,
+      customer_id: sale.customer_id,
+      amount: creditUsed,
+      entry_type: 'adjustment',
+      source_type: 'sale',
+      source_id: sale.id,
+      note: `Returned credit from ${status} sale ${sale.sale_number}`,
+    });
+    if (ledgerError) throw ledgerError;
+  }
+
+  return { ...(sale as PosSale), status };
 }
 
 export async function completeCustomerBuy(input: {

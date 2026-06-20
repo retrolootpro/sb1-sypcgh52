@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Camera, CreditCard, HandCoins, Package, Plus, Search, ShoppingCart, Trash2, UserPlus, Users } from 'lucide-react';
+import { ArrowLeft, Camera, CreditCard, HandCoins, History, Package, Plus, ReceiptText, Search, ShoppingCart, Trash2, Undo2, UserPlus, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { BarcodeScannerView } from '@/components/barcode-scanner-view';
 import { Button } from '@/components/ui/button';
@@ -19,9 +19,11 @@ import {
   completeCustomerBuy,
   completePosSale,
   createPosCustomer,
+  getRecentPosSales,
   getPosTaxSettings,
   searchPosCustomers,
   searchPosInventory,
+  updatePosSaleStatus,
   type PosCartLine,
   type PosBuyItem,
   type PosCustomer,
@@ -31,6 +33,7 @@ import {
 } from '@/lib/pos-services';
 import { supabase } from '@/lib/supabase';
 import { inventoryLabelPrice } from '@/lib/label-pricing';
+import { isCloverBridgeAvailable, requestCloverCardPayment, requestCloverCashDrawerOpen, requestCloverReceiptPrint } from '@/lib/clover-pos-bridge';
 
 const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -83,6 +86,7 @@ type LocalUpcLookupResult = {
 };
 
 type ScannerPurpose = 'sale' | 'trade';
+type PosMode = 'sale' | 'buy' | 'customers' | 'history';
 
 function bestMarketValue(pricecharting: number, gamestop: number) {
   return Math.max(Number(pricecharting || 0), Number(gamestop || 0));
@@ -138,9 +142,10 @@ function baselinePriceChartingValue(details: PriceChartingDetails) {
 export default function PosPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
-  const [mode, setMode] = useState<'sale' | 'buy' | 'customers'>('sale');
+  const [mode, setMode] = useState<PosMode>('sale');
   const [inventory, setInventory] = useState<PosInventoryItem[]>([]);
   const [customers, setCustomers] = useState<PosCustomer[]>([]);
+  const [recentSales, setRecentSales] = useState<PosSale[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<PosCustomer | null>(null);
   const [inventorySearch, setInventorySearch] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
@@ -154,6 +159,7 @@ export default function PosPage() {
   const [creditToUse, setCreditToUse] = useState('');
   const [creditManualOverride, setCreditManualOverride] = useState(false);
   const [processorReference, setProcessorReference] = useState('');
+  const [cloverAvailable, setCloverAvailable] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [scannerActive, setScannerActive] = useState(false);
   const [scannerPurpose, setScannerPurpose] = useState<ScannerPurpose>('sale');
@@ -179,10 +185,15 @@ export default function PosPage() {
   }, [loading, router, user]);
 
   useEffect(() => {
+    setCloverAvailable(isCloverBridgeAvailable());
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
     loadInventory();
     loadCustomers();
     loadTaxSettings();
+    loadRecentSales();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -207,6 +218,14 @@ export default function PosPage() {
       setTaxSettings(await getPosTaxSettings());
     } catch (error: any) {
       toast.error(error.message || 'Failed to load POS tax settings');
+    }
+  };
+
+  const loadRecentSales = async () => {
+    try {
+      setRecentSales(await getRecentPosSales(30));
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to load POS history');
     }
   };
 
@@ -250,7 +269,9 @@ export default function PosPage() {
     ? cart.length > 0 ? 'Ready for checkout' : 'Scan or search items'
     : mode === 'buy'
       ? tradeItems.length > 0 ? 'Review trade offer' : 'Add trade items'
-      : selectedCustomer ? 'Customer selected' : 'Find or create customer';
+      : mode === 'history'
+        ? 'Review transactions'
+        : selectedCustomer ? 'Customer selected' : 'Find or create customer';
 
   const openCameraScanner = (purpose: ScannerPurpose) => {
     setScannerPurpose(purpose);
@@ -613,6 +634,32 @@ export default function PosPage() {
     }
     setSaving(true);
     try {
+      let completedProcessorReference = processorReference.trim();
+      if (paymentMethod === 'clover_card') {
+        const externalId = `rlp-${Date.now()}-${uid()}`;
+        toast.info('Sending payment to Clover...');
+        const result = await requestCloverCardPayment({
+          externalId,
+          amountCents: Math.round(dueAfterCredit * 100),
+          amount: dueAfterCredit,
+          subtotal,
+          discountAmount,
+          taxAmount,
+          taxRate: activeTaxRate,
+          creditUsed,
+          lines: cart.map((line) => ({
+            name: line.item_name,
+            quantity: line.quantity,
+            unitPrice: line.unit_price,
+          })),
+        });
+
+        if (!result.success) {
+          throw new Error(result.message || result.reason || 'Clover payment was declined or cancelled.');
+        }
+        completedProcessorReference = result.reference || result.paymentId || result.externalId || externalId;
+      }
+
       const sale = await completePosSale({
         customer_id: selectedCustomer?.id || null,
         lines: cart,
@@ -623,8 +670,30 @@ export default function PosPage() {
         payment_method: paymentMethod,
         trade_credit_used: creditUsed,
         cash_received: cashAmount,
-        processor_reference: processorReference,
+        processor_reference: completedProcessorReference,
       });
+      if (isCloverBridgeAvailable()) {
+        requestCloverReceiptPrint({
+          saleNumber: sale.sale_number,
+          soldAt: sale.sold_at,
+          lines: cart.map((line) => ({
+            name: line.item_name,
+            quantity: line.quantity,
+            unitPrice: line.unit_price,
+            lineTotal: line.quantity * line.unit_price,
+          })),
+          subtotal,
+          discountAmount,
+          taxAmount,
+          total,
+          creditUsed,
+          paymentMethod,
+          processorReference: completedProcessorReference,
+        });
+        if (paymentMethod === 'cash' || paymentMethod === 'split') {
+          requestCloverCashDrawerOpen();
+        }
+      }
       toast.success(`Sale complete: ${sale.sale_number}`);
       setCart([]);
       setDiscount('');
@@ -642,9 +711,24 @@ export default function PosPage() {
           lifetime_spend: Number(selectedCustomer.lifetime_spend || 0) + total,
         });
       }
-      await Promise.all([loadInventory(), loadCustomers()]);
+      await Promise.all([loadInventory(), loadCustomers(), loadRecentSales()]);
     } catch (error: any) {
       toast.error(error.message || 'Failed to complete sale');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaleAction = async (sale: PosSale, status: 'voided' | 'refunded') => {
+    const action = status === 'refunded' ? 'refund' : 'void';
+    if (!window.confirm(`Confirm ${action} for sale ${sale.sale_number}? This will reverse the finance entry and restore inventory items.`)) return;
+    setSaving(true);
+    try {
+      await updatePosSaleStatus(sale.id, status);
+      toast.success(`Sale ${sale.sale_number} marked ${status}`);
+      await Promise.all([loadRecentSales(), loadInventory(), loadCustomers()]);
+    } catch (error: any) {
+      toast.error(error.message || `Failed to ${action} sale`);
     } finally {
       setSaving(false);
     }
@@ -713,10 +797,14 @@ export default function PosPage() {
             <div className="[&_button]:h-12 [&_button]:w-12">
               <ThemeToggle compact />
             </div>
-            <div className="grid min-w-0 flex-1 grid-cols-3 gap-2 rounded-xl border border-white/10 bg-white/5 p-1 sm:w-auto sm:flex-none">
+            <div className="grid min-w-0 flex-1 grid-cols-4 gap-2 rounded-xl border border-white/10 bg-white/5 p-1 sm:w-auto sm:flex-none">
               <ModeButton active={mode === 'sale'} icon={ShoppingCart} label="Sell" onClick={() => setMode('sale')} />
               <ModeButton active={mode === 'buy'} icon={HandCoins} label="Buy / Trade" onClick={() => setMode('buy')} />
               <ModeButton active={mode === 'customers'} icon={Users} label="Customers" onClick={() => setMode('customers')} />
+              <ModeButton active={mode === 'history'} icon={History} label="History" onClick={() => {
+                setMode('history');
+                loadRecentSales();
+              }} />
             </div>
           </div>
         </div>
@@ -1074,6 +1162,102 @@ export default function PosPage() {
               />
             </div>
           )}
+
+          {mode === 'history' && (
+            <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-lg font-semibold">
+                    <History className="h-5 w-5 text-primary" />
+                    POS Transactions
+                  </div>
+                  <div className="mt-1 text-sm text-white/50">Refund, void, reprint, or open the drawer from recent register activity.</div>
+                </div>
+                <div className="flex gap-2">
+                  <Button className="h-11 text-base" variant="outline" onClick={() => requestCloverCashDrawerOpen()} disabled={!cloverAvailable}>
+                    Open Drawer
+                  </Button>
+                  <Button className="h-11 text-base" variant="outline" onClick={loadRecentSales}>Refresh</Button>
+                </div>
+              </div>
+              <div className="grid max-h-full gap-3 overflow-auto pr-1">
+                {recentSales.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-white/15 p-8 text-center text-white/45">
+                    No POS transactions found yet.
+                  </div>
+                ) : recentSales.map((sale) => (
+                  <div key={sale.id} className="rounded-xl border border-white/10 bg-black/35 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="text-lg font-semibold">{sale.sale_number}</div>
+                        <div className="mt-1 text-sm text-white/50">
+                          {new Date(sale.sold_at).toLocaleString()} - {sale.payment_method.replace(/_/g, ' ')}
+                          {sale.processor_reference ? ` - Ref ${sale.processor_reference}` : ''}
+                        </div>
+                        <div className="mt-2 inline-flex rounded-full border border-white/10 px-2 py-1 text-xs uppercase tracking-wide text-white/60">
+                          {sale.status}
+                        </div>
+                        {sale.pos_sale_items && sale.pos_sale_items.length > 0 && (
+                          <div className="mt-2 text-sm text-white/45">
+                            {sale.pos_sale_items.slice(0, 3).map((item) => `${item.quantity}x ${item.item_name}`).join(', ')}
+                            {sale.pos_sale_items.length > 3 ? ` +${sale.pos_sale_items.length - 3} more` : ''}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className="text-2xl font-bold text-primary">{money(Number(sale.total_amount || 0))}</div>
+                        <div className="text-sm text-white/50">Tax {money(Number(sale.tax_amount || 0))}</div>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                      <Button
+                        className="h-12 text-base"
+                        variant="outline"
+                        onClick={() => requestCloverReceiptPrint({
+                          saleNumber: sale.sale_number,
+                          soldAt: sale.sold_at,
+                          lines: (sale.pos_sale_items || []).map((item) => ({
+                            name: item.item_name,
+                            quantity: item.quantity,
+                            unitPrice: Number(item.unit_price || 0),
+                            lineTotal: Number(item.line_total || 0),
+                          })),
+                          subtotal: Number(sale.subtotal || 0),
+                          discountAmount: Number(sale.discount_amount || 0),
+                          taxAmount: Number(sale.tax_amount || 0),
+                          total: Number(sale.total_amount || 0),
+                          creditUsed: Number(sale.trade_credit_used || 0),
+                          paymentMethod: sale.payment_method,
+                          processorReference: sale.processor_reference,
+                        })}
+                        disabled={!cloverAvailable}
+                      >
+                        <ReceiptText className="mr-2 h-4 w-4" />
+                        Reprint
+                      </Button>
+                      <Button
+                        className="h-12 text-base"
+                        variant="outline"
+                        onClick={() => handleSaleAction(sale, 'voided')}
+                        disabled={saving || sale.status !== 'completed'}
+                      >
+                        <Undo2 className="mr-2 h-4 w-4" />
+                        Void
+                      </Button>
+                      <Button
+                        className="h-12 text-base"
+                        variant="outline"
+                        onClick={() => handleSaleAction(sale, 'refunded')}
+                        disabled={saving || sale.status !== 'completed'}
+                      >
+                        Refund
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <aside className="flex min-h-0 min-w-0 flex-col rounded-xl border border-white/10 bg-black/70 p-4 shadow-sm">
@@ -1237,12 +1421,18 @@ export default function PosPage() {
                 <SelectTrigger className="mt-2 h-14 border-white/10 bg-black/40 text-lg"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="cash">Cash</SelectItem>
+                  <SelectItem value="clover_card">Card - Clover</SelectItem>
                   <SelectItem value="square">Card - Square</SelectItem>
                   <SelectItem value="stripe">Card - Stripe</SelectItem>
                   <SelectItem value="external_card">Card - Other</SelectItem>
                   <SelectItem value="split">Cash + Card</SelectItem>
                 </SelectContent>
               </Select>
+              {paymentMethod === 'clover_card' && (
+                <div className="mt-2 rounded-lg border border-emerald-400/20 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
+                  {cloverAvailable ? 'Ready to send payment to the Clover Duo.' : 'Open this screen from the Clover Android app to use Clover card processing.'}
+                </div>
+              )}
             </div>
             {(paymentMethod === 'cash' || paymentMethod === 'split') && (
               <div>
@@ -1281,7 +1471,7 @@ export default function PosPage() {
 }
 
 function RegisterStatusStrip(props: {
-  mode: 'sale' | 'buy' | 'customers';
+  mode: PosMode;
   status: string;
   customerLabel: string;
   customerCredit: number;
@@ -1297,7 +1487,7 @@ function RegisterStatusStrip(props: {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3 shadow-sm">
       <div className="grid gap-2 md:grid-cols-4">
-        <RegisterMetric label="Register" value={props.status} detail={props.mode === 'sale' ? 'Sell mode' : props.mode === 'buy' ? 'Buy / trade' : 'Rewards'} />
+        <RegisterMetric label="Register" value={props.status} detail={props.mode === 'sale' ? 'Sell mode' : props.mode === 'buy' ? 'Buy / trade' : props.mode === 'history' ? 'History' : 'Rewards'} />
         <RegisterMetric label="Customer" value={props.customerLabel} detail={`Credit ${money(props.customerCredit)}`} />
         <RegisterMetric label={props.mode === 'buy' ? 'Trade lines' : 'Cart items'} value={String(props.itemCount)} detail={props.itemCount === 1 ? '1 item active' : `${props.itemCount} items active`} />
         <RegisterMetric label={props.mode === 'buy' ? 'Offer' : 'Due'} value={money(props.due)} detail={props.mode === 'buy' ? 'Recommended offer' : 'After tax / credit'} strong />
