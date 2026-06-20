@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, Printer, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
@@ -25,6 +28,13 @@ type LabelItem = {
   price_cib?: number | null;
   price_new?: number | null;
   price_graded?: number | null;
+};
+
+type PrintableLabel = {
+  id: string;
+  title: string;
+  price: string;
+  inventoryId?: string;
 };
 
 function readQueue() {
@@ -69,10 +79,22 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [queueIds, setQueueIds] = useState<string[]>([]);
   const [items, setItems] = useState<LabelItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualName, setManualName] = useState('');
+  const [manualPrice, setManualPrice] = useState('');
+  const [manualPrintLabel, setManualPrintLabel] = useState<PrintableLabel | null>(null);
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
   const activeIds = queryIds.length > 0 ? queryIds : queueIds;
+  const printableLabels: PrintableLabel[] = manualPrintLabel
+    ? [manualPrintLabel]
+    : items.map((item) => ({
+        id: item.id,
+        inventoryId: item.id,
+        title: labelTitle(item),
+        price: money(inventoryLabelPrice(item)),
+      }));
 
   useEffect(() => {
     const syncQueue = () => setQueueIds(readQueue());
@@ -137,6 +159,33 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     window.print();
   };
 
+  const printManualLabel = () => {
+    const title = manualName.trim();
+    const price = Number(manualPrice);
+    if (!title) {
+      toast.error('Enter a label name');
+      return;
+    }
+    if (!Number.isFinite(price) || price < 0) {
+      toast.error('Enter a valid label price');
+      return;
+    }
+
+    setManualPrintLabel({
+      id: `manual-${Date.now()}`,
+      title,
+      price: money(price),
+    });
+    setManualOpen(false);
+    window.setTimeout(() => window.print(), 75);
+  };
+
+  useEffect(() => {
+    const clearManualPrint = () => setManualPrintLabel(null);
+    window.addEventListener('afterprint', clearManualPrint);
+    return () => window.removeEventListener('afterprint', clearManualPrint);
+  }, []);
+
   return (
     <DashboardLayout>
       <div className="label-screen min-h-screen bg-background px-4 py-6 text-foreground sm:px-8">
@@ -152,6 +201,9 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setManualOpen(true)}>
+              Manual Label
+            </Button>
             {queryIds.length === 0 && (
               <Button variant="outline" onClick={clearQueue} disabled={queueIds.length === 0}>
                 <Trash2 className="mr-2 h-4 w-4" />
@@ -169,26 +221,28 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           <div className="mx-auto max-w-5xl rounded-xl border border-border/50 bg-card p-8 text-center text-muted-foreground">
             Loading labels...
           </div>
-        ) : items.length === 0 ? (
+        ) : printableLabels.length === 0 ? (
           <div className="mx-auto max-w-5xl rounded-xl border border-dashed border-border/60 bg-card/50 p-8 text-center">
             <p className="font-semibold">No labels queued</p>
             <p className="mt-1 text-sm text-muted-foreground">Select items in Inventory, then choose Print Labels or Add to Label Queue.</p>
           </div>
         ) : (
           <div className="label-sheet mx-auto flex max-w-5xl flex-wrap gap-4">
-            {items.map((item) => {
-              const title = labelTitle(item);
-              const price = money(inventoryLabelPrice(item));
+            {printableLabels.map((label) => {
+              const title = label.title;
+              const price = label.price;
               return (
-              <div key={item.id} className="label-card-wrap">
-                <button
-                  type="button"
-                  className="label-remove label-controls"
-                  onClick={() => removeItem(item.id)}
-                  aria-label={`Remove ${item.product_name}`}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
+              <div key={label.id} className="label-card-wrap">
+                {label.inventoryId && (
+                  <button
+                    type="button"
+                    className="label-remove label-controls"
+                    onClick={() => removeItem(label.inventoryId!)}
+                    aria-label={`Remove ${label.title}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <div className={`price-label ${fontClassName}`} style={labelTextStyle(title, price)}>
                   <div className="price-label-logo">
                     <img src={LOGO_SRC} alt="Pixel & Page" />
@@ -203,6 +257,44 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             })}
           </div>
         )}
+
+        <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+          <DialogContent className="label-controls">
+            <DialogHeader>
+              <DialogTitle>Manual Label</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="manual-label-name">Name</Label>
+                <Input
+                  id="manual-label-name"
+                  value={manualName}
+                  onChange={(event) => setManualName(event.target.value)}
+                  placeholder="Xbox 360 Fat AC Adapter"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="manual-label-price">Price</Label>
+                <Input
+                  id="manual-label-price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={manualPrice}
+                  onChange={(event) => setManualPrice(event.target.value)}
+                  placeholder="49.99"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setManualOpen(false)}>Cancel</Button>
+              <Button onClick={printManualLabel}>
+                <Printer className="mr-2 h-4 w-4" />
+                Print Label
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <style jsx global>{`
           @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
