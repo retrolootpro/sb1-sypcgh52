@@ -55,6 +55,30 @@ assert.deepEqual(fallback.authors, ['Test Author']);
 
 globalThis.fetch = async (url) => {
   const text = String(url);
+  if (text.includes('googleapis')) return jsonResponse({
+    items: [{
+      volumeInfo: {
+        title: 'Google Retail Book',
+        industryIdentifiers: [{ type: 'ISBN_13', identifier: '9780439136365' }],
+      },
+      saleInfo: {
+        listPrice: { amount: 12.99, currencyCode: 'USD' },
+      },
+    }],
+  });
+  if (text.includes('/isbn/')) return { ok: false, status: 404, json: async () => ({}) };
+  if (text.includes('/search.json')) return jsonResponse({ docs: [] });
+  throw new Error(`Unexpected URL ${text}`);
+};
+
+const retail = await lookupBookMetadataByBarcode('9780439136365');
+assert.equal(retail.title, 'Google Retail Book');
+assert.equal(retail.retailPrice, 12.99, 'Google Books list price should become book retail price');
+assert.equal(retail.retailPriceCurrency, 'USD');
+assert.equal(retail.retailPriceSource, 'google_books_sale_info');
+
+globalThis.fetch = async (url) => {
+  const text = String(url);
   if (text.includes('googleapis')) return jsonResponse({ items: [] });
   if (text.includes('/isbn/')) return { ok: false, status: 404, json: async () => ({}) };
   if (text.includes('/search.json')) return jsonResponse({ docs: [] });

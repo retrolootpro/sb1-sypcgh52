@@ -140,6 +140,9 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
       if (!user || !accountId) throw new Error('Not authenticated');
       const manualPricedItem = isBookLikeValue(formData.console);
       const bookMetadata = bookLookupResult?.bookMetadata || null;
+      const bookRetailPrice = Number(bookMetadata?.retailPrice) || 0;
+      const manualEstimatedProfit = bookRetailPrice > 0 ? bookRetailPrice - price : 0;
+      const manualEstimatedMarginPercent = bookRetailPrice > 0 && price > 0 ? (manualEstimatedProfit / price) * 100 : 0;
       const { data: inventoryItem, error } = await supabase
         .from('inventory_items')
         .insert({
@@ -162,6 +165,10 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           item_type: manualPricedItem ? (formData.console === 'Manga' ? 'manga' : 'book') : 'game',
           pricing_source: manualPricedItem ? 'Manual / book metadata' : 'pending',
           pricing_status: manualPricedItem ? 'manual' : 'pending',
+          sell_price: manualPricedItem && bookRetailPrice > 0 ? bookRetailPrice : null,
+          selected_market_value: manualPricedItem && bookRetailPrice > 0 ? bookRetailPrice : null,
+          estimated_profit: manualPricedItem && bookRetailPrice > 0 ? manualEstimatedProfit : null,
+          estimated_margin_percent: manualPricedItem && bookRetailPrice > 0 ? manualEstimatedMarginPercent : null,
           source_metadata_provider: bookLookupResult?.source || 'manual_entry',
           source_upc_provider: bookLookupResult?.source || null,
           raw_lookup_payload: bookMetadata ? {
@@ -180,6 +187,9 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
             isbn10: bookMetadata.isbn10 || '',
             isbn13: bookMetadata.isbn13 || '',
             coverImageUrl: bookMetadata.coverImageUrl || bookLookupResult?.imageUrl || '',
+            retailPrice: Number(bookMetadata.retailPrice) || null,
+            retailPriceCurrency: bookMetadata.retailPriceCurrency || '',
+            retailPriceSource: bookMetadata.retailPriceSource || '',
             source: bookMetadata.source || bookLookupResult?.source || '',
             sourcesTried: Array.isArray(bookMetadata.sourcesTried) ? bookMetadata.sourcesTried : [],
           } : {},

@@ -505,6 +505,9 @@ export default function ScanPage() {
           isbn10: bookMetadata.isbn10 || '',
           isbn13: bookMetadata.isbn13 || '',
           coverImageUrl: bookMetadata.coverImageUrl || lookupResult.imageUrl || '',
+          retailPrice: Number(bookMetadata.retailPrice) || null,
+          retailPriceCurrency: bookMetadata.retailPriceCurrency || '',
+          retailPriceSource: bookMetadata.retailPriceSource || '',
           source: bookMetadata.source || lookupResult.source || '',
           sourcesTried: Array.isArray(bookMetadata.sourcesTried) ? bookMetadata.sourcesTried : [],
         } : lookupResult.rawLookupPayload || {},
@@ -1312,6 +1315,7 @@ export default function ScanPage() {
             })
           )}
           bookMetadata={currentQueueItemForDialog?.result?.bookMetadata || null}
+          suggestedAskingPrice={Number(currentQueueItemForDialog?.result?.bookMetadata?.retailPrice) || undefined}
         />
       </div>
     </DashboardLayout>

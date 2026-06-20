@@ -28,6 +28,9 @@ export interface UPCLookupResult {
     isbn10?: string;
     isbn13?: string;
     coverImageUrl?: string;
+    retailPrice?: number | null;
+    retailPriceCurrency?: string;
+    retailPriceSource?: string;
     source?: string;
     sourcesTried?: string[];
   };

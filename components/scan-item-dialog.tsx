@@ -36,6 +36,7 @@ interface ScanItemDialogProps {
   productName: string;
   detectedConsole: string | null;
   suggestedPrice?: number;
+  suggestedAskingPrice?: number;
   allowTitleEdit?: boolean;
   bookMetadata?: {
     title?: string;
@@ -98,6 +99,7 @@ export function ScanItemDialog({
   productName,
   detectedConsole,
   suggestedPrice,
+  suggestedAskingPrice,
   allowTitleEdit = false,
   bookMetadata = null,
   duplicateMatches = [],
@@ -144,7 +146,7 @@ export function ScanItemDialog({
       setRegion('US');
       setTitleError('');
       setPrice(suggestedPrice?.toString() || '');
-      setAskingPrice('');
+      setAskingPrice(suggestedAskingPrice && suggestedAskingPrice > 0 ? suggestedAskingPrice.toFixed(2) : '');
       setPriceError('');
       setAskingPriceError('');
       setConsoleError('');
@@ -161,7 +163,7 @@ export function ScanItemDialog({
         priceInputRef.current?.select();
       }, 120);
     }
-  }, [open, detectedConsole, productName, suggestedPrice, allowTitleEdit, bookMetadata]);
+  }, [open, detectedConsole, productName, suggestedPrice, suggestedAskingPrice, allowTitleEdit, bookMetadata]);
 
   const handleConfirm = () => {
     let valid = true;
@@ -438,7 +440,7 @@ export function ScanItemDialog({
             </div>
             {askingPriceError && <p className="text-[12px] text-red-400">{askingPriceError}</p>}
             <p className="text-[11px] text-muted-foreground/60">
-              Used as the manual market value for books/media so profit can calculate from asking price minus cost.
+              For books/media, retail price is used here when available. You can adjust it before saving.
             </p>
           </div>
 

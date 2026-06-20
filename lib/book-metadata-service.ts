@@ -28,6 +28,9 @@ export type BookMetadataResult = {
   isbn13: string;
   coverImageUrl: string;
   thumbnailUrl: string;
+  retailPrice: number | null;
+  retailPriceCurrency: string;
+  retailPriceSource: string;
   platform: string;
   category: string;
   brand: string;
@@ -150,7 +153,18 @@ function identifiersFromGoogle(volume: any) {
   return { isbn10, isbn13 };
 }
 
-function fromGoogleVolume(volume: any, fallback: NormalizedBookIdentifier): BookMetadataResult | null {
+function googleRetailPrice(saleInfo: any) {
+  const price = saleInfo?.listPrice || saleInfo?.retailPrice || null;
+  const amount = Number(price?.amount);
+  return {
+    amount: Number.isFinite(amount) && amount > 0 ? amount : null,
+    currency: cleanText(price?.currencyCode || ''),
+  };
+}
+
+function fromGoogleItem(item: any, fallback: NormalizedBookIdentifier): BookMetadataResult | null {
+  const volume = item?.volumeInfo;
+  const saleInfo = item?.saleInfo;
   const title = cleanText(volume?.title);
   if (!title) return null;
   const subtitle = cleanText(volume?.subtitle);
@@ -161,6 +175,7 @@ function fromGoogleVolume(volume: any, fallback: NormalizedBookIdentifier): Book
   const imageUrl = cleanImageUrl(imageLinks.extraLarge || imageLinks.large || imageLinks.medium || thumbnailUrl);
   const ids = identifiersFromGoogle(volume);
   const platform = bookPlatform(categories);
+  const retail = googleRetailPrice(saleInfo);
 
   return {
     title,
@@ -177,6 +192,9 @@ function fromGoogleVolume(volume: any, fallback: NormalizedBookIdentifier): Book
     isbn13: cleanText(ids.isbn13 || fallback.isbn13),
     coverImageUrl: imageUrl,
     thumbnailUrl,
+    retailPrice: retail.amount,
+    retailPriceCurrency: retail.currency,
+    retailPriceSource: retail.amount ? 'google_books_sale_info' : '',
     platform,
     category: bookCategory(platform, categories),
     brand: cleanText(volume?.publisher || authors.join(', ') || 'Books'),
@@ -197,7 +215,7 @@ async function lookupGoogleBooks(identifier: NormalizedBookIdentifier): Promise<
     const data = await response.json();
     const items = Array.isArray(data?.items) ? data.items : [];
     for (const item of items) {
-      const result = fromGoogleVolume(item?.volumeInfo, identifier);
+      const result = fromGoogleItem(item, identifier);
       if (result?.title) return result;
     }
   }
@@ -234,6 +252,9 @@ function fromOpenLibraryRecord(data: any, identifier: NormalizedBookIdentifier, 
     isbn13: cleanText(data?.isbn_13?.[0] || searchDoc?.isbn?.find((id: string) => /^(978|979)\d{10}$/.test(id)) || identifier.isbn13),
     coverImageUrl: imageUrl,
     thumbnailUrl,
+    retailPrice: null,
+    retailPriceCurrency: '',
+    retailPriceSource: '',
     platform,
     category: bookCategory(platform, categories),
     brand: cleanText(publishers[0] || authors.join(', ') || 'Books'),
@@ -284,6 +305,9 @@ function mergeBookMetadata(primary: BookMetadataResult, fallback: BookMetadataRe
     isbn13: primary.isbn13 || fallback.isbn13,
     coverImageUrl: primary.coverImageUrl || fallback.coverImageUrl,
     thumbnailUrl: primary.thumbnailUrl || fallback.thumbnailUrl,
+    retailPrice: primary.retailPrice ?? fallback.retailPrice,
+    retailPriceCurrency: primary.retailPriceCurrency || fallback.retailPriceCurrency,
+    retailPriceSource: primary.retailPriceSource || fallback.retailPriceSource,
     imageUrl: primary.imageUrl || fallback.imageUrl,
     sourcesTried: Array.from(new Set([...primary.sourcesTried, ...fallback.sourcesTried])),
   };
