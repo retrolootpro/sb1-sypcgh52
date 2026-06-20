@@ -238,6 +238,23 @@ export default function ScanPage() {
             classification,
             confidence,
             manualTitleRequired: true,
+            bookMetadata: {
+              title,
+              subtitle: '',
+              authors: [],
+              publisher: '',
+              publishedDate: '',
+              publishedYear: '',
+              description: '',
+              pageCount: null,
+              categories: [],
+              language: '',
+              isbn10: '',
+              isbn13: '',
+              coverImageUrl: '',
+              source: 'manual_book_barcode',
+              sourcesTried: [],
+            },
           };
 
           updateQueueItem(queueItem.id, { status: 'awaiting_price', result, productName: title });
@@ -418,6 +435,7 @@ export default function ScanPage() {
     const pricingStatus = pricingResult ? toDatabaseStatus(pricingResult) : 'pending';
     const condition = defaultConditionForPlatform(selectedConsole || lookupResult.platform);
     const normalizedTitleStr = normalizeTitle(lookupResult.title || '');
+    const bookMetadata = lookupResult.bookMetadata || null;
 
     let selectedMarketValue = 0;
     let estimatedProfit = 0;
@@ -462,7 +480,26 @@ export default function ScanPage() {
         source_metadata_provider: pricingResult?.status === 'success' ? 'pricecharting' : (lookupResult.source || null),
         source_image_provider: lookupResult.imageUrl ? (lookupResult.source || 'local_upc_lookup') : null,
         description: lookupResult.description || '',
-        genre: pricingResult?.data?.genre || '',
+        genre: pricingResult?.data?.genre || (Array.isArray(bookMetadata?.categories) ? bookMetadata.categories.join(', ') : ''),
+        raw_lookup_payload: bookMetadata ? {
+          type: 'book_metadata',
+          barcode: queueItem.barcode || null,
+          title: bookMetadata.title || lookupResult.title || '',
+          subtitle: bookMetadata.subtitle || '',
+          authors: Array.isArray(bookMetadata.authors) ? bookMetadata.authors : [],
+          publisher: bookMetadata.publisher || '',
+          publishedDate: bookMetadata.publishedDate || '',
+          publishedYear: bookMetadata.publishedYear || '',
+          description: bookMetadata.description || lookupResult.description || '',
+          pageCount: bookMetadata.pageCount ?? null,
+          categories: Array.isArray(bookMetadata.categories) ? bookMetadata.categories : [],
+          language: bookMetadata.language || '',
+          isbn10: bookMetadata.isbn10 || '',
+          isbn13: bookMetadata.isbn13 || '',
+          coverImageUrl: bookMetadata.coverImageUrl || lookupResult.imageUrl || '',
+          source: bookMetadata.source || lookupResult.source || '',
+          sourcesTried: Array.isArray(bookMetadata.sourcesTried) ? bookMetadata.sourcesTried : [],
+        } : lookupResult.rawLookupPayload || {},
         scan_created_at: new Date().toISOString(),
         image_url: lookupResult.imageUrl || null,
         thumbnail_url: lookupResult.thumbnailUrl || null,
@@ -546,7 +583,13 @@ export default function ScanPage() {
     }
   }, [selectedLot]);
 
-  const handleItemConfirm = useCallback(async (purchasePrice: number, selectedConsole: string, selectedRegion: string, titleOverride?: string) => {
+  const handleItemConfirm = useCallback(async (
+    purchasePrice: number,
+    selectedConsole: string,
+    selectedRegion: string,
+    titleOverride?: string,
+    bookMetadataOverride?: Record<string, unknown>
+  ) => {
     if (!currentQueueItemForDialog || !user) return;
 
     setShowItemDialog(false);
@@ -556,11 +599,33 @@ export default function ScanPage() {
     if (!queueItem?.result) return;
 
     const { result } = queueItem;
-    const lookupResult = titleOverride?.trim()
-      ? { ...result, title: titleOverride.trim(), productName: titleOverride.trim(), manualTitleRequired: false }
+    const editedBookMetadata = bookMetadataOverride || {};
+    const metadataTitle = typeof editedBookMetadata.title === 'string' ? editedBookMetadata.title.trim() : '';
+    const finalTitle = titleOverride?.trim() || metadataTitle;
+    const lookupResult = finalTitle
+      ? {
+          ...result,
+          title: finalTitle,
+          productName: finalTitle,
+          description: typeof editedBookMetadata.description === 'string' ? editedBookMetadata.description : result.description,
+          brand: typeof editedBookMetadata.publisher === 'string' && editedBookMetadata.publisher.trim()
+            ? editedBookMetadata.publisher
+            : result.brand,
+          category: Array.isArray(editedBookMetadata.categories) && editedBookMetadata.categories.length
+            ? `Books, ${editedBookMetadata.categories.join(', ')}`
+            : result.category,
+          imageUrl: typeof editedBookMetadata.coverImageUrl === 'string' && editedBookMetadata.coverImageUrl.trim()
+            ? editedBookMetadata.coverImageUrl
+            : result.imageUrl,
+          thumbnailUrl: typeof editedBookMetadata.coverImageUrl === 'string' && editedBookMetadata.coverImageUrl.trim()
+            ? editedBookMetadata.coverImageUrl
+            : result.thumbnailUrl,
+          bookMetadata: bookMetadataOverride ? editedBookMetadata : result.bookMetadata,
+          manualTitleRequired: false,
+        }
       : result;
-    if (titleOverride?.trim()) {
-      updateQueueItem(queueItem.id, { result: lookupResult, productName: titleOverride.trim() });
+    if (finalTitle) {
+      updateQueueItem(queueItem.id, { result: lookupResult, productName: finalTitle });
     }
     let { pricingResult } = lookupResult;
     const { classification, confidence } = lookupResult;
@@ -697,7 +762,7 @@ export default function ScanPage() {
     }
 
     setCurrentQueueItemForDialog(null);
-  }, [currentQueueItemForDialog, user, queue, updateQueueItem, createInventoryItem, selectedLotId]);
+  }, [currentQueueItemForDialog, user, accountId, queue, updateQueueItem, createInventoryItem, selectedLotId]);
 
   const handleItemSkip = useCallback(async () => {
     if (!currentQueueItemForDialog || !user) return;
@@ -1228,7 +1293,14 @@ export default function ScanPage() {
           productName={currentQueueItemForDialog?.result?.title || currentQueueItemForDialog?.productName || ''}
           detectedConsole={detectedConsoleForDialog}
           duplicateMatches={currentQueueItemForDialog?.duplicateMatches || []}
-          allowTitleEdit={Boolean(currentQueueItemForDialog?.result?.manualTitleRequired)}
+          allowTitleEdit={Boolean(
+            currentQueueItemForDialog?.result?.manualTitleRequired ||
+            isBookLikeItem({
+              ...currentQueueItemForDialog?.result,
+              console: detectedConsoleForDialog || undefined,
+            })
+          )}
+          bookMetadata={currentQueueItemForDialog?.result?.bookMetadata || null}
         />
       </div>
     </DashboardLayout>

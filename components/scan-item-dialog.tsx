@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertTriangle, DollarSign, Monitor, ChevronDown } from 'lucide-react';
@@ -23,12 +24,29 @@ export const ALL_CONSOLES = CONSOLE_OPTIONS.flatMap((g) => g.options);
 interface ScanItemDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (purchasePrice: number, console: string, region: string, titleOverride?: string) => void;
+  onConfirm: (purchasePrice: number, console: string, region: string, titleOverride?: string, bookMetadataOverride?: Record<string, unknown>) => void;
   onSkip: () => void;
   productName: string;
   detectedConsole: string | null;
   suggestedPrice?: number;
   allowTitleEdit?: boolean;
+  bookMetadata?: {
+    title?: string;
+    subtitle?: string;
+    authors?: string[];
+    publisher?: string;
+    publishedDate?: string;
+    publishedYear?: string;
+    description?: string;
+    pageCount?: number | null;
+    categories?: string[];
+    language?: string;
+    isbn10?: string;
+    isbn13?: string;
+    coverImageUrl?: string;
+    source?: string;
+    sourcesTried?: string[];
+  } | null;
   duplicateMatches?: Array<{
     id: string;
     product_name: string;
@@ -36,6 +54,33 @@ interface ScanItemDialogProps {
     condition: string | null;
     created_at: string | null;
   }>;
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  inputMode,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[12px] text-muted-foreground">{label}</Label>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        inputMode={inputMode}
+        className="h-10 bg-secondary/40 border-border/60 text-[13px]"
+      />
+    </div>
+  );
 }
 
 export function ScanItemDialog({
@@ -47,9 +92,21 @@ export function ScanItemDialog({
   detectedConsole,
   suggestedPrice,
   allowTitleEdit = false,
+  bookMetadata = null,
   duplicateMatches = [],
 }: ScanItemDialogProps) {
   const [editableTitle, setEditableTitle] = useState(productName || '');
+  const [subtitle, setSubtitle] = useState('');
+  const [authors, setAuthors] = useState('');
+  const [publisher, setPublisher] = useState('');
+  const [publishedDate, setPublishedDate] = useState('');
+  const [pageCount, setPageCount] = useState('');
+  const [categories, setCategories] = useState('');
+  const [language, setLanguage] = useState('');
+  const [isbn10, setIsbn10] = useState('');
+  const [isbn13, setIsbn13] = useState('');
+  const [coverImageUrl, setCoverImageUrl] = useState('');
+  const [description, setDescription] = useState('');
   const [price, setPrice] = useState<string>(suggestedPrice?.toString() || '');
   const [consoleValue, setConsoleValue] = useState<string>(detectedConsole || '');
   const [region, setRegion] = useState('US');
@@ -61,7 +118,19 @@ export function ScanItemDialog({
 
   useEffect(() => {
     if (open) {
+      const meta = bookMetadata || {};
       setEditableTitle(productName || '');
+      setSubtitle(meta.subtitle || '');
+      setAuthors(Array.isArray(meta.authors) ? meta.authors.join(', ') : '');
+      setPublisher(meta.publisher || '');
+      setPublishedDate(meta.publishedDate || meta.publishedYear || '');
+      setPageCount(meta.pageCount ? String(meta.pageCount) : '');
+      setCategories(Array.isArray(meta.categories) ? meta.categories.join(', ') : '');
+      setLanguage(meta.language || '');
+      setIsbn10(meta.isbn10 || '');
+      setIsbn13(meta.isbn13 || '');
+      setCoverImageUrl(meta.coverImageUrl || '');
+      setDescription(meta.description || '');
       setConsoleValue(detectedConsole || '');
       setRegion('US');
       setTitleError('');
@@ -79,7 +148,7 @@ export function ScanItemDialog({
         priceInputRef.current?.select();
       }, 120);
     }
-  }, [open, detectedConsole, productName, suggestedPrice, allowTitleEdit]);
+  }, [open, detectedConsole, productName, suggestedPrice, allowTitleEdit, bookMetadata]);
 
   const handleConfirm = () => {
     let valid = true;
@@ -106,7 +175,25 @@ export function ScanItemDialog({
 
     if (!valid) return;
 
-    onConfirm(numPrice, consoleValue.trim(), region, allowTitleEdit ? cleanTitle : undefined);
+    const metadataOverride = allowTitleEdit ? {
+      title: cleanTitle,
+      subtitle: subtitle.trim(),
+      authors: authors.split(',').map((value) => value.trim()).filter(Boolean),
+      publisher: publisher.trim(),
+      publishedDate: publishedDate.trim(),
+      publishedYear: publishedDate.match(/\d{4}/)?.[0] || '',
+      description: description.trim(),
+      pageCount: pageCount.trim() === '' ? null : Number(pageCount),
+      categories: categories.split(',').map((value) => value.trim()).filter(Boolean),
+      language: language.trim(),
+      isbn10: isbn10.trim(),
+      isbn13: isbn13.trim(),
+      coverImageUrl: coverImageUrl.trim(),
+      source: bookMetadata?.source || 'manual_book_metadata',
+      sourcesTried: bookMetadata?.sourcesTried || [],
+    } : undefined;
+
+    onConfirm(numPrice, consoleValue.trim(), region, allowTitleEdit ? cleanTitle : undefined, metadataOverride);
     setEditableTitle('');
     setPrice('');
     setConsoleValue('');
@@ -150,7 +237,8 @@ export function ScanItemDialog({
 
         <div className="space-y-5 py-2">
           {allowTitleEdit ? (
-            <div className="space-y-1.5">
+            <div className="space-y-3">
+              <div className="space-y-1.5">
               <Label className="text-[12px] text-muted-foreground">
                 Book Title
               </Label>
@@ -164,8 +252,32 @@ export function ScanItemDialog({
               />
               {titleError && <p className="text-[12px] text-red-400">{titleError}</p>}
               <p className="text-[11px] text-muted-foreground/70">
-                No reliable barcode match was found. The barcode will still be saved with this item.
+                Review and edit the book metadata before saving. The barcode will be saved with this item.
               </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Field label="Subtitle" value={subtitle} onChange={setSubtitle} placeholder="Optional subtitle" />
+                <Field label="Authors" value={authors} onChange={setAuthors} placeholder="Author 1, Author 2" />
+                <Field label="Publisher" value={publisher} onChange={setPublisher} placeholder="Publisher" />
+                <Field label="Published" value={publishedDate} onChange={setPublishedDate} placeholder="Year or date" />
+                <Field label="Pages" value={pageCount} onChange={setPageCount} placeholder="Page count" inputMode="numeric" />
+                <Field label="Language" value={language} onChange={setLanguage} placeholder="en" />
+                <Field label="ISBN-10" value={isbn10} onChange={setIsbn10} placeholder="ISBN-10" />
+                <Field label="ISBN-13" value={isbn13} onChange={setIsbn13} placeholder="ISBN-13" />
+              </div>
+
+              <Field label="Categories" value={categories} onChange={setCategories} placeholder="Juvenile Fiction, Horror" />
+              <Field label="Cover Image URL" value={coverImageUrl} onChange={setCoverImageUrl} placeholder="https://..." />
+              <div className="space-y-1.5">
+                <Label className="text-[12px] text-muted-foreground">Description</Label>
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  className="min-h-[72px] bg-secondary/40 border-border/60 text-[13px]"
+                  placeholder="Book description..."
+                />
+              </div>
             </div>
           ) : (
             <div className="px-3 py-2.5 rounded-md bg-secondary/50 border border-border/40">

@@ -67,7 +67,7 @@ export function lookupModeForItem(item: ItemLike): UPCLookupMode {
 }
 
 export function defaultConditionForPlatform(platform?: string | null) {
-  return isBookLikeValue(platform) ? 'Used' : 'CIB';
+  return isBookLikeValue(platform) ? 'Loose' : 'CIB';
 }
 
 export function productTypeLabel(family: InventoryFamily) {

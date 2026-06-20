@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getServerAccountContext } from '@/lib/server-account';
-import { lookupBookMetadataByBarcode } from '@/lib/book-metadata-service';
+import { lookupBookMetadataByBarcode, normalizeBookIdentifier } from '@/lib/book-metadata-service';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,10 +105,6 @@ async function fetchPriceChartingImage(productName: string, platform: string) {
   };
 }
 
-function isLikelyBookBarcode(barcode: string) {
-  return /^(978|979)\d{10}$/.test(barcode);
-}
-
 function normalizeLookupMode(value: unknown): LookupMode {
   const mode = String(value || 'auto').toLowerCase();
   if (mode === 'book' || mode === 'books' || mode === 'media') return 'book';
@@ -151,19 +147,25 @@ export async function POST(req: NextRequest) {
 
     const keyMap = new Map((apiKeys as ApiKeyRow[] | null ?? []).map((row) => [row.provider, row.api_key]));
     const pcKey = keyMap.get('pricecharting');
-    const isBookBarcode = isLikelyBookBarcode(cleanBarcode);
-    const shouldLookupAsBook = mode === 'book' || (mode !== 'game' && isBookBarcode);
+    const bookIdentifier = normalizeBookIdentifier(cleanBarcode);
+    const shouldLookupAsBook = mode === 'book' || (mode !== 'game' && bookIdentifier.valid);
 
     if (shouldLookupAsBook) {
-      const book = await lookupBookMetadataByBarcode(cleanBarcode, {
-        barcodeLookupKey: keyMap.get('barcode_lookup'),
-        upcItemDbKey: keyMap.get('upc_lookup'),
-      });
+      if (!bookIdentifier.valid) {
+        return json({
+          success: false,
+          errorCode: 'BOOK_INVALID_IDENTIFIER',
+          message: bookIdentifier.reason || `Invalid book barcode or ISBN ${cleanBarcode}.`,
+        }, 400);
+      }
+
+      const book = await lookupBookMetadataByBarcode(cleanBarcode);
       if (book) {
+        const displayTitle = book.subtitle ? `${book.title}: ${book.subtitle}` : book.title;
         return json({
           success: true,
           barcode: cleanBarcode,
-          title: book.title,
+          title: displayTitle,
           platform: book.platform,
           category: book.category,
           brand: book.brand,
@@ -172,6 +174,23 @@ export async function POST(req: NextRequest) {
           thumbnailUrl: book.thumbnailUrl,
           pcProductId: '',
           source: book.source,
+          bookMetadata: {
+            title: book.title,
+            subtitle: book.subtitle,
+            authors: book.authors,
+            publisher: book.publisher,
+            publishedDate: book.publishedDate,
+            publishedYear: book.publishedYear,
+            description: book.description,
+            pageCount: book.pageCount,
+            categories: book.categories,
+            language: book.language,
+            isbn10: book.isbn10,
+            isbn13: book.isbn13,
+            coverImageUrl: book.coverImageUrl,
+            source: book.source,
+            sourcesTried: book.sourcesTried,
+          },
         });
       }
 

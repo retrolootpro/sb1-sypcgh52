@@ -1,282 +1,327 @@
-export type BookMetadataSource =
-  | 'google_books'
-  | 'google_books_search'
-  | 'open_library'
-  | 'open_library_search'
-  | 'barcode_lookup'
-  | 'upc_item_db';
+export type BookIdentifierKind = 'isbn10' | 'isbn13' | 'retail_upc' | 'invalid';
+
+export type NormalizedBookIdentifier = {
+  raw: string;
+  cleaned: string;
+  kind: BookIdentifierKind;
+  isbn10: string;
+  isbn13: string;
+  queryIsbn: string;
+  valid: boolean;
+  reason?: string;
+};
+
+export type BookMetadataSource = 'google_books' | 'open_library';
 
 export type BookMetadataResult = {
   title: string;
+  subtitle: string;
+  authors: string[];
+  publisher: string;
+  publishedDate: string;
+  publishedYear: string;
+  description: string;
+  pageCount: number | null;
+  categories: string[];
+  language: string;
+  isbn10: string;
+  isbn13: string;
+  coverImageUrl: string;
+  thumbnailUrl: string;
   platform: string;
   category: string;
   brand: string;
-  description: string;
   imageUrl: string;
-  thumbnailUrl: string;
   source: BookMetadataSource;
+  sourcesTried: BookMetadataSource[];
 };
-
-type BarcodeLookupProduct = {
-  title?: string;
-  product_name?: string;
-  brand?: string;
-  manufacturer?: string;
-  category?: string;
-  description?: string;
-  images?: string[];
-};
-
-type UpcItemDbProduct = {
-  title?: string;
-  brand?: string;
-  category?: string;
-  description?: string;
-  images?: string[];
-};
-
-const AMBIGUOUS_BOOK_UPC_PREFIXES = [
-  // Scholastic/children's book club UPCs are often reused or poorly mapped in
-  // generic UPC databases. They should not be trusted as unique book identity.
-  '078073',
-];
-
-function cleanImage(url: string) {
-  if (!url) return '';
-  return url.replace(/^http:\/\//i, 'https://');
-}
 
 function cleanText(value: unknown) {
   return String(value || '').trim().replace(/\s+/g, ' ');
 }
 
-function barcodeCandidates(barcode: string) {
-  const digitsOnly = barcode.replace(/\D/g, '');
-  const candidates = [barcode, digitsOnly];
-  if (/^(978|979)\d{10}\d{2,5}$/.test(digitsOnly)) candidates.push(digitsOnly.slice(0, 13));
-  return Array.from(new Set(candidates.map((candidate) => candidate.trim()).filter(Boolean)));
+function digitsOnly(value: string) {
+  return value.replace(/\D/g, '');
 }
 
-function isbnCandidates(barcode: string) {
-  return barcodeCandidates(barcode).filter((candidate) => /^(978|979)\d{10}$/.test(candidate));
+function sanitizeInput(value: string) {
+  return cleanText(value)
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/^isbn(?:-1[03])?:?/i, '')
+    .replace(/[‐‑‒–—]/g, '-')
+    .replace(/[^0-9Xx]/g, '')
+    .toUpperCase();
 }
 
-function upcCandidates(barcode: string) {
-  const digitsOnly = barcode.replace(/\D/g, '');
-  if (/^(978|979)\d{10}\d{2,5}$/.test(digitsOnly)) return [];
-  if (AMBIGUOUS_BOOK_UPC_PREFIXES.some((prefix) => digitsOnly.startsWith(prefix))) return [];
-  return barcodeCandidates(barcode).filter((candidate) => /^\d{8,14}$/.test(candidate));
+export function isValidIsbn10(value: string) {
+  const isbn = sanitizeInput(value);
+  if (!/^\d{9}[\dX]$/.test(isbn)) return false;
+  const total = isbn.split('').reduce((sum, char, index) => {
+    const digit = char === 'X' ? 10 : Number(char);
+    return sum + digit * (10 - index);
+  }, 0);
+  return total % 11 === 0;
 }
 
-function bookPlatform(title: string, category: string) {
-  return /manga|comic|graphic novel/i.test(`${title} ${category}`) ? 'Manga' : 'Book';
+export function isValidIsbn13(value: string) {
+  const isbn = sanitizeInput(value);
+  if (!/^\d{13}$/.test(isbn)) return false;
+  const total = isbn.split('').reduce((sum, char, index) => {
+    const digit = Number(char);
+    return sum + digit * (index % 2 === 0 ? 1 : 3);
+  }, 0);
+  return total % 10 === 0;
 }
 
-function bookCategory(platform: string, category?: string) {
-  const cleanCategory = cleanText(category);
-  const base = platform === 'Manga' ? 'Manga' : 'Books';
-  if (!cleanCategory) return 'Books & Media';
-  return cleanCategory.toLowerCase().includes(base.toLowerCase())
-    ? cleanCategory
-    : `${base}, ${cleanCategory}`;
+export function isbn10ToIsbn13(value: string) {
+  const isbn10 = sanitizeInput(value);
+  if (!isValidIsbn10(isbn10)) return '';
+  const base = `978${isbn10.slice(0, 9)}`;
+  const total = base.split('').reduce((sum, char, index) => sum + Number(char) * (index % 2 === 0 ? 1 : 3), 0);
+  const check = (10 - (total % 10)) % 10;
+  return `${base}${check}`;
 }
 
-function looksLikeBook(product: BarcodeLookupProduct | UpcItemDbProduct) {
-  const text = [
-    product.title,
-    'product_name' in product ? product.product_name : '',
-    product.brand,
-    'manufacturer' in product ? product.manufacturer : '',
-    product.category,
-    product.description,
-  ].join(' ');
-  return /book|books|fiction|paperback|hardcover|scholastic|publisher|reading|novel|manga|comic|graphic novel|children/i.test(text);
+export function normalizeBookIdentifier(input: string): NormalizedBookIdentifier {
+  const raw = cleanText(input);
+  const cleaned = sanitizeInput(raw);
+  const numeric = digitsOnly(cleaned);
+
+  if (!cleaned) {
+    return { raw, cleaned, kind: 'invalid', isbn10: '', isbn13: '', queryIsbn: '', valid: false, reason: 'Barcode or ISBN is required.' };
+  }
+
+  if (cleaned.length >= 13 && /^(978|979)/.test(cleaned)) {
+    const isbn13 = cleaned.slice(0, 13);
+    if (!isValidIsbn13(isbn13)) {
+      return { raw, cleaned, kind: 'isbn13', isbn10: '', isbn13, queryIsbn: isbn13, valid: false, reason: 'Invalid ISBN-13 checksum.' };
+    }
+    return { raw, cleaned, kind: 'isbn13', isbn10: '', isbn13, queryIsbn: isbn13, valid: true };
+  }
+
+  if (cleaned.length === 10) {
+    if (!isValidIsbn10(cleaned)) {
+      return { raw, cleaned, kind: 'isbn10', isbn10: cleaned, isbn13: '', queryIsbn: cleaned, valid: false, reason: 'Invalid ISBN-10 checksum.' };
+    }
+    const isbn13 = isbn10ToIsbn13(cleaned);
+    return { raw, cleaned, kind: 'isbn10', isbn10: cleaned, isbn13, queryIsbn: isbn13 || cleaned, valid: true };
+  }
+
+  if (numeric.length >= 8 && numeric.length <= 14) {
+    return {
+      raw,
+      cleaned: numeric,
+      kind: 'retail_upc',
+      isbn10: '',
+      isbn13: '',
+      queryIsbn: '',
+      valid: false,
+      reason: 'This looks like a retail UPC, not a valid ISBN. Enter the book title manually and keep the barcode on the item.',
+    };
+  }
+
+  return { raw, cleaned, kind: 'invalid', isbn10: '', isbn13: '', queryIsbn: '', valid: false, reason: 'Barcode is not a valid ISBN-10, ISBN-13, or supported Bookland EAN.' };
 }
 
-function isLowConfidenceBookTitle(title: string) {
-  return /^(untitled|unknown|not specified|n\/a|na)\b/i.test(title.trim());
+function cleanImageUrl(url: string) {
+  if (!url) return '';
+  return url.replace(/^http:\/\//i, 'https://');
 }
 
-function fromBookFields(input: {
-  title: unknown;
-  category?: unknown;
-  brand?: unknown;
-  description?: unknown;
-  imageUrl?: unknown;
-  thumbnailUrl?: unknown;
-  source: BookMetadataSource;
-}): BookMetadataResult | null {
-  const title = cleanText(input.title);
+function publishedYear(date: string) {
+  return date.match(/\d{4}/)?.[0] || '';
+}
+
+function bookPlatform(categories: string[]) {
+  const text = categories.join(' ');
+  return /manga|comic|graphic novel/i.test(text) ? 'Manga' : 'Book';
+}
+
+function bookCategory(platform: string, categories: string[]) {
+  const categoryText = categories.filter(Boolean).join(', ');
+  if (categoryText) return `${platform === 'Manga' ? 'Manga' : 'Books'}, ${categoryText}`;
+  return 'Books & Media';
+}
+
+function identifiersFromGoogle(volume: any) {
+  const ids = Array.isArray(volume?.industryIdentifiers) ? volume.industryIdentifiers : [];
+  const isbn10 = ids.find((id: any) => id?.type === 'ISBN_10')?.identifier || '';
+  const isbn13 = ids.find((id: any) => id?.type === 'ISBN_13')?.identifier || '';
+  return { isbn10, isbn13 };
+}
+
+function fromGoogleVolume(volume: any, fallback: NormalizedBookIdentifier): BookMetadataResult | null {
+  const title = cleanText(volume?.title);
   if (!title) return null;
-  if (isLowConfidenceBookTitle(title)) return null;
-  const category = cleanText(input.category);
-  const platform = bookPlatform(title, category);
-  const imageUrl = cleanImage(cleanText(input.imageUrl));
-  const thumbnailUrl = cleanImage(cleanText(input.thumbnailUrl) || imageUrl);
+  const subtitle = cleanText(volume?.subtitle);
+  const authors = Array.isArray(volume?.authors) ? volume.authors.map(cleanText).filter(Boolean) : [];
+  const categories = Array.isArray(volume?.categories) ? volume.categories.map(cleanText).filter(Boolean) : [];
+  const imageLinks = volume?.imageLinks || {};
+  const thumbnailUrl = cleanImageUrl(imageLinks.thumbnail || imageLinks.smallThumbnail || '');
+  const imageUrl = cleanImageUrl(imageLinks.extraLarge || imageLinks.large || imageLinks.medium || thumbnailUrl);
+  const ids = identifiersFromGoogle(volume);
+  const platform = bookPlatform(categories);
 
   return {
     title,
-    platform,
-    category: bookCategory(platform, category),
-    brand: cleanText(input.brand) || 'Books',
-    description: cleanText(input.description),
-    imageUrl,
+    subtitle,
+    authors,
+    publisher: cleanText(volume?.publisher),
+    publishedDate: cleanText(volume?.publishedDate),
+    publishedYear: publishedYear(cleanText(volume?.publishedDate)),
+    description: cleanText(volume?.description),
+    pageCount: Number.isFinite(Number(volume?.pageCount)) ? Number(volume.pageCount) : null,
+    categories,
+    language: cleanText(volume?.language),
+    isbn10: cleanText(ids.isbn10 || fallback.isbn10),
+    isbn13: cleanText(ids.isbn13 || fallback.isbn13),
+    coverImageUrl: imageUrl,
     thumbnailUrl,
-    source: input.source,
+    platform,
+    category: bookCategory(platform, categories),
+    brand: cleanText(volume?.publisher || authors.join(', ') || 'Books'),
+    imageUrl,
+    source: 'google_books',
+    sourcesTried: ['google_books'],
   };
 }
 
-async function lookupGoogleBooks(query: string, source: 'google_books' | 'google_books_search'): Promise<BookMetadataResult | null> {
-  const response = await fetch(
-    `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=5`,
-    { cache: 'no-store' }
-  );
-  if (!response.ok) return null;
-
-  const data = await response.json();
-  const items = Array.isArray(data?.items) ? data.items : [];
-  for (const item of items) {
-    const volume = item?.volumeInfo;
-    if (!volume?.title) continue;
-    const categories = Array.isArray(volume.categories) ? volume.categories : [];
-    const authors = Array.isArray(volume.authors) ? volume.authors : [];
-    const imageLinks = volume.imageLinks || {};
-    const thumbnailUrl = cleanImage(imageLinks.thumbnail || imageLinks.smallThumbnail || '');
-    const result = fromBookFields({
-      title: volume.title,
-      category: categories.join(', '),
-      brand: volume.publisher || authors.join(', '),
-      description: volume.description,
-      imageUrl: imageLinks.extraLarge || imageLinks.large || imageLinks.medium || thumbnailUrl,
-      thumbnailUrl,
-      source,
-    });
-    if (result) return result;
+async function lookupGoogleBooks(identifier: NormalizedBookIdentifier): Promise<BookMetadataResult | null> {
+  const queries = Array.from(new Set([identifier.queryIsbn, identifier.isbn13, identifier.isbn10].filter(Boolean)));
+  for (const isbn of queries) {
+    const response = await fetch(
+      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`isbn:${isbn}`)}&maxResults=3`,
+      { cache: 'no-store' }
+    );
+    if (!response.ok) throw new Error(`Google Books request failed (${response.status})`);
+    const data = await response.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+    for (const item of items) {
+      const result = fromGoogleVolume(item?.volumeInfo, identifier);
+      if (result?.title) return result;
+    }
   }
-
   return null;
 }
 
-async function lookupOpenLibraryIsbn(isbn: string): Promise<BookMetadataResult | null> {
-  const response = await fetch(
-    `https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`,
-    { cache: 'no-store' }
-  );
-  if (!response.ok) return null;
+function fromOpenLibraryRecord(data: any, identifier: NormalizedBookIdentifier, searchDoc?: any): BookMetadataResult | null {
+  const title = cleanText(data?.title || searchDoc?.title);
+  if (!title) return null;
+  const categories = [
+    ...(Array.isArray(data?.subjects) ? data.subjects.slice(0, 5) : []),
+    ...(Array.isArray(searchDoc?.subject) ? searchDoc.subject.slice(0, 5) : []),
+  ].map(cleanText).filter(Boolean);
+  const publishers = Array.isArray(data?.publishers) ? data.publishers : Array.isArray(searchDoc?.publisher) ? searchDoc.publisher : [];
+  const authors = Array.isArray(searchDoc?.author_name) ? searchDoc.author_name.map(cleanText).filter(Boolean) : [];
+  const coverId = data?.covers?.[0] || searchDoc?.cover_i;
+  const imageUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : '';
+  const thumbnailUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : '';
+  const publishedDateValue = cleanText(data?.publish_date || searchDoc?.first_publish_year || '');
+  const platform = bookPlatform(categories);
 
-  const data = await response.json();
-  if (!data?.title) return null;
-  const publishers = Array.isArray(data.publishers) ? data.publishers : [];
-  const subjects = Array.isArray(data.subjects) ? data.subjects.slice(0, 5) : [];
-  const coverId = data.covers?.[0];
-
-  return fromBookFields({
-    title: data.title,
-    category: subjects.join(', '),
-    brand: publishers[0],
-    description: typeof data.description === 'string' ? data.description : data.description?.value,
-    imageUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : '',
-    thumbnailUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : '',
+  return {
+    title,
+    subtitle: '',
+    authors,
+    publisher: cleanText(publishers[0]),
+    publishedDate: publishedDateValue,
+    publishedYear: publishedYear(publishedDateValue),
+    description: typeof data?.description === 'string' ? cleanText(data.description) : cleanText(data?.description?.value),
+    pageCount: Number.isFinite(Number(data?.number_of_pages)) ? Number(data.number_of_pages) : null,
+    categories,
+    language: Array.isArray(searchDoc?.language) ? cleanText(searchDoc.language[0]) : '',
+    isbn10: cleanText(data?.isbn_10?.[0] || searchDoc?.isbn?.find((id: string) => /^\d{9}[\dX]$/i.test(id)) || identifier.isbn10),
+    isbn13: cleanText(data?.isbn_13?.[0] || searchDoc?.isbn?.find((id: string) => /^(978|979)\d{10}$/.test(id)) || identifier.isbn13),
+    coverImageUrl: imageUrl,
+    thumbnailUrl,
+    platform,
+    category: bookCategory(platform, categories),
+    brand: cleanText(publishers[0] || authors.join(', ') || 'Books'),
+    imageUrl,
     source: 'open_library',
-  });
+    sourcesTried: ['open_library'],
+  };
 }
 
-async function lookupOpenLibrarySearch(query: string): Promise<BookMetadataResult | null> {
-  const response = await fetch(
-    `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=5`,
-    { cache: 'no-store' }
-  );
-  if (!response.ok) return null;
+async function lookupOpenLibrary(identifier: NormalizedBookIdentifier): Promise<BookMetadataResult | null> {
+  const isbn = identifier.queryIsbn || identifier.isbn13 || identifier.isbn10;
+  if (!isbn) return null;
 
-  const data = await response.json();
-  const docs = Array.isArray(data?.docs) ? data.docs : [];
-  for (const doc of docs) {
-    if (!doc?.title) continue;
-    const coverId = doc.cover_i;
-    const subject = Array.isArray(doc.subject) ? doc.subject.slice(0, 5).join(', ') : '';
-    const result = fromBookFields({
-      title: doc.title,
-      category: subject,
-      brand: Array.isArray(doc.publisher) ? doc.publisher[0] : Array.isArray(doc.author_name) ? doc.author_name.join(', ') : '',
-      description: '',
-      imageUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg` : '',
-      thumbnailUrl: coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : '',
-      source: 'open_library_search',
-    });
-    if (result) return result;
+  let record: any = null;
+  const recordResponse = await fetch(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`, { cache: 'no-store' });
+  if (recordResponse.ok) {
+    record = await recordResponse.json();
+  } else if (recordResponse.status >= 500) {
+    throw new Error(`Open Library request failed (${recordResponse.status})`);
   }
 
-  return null;
-}
-
-async function lookupBarcodeLookup(barcode: string, apiKey?: string): Promise<BookMetadataResult | null> {
-  if (!apiKey) return null;
-  const params = new URLSearchParams({ barcode, formatted: 'y', key: apiKey });
-  const response = await fetch(`https://api.barcodelookup.com/v3/products?${params.toString()}`, { cache: 'no-store' });
-  if (!response.ok) return null;
-  const data = await response.json();
-  const products = Array.isArray(data?.products) ? data.products as BarcodeLookupProduct[] : [];
-  const product = products.find(looksLikeBook);
-  if (!product) return null;
-
-  return fromBookFields({
-    title: product.title || product.product_name,
-    category: product.category,
-    brand: product.brand || product.manufacturer,
-    description: product.description,
-    imageUrl: Array.isArray(product.images) ? product.images[0] : '',
-    thumbnailUrl: Array.isArray(product.images) ? product.images[0] : '',
-    source: 'barcode_lookup',
-  });
-}
-
-async function lookupUpcItemDb(barcode: string, apiKey?: string): Promise<BookMetadataResult | null> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  const url = apiKey
-    ? `https://api.upcitemdb.com/prod/v1/lookup?upc=${encodeURIComponent(barcode)}`
-    : `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`;
-  if (apiKey) headers.user_key = apiKey;
-
-  const response = await fetch(url, { headers, cache: 'no-store' });
-  if (!response.ok) return null;
-  const data = await response.json();
-  const items = Array.isArray(data?.items) ? data.items as UpcItemDbProduct[] : [];
-  const item = items.find(looksLikeBook);
-  if (!item) return null;
-
-  return fromBookFields({
-    title: item.title,
-    category: item.category,
-    brand: item.brand,
-    description: item.description,
-    imageUrl: Array.isArray(item.images) ? item.images[0] : '',
-    thumbnailUrl: Array.isArray(item.images) ? item.images[0] : '',
-    source: 'upc_item_db',
-  });
-}
-
-export async function lookupBookMetadataByBarcode(
-  barcode: string,
-  options: { barcodeLookupKey?: string; upcItemDbKey?: string } = {}
-): Promise<BookMetadataResult | null> {
-  const cleanBarcode = cleanText(barcode);
-  if (!cleanBarcode) return null;
-
-  for (const candidate of isbnCandidates(cleanBarcode)) {
-    const match =
-      (await lookupGoogleBooks(`isbn:${candidate}`, 'google_books')) ||
-      (await lookupOpenLibraryIsbn(candidate));
-
-    if (match) return match;
+  let searchDoc: any = null;
+  const searchResponse = await fetch(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=1`, { cache: 'no-store' });
+  if (searchResponse.ok) {
+    const search = await searchResponse.json();
+    searchDoc = Array.isArray(search?.docs) ? search.docs[0] : null;
+  } else if (searchResponse.status >= 500) {
+    throw new Error(`Open Library search failed (${searchResponse.status})`);
   }
 
-  for (const candidate of upcCandidates(cleanBarcode)) {
-    const match =
-      (await lookupBarcodeLookup(candidate, options.barcodeLookupKey)) ||
-      (await lookupUpcItemDb(candidate, options.upcItemDbKey));
+  return fromOpenLibraryRecord(record, identifier, searchDoc);
+}
 
-    if (match) return match;
+function mergeBookMetadata(primary: BookMetadataResult, fallback: BookMetadataResult | null) {
+  if (!fallback) return primary;
+  return {
+    ...primary,
+    subtitle: primary.subtitle || fallback.subtitle,
+    authors: primary.authors.length ? primary.authors : fallback.authors,
+    publisher: primary.publisher || fallback.publisher,
+    publishedDate: primary.publishedDate || fallback.publishedDate,
+    publishedYear: primary.publishedYear || fallback.publishedYear,
+    description: primary.description || fallback.description,
+    pageCount: primary.pageCount ?? fallback.pageCount,
+    categories: primary.categories.length ? primary.categories : fallback.categories,
+    language: primary.language || fallback.language,
+    isbn10: primary.isbn10 || fallback.isbn10,
+    isbn13: primary.isbn13 || fallback.isbn13,
+    coverImageUrl: primary.coverImageUrl || fallback.coverImageUrl,
+    thumbnailUrl: primary.thumbnailUrl || fallback.thumbnailUrl,
+    imageUrl: primary.imageUrl || fallback.imageUrl,
+    sourcesTried: Array.from(new Set([...primary.sourcesTried, ...fallback.sourcesTried])),
+  };
+}
+
+export async function lookupBookMetadataByBarcode(barcode: string): Promise<BookMetadataResult | null> {
+  const identifier = normalizeBookIdentifier(barcode);
+  if (!identifier.valid) return null;
+
+  const sourcesTried: BookMetadataSource[] = [];
+  let google: BookMetadataResult | null = null;
+  let openLibrary: BookMetadataResult | null = null;
+  let lastError: Error | null = null;
+
+  try {
+    sourcesTried.push('google_books');
+    google = await lookupGoogleBooks(identifier);
+  } catch (error) {
+    lastError = error instanceof Error ? error : new Error('Google Books lookup failed');
   }
 
+  try {
+    sourcesTried.push('open_library');
+    openLibrary = await lookupOpenLibrary(identifier);
+  } catch (error) {
+    lastError = error instanceof Error ? error : new Error('Open Library lookup failed');
+  }
+
+  const result = google ? mergeBookMetadata(google, openLibrary) : openLibrary;
+  if (result) {
+    return {
+      ...result,
+      isbn10: result.isbn10 || identifier.isbn10,
+      isbn13: result.isbn13 || identifier.isbn13,
+      sourcesTried: Array.from(new Set(sourcesTried)),
+    };
+  }
+
+  if (lastError) throw lastError;
   return null;
 }

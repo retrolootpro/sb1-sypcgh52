@@ -283,10 +283,7 @@ function chooseImage(...candidates: Array<string | undefined>) {
 async function enrichItem(item: InventoryRow, keys: Map<string, string>): Promise<MetadataResult> {
   if (isBookLikeItem(item)) {
     const book = item.barcode
-      ? await lookupBookMetadataByBarcode(item.barcode, {
-          barcodeLookupKey: keys.get('barcode_lookup'),
-          upcItemDbKey: keys.get('upc_lookup'),
-        })
+      ? await lookupBookMetadataByBarcode(item.barcode)
       : null;
     return {
       title: book?.title || item.product_name,

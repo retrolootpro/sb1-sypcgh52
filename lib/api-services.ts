@@ -14,6 +14,23 @@ export interface UPCLookupResult {
   thumbnailUrl?: string;
   pcProductId?: string;
   source?: string;
+  bookMetadata?: {
+    title?: string;
+    subtitle?: string;
+    authors?: string[];
+    publisher?: string;
+    publishedDate?: string;
+    publishedYear?: string;
+    description?: string;
+    pageCount?: number | null;
+    categories?: string[];
+    language?: string;
+    isbn10?: string;
+    isbn13?: string;
+    coverImageUrl?: string;
+    source?: string;
+    sourcesTried?: string[];
+  };
 }
 
 export interface PriceChartingResult {
@@ -66,6 +83,7 @@ export async function lookupUPC(barcode: string, userId: string, titleHint?: str
         thumbnailUrl: routeData.thumbnailUrl,
         pcProductId: routeData.pcProductId,
         source: routeData.source,
+        bookMetadata: routeData.bookMetadata,
       };
     }
 
