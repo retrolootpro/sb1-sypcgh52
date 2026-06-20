@@ -162,6 +162,17 @@ function googleRetailPrice(saleInfo: any) {
   };
 }
 
+async function fetchJson(url: string, timeoutMs = 4500) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: 'no-store', signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function fromGoogleItem(item: any, fallback: NormalizedBookIdentifier): BookMetadataResult | null {
   const volume = item?.volumeInfo;
   const saleInfo = item?.saleInfo;
@@ -207,10 +218,7 @@ function fromGoogleItem(item: any, fallback: NormalizedBookIdentifier): BookMeta
 async function lookupGoogleBooks(identifier: NormalizedBookIdentifier): Promise<BookMetadataResult | null> {
   const queries = Array.from(new Set([identifier.queryIsbn, identifier.isbn13, identifier.isbn10].filter(Boolean)));
   for (const isbn of queries) {
-    const response = await fetch(
-      `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`isbn:${isbn}`)}&maxResults=3`,
-      { cache: 'no-store' }
-    );
+    const response = await fetchJson(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(`isbn:${isbn}`)}&maxResults=3`);
     if (!response.ok) throw new Error(`Google Books request failed (${response.status})`);
     const data = await response.json();
     const items = Array.isArray(data?.items) ? data.items : [];
@@ -269,7 +277,7 @@ async function lookupOpenLibrary(identifier: NormalizedBookIdentifier): Promise<
   if (!isbn) return null;
 
   let record: any = null;
-  const recordResponse = await fetch(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`, { cache: 'no-store' });
+  const recordResponse = await fetchJson(`https://openlibrary.org/isbn/${encodeURIComponent(isbn)}.json`);
   if (recordResponse.ok) {
     record = await recordResponse.json();
   } else if (recordResponse.status >= 500) {
@@ -277,7 +285,7 @@ async function lookupOpenLibrary(identifier: NormalizedBookIdentifier): Promise<
   }
 
   let searchDoc: any = null;
-  const searchResponse = await fetch(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=1`, { cache: 'no-store' });
+  const searchResponse = await fetchJson(`https://openlibrary.org/search.json?isbn=${encodeURIComponent(isbn)}&limit=1`);
   if (searchResponse.ok) {
     const search = await searchResponse.json();
     searchDoc = Array.isArray(search?.docs) ? search.docs[0] : null;
@@ -346,6 +354,5 @@ export async function lookupBookMetadataByBarcode(barcode: string): Promise<Book
     };
   }
 
-  if (lastError) throw lastError;
   return null;
 }

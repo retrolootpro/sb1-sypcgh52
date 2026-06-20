@@ -112,6 +112,44 @@ function normalizeLookupMode(value: unknown): LookupMode {
   return 'auto';
 }
 
+function manualBookFallback(barcode: string, message: string, sourcesTried: string[] = []) {
+  const title = `Book ${barcode}`;
+  return {
+    success: true,
+    manualFallback: true,
+    barcode,
+    title,
+    platform: 'Book',
+    category: 'Books',
+    brand: 'Books',
+    description: message,
+    imageUrl: '',
+    thumbnailUrl: '',
+    pcProductId: '',
+    source: 'manual_book_barcode',
+    bookMetadata: {
+      title,
+      subtitle: '',
+      authors: [],
+      publisher: '',
+      publishedDate: '',
+      publishedYear: '',
+      description: '',
+      pageCount: null,
+      categories: [],
+      language: '',
+      isbn10: '',
+      isbn13: '',
+      coverImageUrl: '',
+      retailPrice: null,
+      retailPriceCurrency: '',
+      retailPriceSource: '',
+      source: 'manual_book_barcode',
+      sourcesTried,
+    },
+  };
+}
+
 export async function GET() {
   return json({
     ok: true,
@@ -152,14 +190,20 @@ export async function POST(req: NextRequest) {
 
     if (shouldLookupAsBook) {
       if (!bookIdentifier.valid) {
-        return json({
-          success: false,
-          errorCode: 'BOOK_INVALID_IDENTIFIER',
-          message: bookIdentifier.reason || `Invalid book barcode or ISBN ${cleanBarcode}.`,
-        }, 400);
+        return json(manualBookFallback(
+          cleanBarcode,
+          bookIdentifier.reason || `Barcode ${cleanBarcode} could not be validated as an ISBN. Enter the book title and price manually.`,
+          []
+        ));
       }
 
-      const book = await lookupBookMetadataByBarcode(cleanBarcode);
+      let book = null;
+      try {
+        book = await lookupBookMetadataByBarcode(cleanBarcode);
+      } catch {
+        book = null;
+      }
+
       if (book) {
         const displayTitle = book.subtitle ? `${book.title}: ${book.subtitle}` : book.title;
         return json({
@@ -197,11 +241,11 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      return json({
-        success: false,
-        errorCode: 'BOOK_NO_MATCH',
-        message: `No book metadata found for barcode ${cleanBarcode}. Add the book manually and enter pricing yourself.`,
-      }, 404);
+      return json(manualBookFallback(
+        cleanBarcode,
+        `No book metadata found for barcode ${cleanBarcode}. Enter the book title and price manually.`,
+        bookIdentifier.valid ? ['google_books', 'open_library'] : []
+      ));
     }
 
     if (!pcKey) {
