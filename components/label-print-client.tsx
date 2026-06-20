@@ -54,7 +54,7 @@ function labelTitle(item: LabelItem) {
 function labelTextStyle(title: string, price: string): CSSProperties {
   const titleLength = title.length;
   const priceLength = price.length;
-  const titleSize = titleLength <= 12 ? 10 : titleLength <= 22 ? 8 : titleLength <= 34 ? 6.8 : 5.8;
+  const titleSize = titleLength <= 12 ? 12 : titleLength <= 22 ? 10 : titleLength <= 34 ? 8.5 : titleLength <= 48 ? 7.4 : 6.6;
   const priceSize = priceLength <= 5 ? 20 : priceLength <= 6 ? 17 : priceLength <= 7 ? 14.5 : 12.5;
 
   return {
@@ -247,13 +247,11 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
 
           .price-label-copy {
             height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: flex-end;
-            gap: 0.055in;
+            display: grid;
+            grid-template-rows: 1fr auto;
+            align-items: stretch;
             min-width: 0;
-            padding: 0.055in 0.025in 0.055in 0.015in;
+            padding: 0.075in 0.03in 0.06in 0.015in;
             text-align: right;
             box-sizing: border-box;
           }
@@ -263,11 +261,12 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             max-width: 100%;
             margin-left: auto;
             font-size: var(--label-title-size, 8px);
-            line-height: 1.28;
+            line-height: 1.35;
             overflow-wrap: anywhere;
             word-break: break-word;
             overflow: hidden;
             text-align: right;
+            align-self: start;
           }
 
           .price-label-price {
@@ -279,6 +278,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             white-space: nowrap;
             overflow: hidden;
             text-align: right;
+            align-self: end;
           }
 
           .label-card-wrap {
