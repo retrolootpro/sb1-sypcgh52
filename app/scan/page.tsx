@@ -62,11 +62,37 @@ type PendingBarcode = {
   scanCount?: number;
 };
 
+type IntakeSessionDraft = {
+  selectedLotId: string;
+  selectedEmployeeId: string | null;
+  scanMode: ScanMode;
+  intakeItemType: IntakeItemType;
+  batchMode: boolean;
+  pendingBarcodes: PendingBarcode[];
+  queue: QueueItem[];
+  manualBarcode: string;
+  manualTitle: string;
+  manualPlatform: string;
+  savedAt: string;
+};
+
 const DATABASE_SAFE_ITEM_TYPES = new Set(['game', 'console', 'accessory', 'unknown']);
+const INTAKE_TRANSIENT_STATUSES = new Set<QueueItem['status']>(['scanning', 'looking_up', 'pricing', 'calculating']);
 
 function toDatabaseItemType(itemType: string | undefined) {
   if (!itemType) return 'unknown';
   return DATABASE_SAFE_ITEM_TYPES.has(itemType) ? itemType : 'accessory';
+}
+
+function sanitizeIntakeQueue(queue: QueueItem[]) {
+  return queue.filter((item) => !INTAKE_TRANSIENT_STATUSES.has(item.status));
+}
+
+function getDraftBarcodes(draft: Pick<IntakeSessionDraft, 'pendingBarcodes' | 'queue'>) {
+  return [
+    ...draft.pendingBarcodes.map((item) => item.barcode).filter(Boolean),
+    ...draft.queue.map((item) => item.barcode).filter(Boolean),
+  ];
 }
 
 export default function ScanPage() {
@@ -94,14 +120,33 @@ export default function ScanPage() {
   const [currentQueueItemForDialog, setCurrentQueueItemForDialog] = useState<QueueItem | null>(null);
 
   const recentScansRef = useRef<Set<string>>(new Set());
+  const intakeDraftHydratedRef = useRef(false);
 
   useEffect(() => {
     getActiveEmployees().then(setEmployees).catch(() => {});
     getLotCostSummaries().then(setLots).catch(() => {});
     try {
       const saved = window.localStorage.getItem(INTAKE_SESSION_KEY);
-      if (saved) setSavedIntakeAvailable(true);
+      if (saved) {
+        const session = JSON.parse(saved) as Partial<IntakeSessionDraft>;
+        if (session.selectedLotId) setSelectedLotId(session.selectedLotId);
+        if (session.selectedEmployeeId !== undefined) setSelectedEmployeeId(session.selectedEmployeeId);
+        if (session.scanMode) setScanMode(session.scanMode);
+        if (session.intakeItemType) setIntakeItemType(session.intakeItemType);
+        if (typeof session.batchMode === 'boolean') setBatchMode(session.batchMode);
+        const savedPending = Array.isArray(session.pendingBarcodes) ? session.pendingBarcodes : [];
+        const savedQueue = Array.isArray(session.queue) ? session.queue : [];
+        setPendingBarcodes(savedPending);
+        setQueue(savedQueue);
+        if (typeof session.manualBarcode === 'string') setManualBarcode(session.manualBarcode);
+        if (typeof session.manualTitle === 'string') setManualTitle(session.manualTitle);
+        if (typeof session.manualPlatform === 'string') setManualPlatform(session.manualPlatform);
+        recentScansRef.current = new Set(getDraftBarcodes({ pendingBarcodes: savedPending, queue: savedQueue }));
+        setSavedIntakeAvailable(true);
+        setIntakeActive(true);
+      }
     } catch {}
+    intakeDraftHydratedRef.current = true;
   }, []);
 
   const selectedLot = lots.find((lot) => lot.id === selectedLotId) || null;
@@ -135,20 +180,20 @@ export default function ScanPage() {
     try {
       const saved = window.localStorage.getItem(INTAKE_SESSION_KEY);
       if (saved) {
-        const session = JSON.parse(saved);
+        const session = JSON.parse(saved) as Partial<IntakeSessionDraft>;
         if (session.selectedLotId) setSelectedLotId(session.selectedLotId);
+        if (session.selectedEmployeeId !== undefined) setSelectedEmployeeId(session.selectedEmployeeId);
         if (session.scanMode) setScanMode(session.scanMode);
         if (session.intakeItemType) setIntakeItemType(session.intakeItemType);
         if (typeof session.batchMode === 'boolean') setBatchMode(session.batchMode);
-        if (Array.isArray(session.pendingBarcodes)) setPendingBarcodes(session.pendingBarcodes);
-        if (Array.isArray(session.queue)) setQueue(session.queue);
+        const savedPending = Array.isArray(session.pendingBarcodes) ? session.pendingBarcodes : [];
+        const savedQueue = Array.isArray(session.queue) ? session.queue : [];
+        setPendingBarcodes(savedPending);
+        setQueue(savedQueue);
         if (typeof session.manualBarcode === 'string') setManualBarcode(session.manualBarcode);
         if (typeof session.manualTitle === 'string') setManualTitle(session.manualTitle);
         if (typeof session.manualPlatform === 'string') setManualPlatform(session.manualPlatform);
-        recentScansRef.current = new Set([
-          ...(Array.isArray(session.pendingBarcodes) ? session.pendingBarcodes.map((item: PendingBarcode) => item.barcode).filter(Boolean) : []),
-          ...(Array.isArray(session.queue) ? session.queue.map((item: QueueItem) => item.barcode).filter(Boolean) : []),
-        ]);
+        recentScansRef.current = new Set(getDraftBarcodes({ pendingBarcodes: savedPending, queue: savedQueue }));
       } else {
         setScanMode('continuous');
         setIntakeItemType('game');
@@ -164,26 +209,38 @@ export default function ScanPage() {
     toast.success('Intake started');
   }, []);
 
-  const saveAndCloseIntake = useCallback(() => {
+  const persistIntakeDraft = useCallback(() => {
+    const draft: IntakeSessionDraft = {
+      selectedLotId,
+      selectedEmployeeId,
+      scanMode,
+      intakeItemType,
+      batchMode,
+      pendingBarcodes,
+      queue: sanitizeIntakeQueue(queue),
+      manualBarcode,
+      manualTitle,
+      manualPlatform,
+      savedAt: new Date().toISOString(),
+    };
     try {
-      window.localStorage.setItem(INTAKE_SESSION_KEY, JSON.stringify({
-        selectedLotId,
-        scanMode,
-        intakeItemType,
-        batchMode,
-        pendingBarcodes,
-        queue: queue.filter((item) => item.status !== 'scanning' && item.status !== 'looking_up' && item.status !== 'pricing' && item.status !== 'calculating'),
-        manualBarcode,
-        manualTitle,
-        manualPlatform,
-        savedAt: new Date().toISOString(),
-      }));
+      window.localStorage.setItem(INTAKE_SESSION_KEY, JSON.stringify(draft));
+      setSavedIntakeAvailable(true);
     } catch {}
+  }, [batchMode, intakeItemType, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, queue, scanMode, selectedEmployeeId, selectedLotId]);
+
+  useEffect(() => {
+    if (!intakeDraftHydratedRef.current || !intakeActive) return;
+    persistIntakeDraft();
+  }, [batchMode, intakeActive, intakeItemType, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, persistIntakeDraft, queue, scanMode, selectedEmployeeId, selectedLotId]);
+
+  const saveAndCloseIntake = useCallback(() => {
+    persistIntakeDraft();
     setScannerActive(false);
     setIntakeActive(false);
     setSavedIntakeAvailable(true);
     toast.success('Intake saved');
-  }, [batchMode, intakeItemType, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, queue, scanMode, selectedLotId]);
+  }, [persistIntakeDraft]);
 
   const updateQueueItem = useCallback((id: string, updates: Partial<QueueItem>) => {
     setQueue((prev) =>

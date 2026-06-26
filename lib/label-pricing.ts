@@ -8,6 +8,8 @@ export type LabelPricedItem = {
   purchase_price?: number | null;
 };
 
+const MINIMUM_LABEL_PRICE = 4.99;
+
 export function labelBasePrice(item: LabelPricedItem) {
   return Number(item.sell_price)
     || Number(item.selected_market_value)
@@ -20,13 +22,13 @@ export function labelBasePrice(item: LabelPricedItem) {
 }
 
 export function retailLabelPrice(value: number) {
-  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (!Number.isFinite(value) || value <= 0) return MINIMUM_LABEL_PRICE;
   const whole = Math.floor(value);
   const cents = value - whole;
   if (cents < 0.5) {
-    return Math.max(0, whole - 0.01);
+    return Math.max(MINIMUM_LABEL_PRICE, whole - 0.01);
   }
-  return Math.max(0, whole + 1 - 0.01);
+  return Math.max(MINIMUM_LABEL_PRICE, whole + 1 - 0.01);
 }
 
 export function inventoryLabelPrice(item: LabelPricedItem) {

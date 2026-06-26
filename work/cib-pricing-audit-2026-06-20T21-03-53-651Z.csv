@@ -1,0 +1,161 @@
+id,product_name,console,condition,status,saved_selected_market_value,saved_price_loose,saved_price_cib,pc_loose,pc_cib,pc_new,pc_graded,pc_selected_market_value,delta_selected,pc_product_id,pc_product_name,pc_platform,match_strategy,flag
+801c335e-e48e-471a-ae42-5e5f629ca1f3,007 Everything or Nothing,PlayStation 2,CIB,available,6.24,6.24,0,6.24,0,0,0,0,-6.24,5189,007 Everything or Nothing,Playstation 2,stored_id,ok
+b86cab19-042e-486c-9a8f-893e93d14a5c,007 Night Fire,Xbox,CIB,available,8.83,8.62,8.83,8.62,0,0,0,0,-8.83,58721,007: Agent Under Fire,PAL Xbox,stored_id,ok
+fe97ac7e-9c5d-41a6-bc60-bd439ea9b707,18 Wheeler American Pro Trucker,PlayStation 2,CIB,sold,8.31,6.86,8.31,6.78,0,0,0,0,-8.31,4945,18 Wheeler American Pro Trucker,Playstation 2,stored_id,ok
+34d248c0-319b-4175-a146-9791d178d692,18 Wheeler American Pro Trucker,PlayStation 2,CIB,available,8.23,6.78,8.23,6.78,0,0,0,0,-8.23,4945,18 Wheeler American Pro Trucker,Playstation 2,stored_id,ok
+4ed7f57e-d3e6-4ba2-873d-566f11ea3f65,7 Days to Die,PlayStation 4,CIB,available,13.78,13.57,13.78,13.57,0,0,0,0,-13.78,36692,7 Days to Die,Playstation 4,stored_id,ok
+432eb054-edd4-423d-85c3-a49c0887dbb2,Ace Combat 5 Unsung War,PlayStation 2,CIB,available,9.96,9.96,0,10,0,0,0,0,-9.96,4953,Ace Combat 5 Unsung War,Playstation 2,stored_id,ok
+9a95f99b-5fb8-4ea1-a2e8-5179b4a9a2db,American Ninja Warrior,PlayStation 4,CIB,available,7.35,7.17,7.35,7.17,0,0,0,0,-7.35,57981,American Ninja Warrior,Playstation 4,stored_id,ok
+5354cc08-50aa-4be7-b8cf-99634d0fcfd1,Animal Crossing: City Folk,Wii,CIB,available,11,9.9,11,9.9,0,0,0,0,-11,3881074,Animal Crossing: City Folk,JP Wii,stored_id,ok
+aaa7dea6-8a63-4dca-98f3-652a31c03a38,Arc the Lad: Seirei no Koukon,PlayStation 2,CIB,available,9.99,0,9.99,0,0,0,0,0,-9.99,6012014,Arc the Lad: Seirei no Koukon,JP Playstation 2,stored_id,ok
+2e58d288-0d32-46b2-8371-9766cd8cd517,Are You Smarter Than A 5th Grader? Make the Grade,PlayStation 2,CIB,available,2.97,2.97,0,2.97,0,0,0,0,-2.97,18528,Are You Smarter Than A 5th Grader? Make the Grade,Playstation 2,stored_id,ok
+c30e56ec-863b-4cab-96a1-5c61ced91c92,Arena Football Road to Glory,PlayStation 2,CIB,available,8.99,7.54,8.99,7.54,0,0,0,0,-8.99,11076,Arena Football Road to Glory,Playstation 2,stored_id,ok
+b41c8242-fcc2-4128-94d4-68a6b028b94f,Assassin's Creed,Xbox 360,CIB,available,5.75,5.75,0,5.73,0,0,0,0,-5.75,10529,Assassin's Creed,Xbox 360,stored_id,ok
+1d7933ca-c7f5-4861-bea0-7e0eb9f7f0e1,Assassin's Creed II,PlayStation 3,CIB,available,3.84,3.84,0,3.84,0,0,0,0,-3.84,19992,Assassin's Creed II,Playstation 3,stored_id,ok
+dc1d1a46-c927-4276-b1f6-f5c47c58a29c,Assassin's Creed III,PlayStation 3,CIB,available,3.74,3.74,0,3.74,0,0,0,0,-3.74,33231,Assassin's Creed III,Playstation 3,stored_id,ok
+29a5ad61-010a-4a42-a4b5-450a192b39b6,Assassin's Creed III [Gamestop Edition],Xbox 360,CIB,available,6.24,6.24,0,6.04,0,0,0,0,-6.24,59634,Assassin's Creed III [Gamestop Edition],Xbox 360,stored_id,ok
+0746d53e-4f64-4158-9d05-18491eab63d9,Assassin's Creed III [Target Edition],PlayStation 3,CIB,sold,5.54,5.54,0,0,0,0,0,0,-5.54,72748,Assassin's Creed III [Target Edition],Playstation 3,stored_id,ok
+571266fd-14ea-4b90-8ffd-3acb1d94b497,Atari Anthology,PlayStation 2,CIB,sold,9.99,9.58,9.99,7.43,0,0,0,0,-9.99,4990,Atari Anthology,Playstation 2,stored_id,ok
+bd6c9638-d386-49ba-b6e3-c18fdcb0beb1,Atari Anthology,PlayStation 2,CIB,available,9.32,7.43,9.32,7.43,0,0,0,0,-9.32,4990,Atari Anthology,Playstation 2,stored_id,ok
+2e17da53-9573-4269-ba7d-6989c6f002a8,Backyard Sports: Rookie Rush,Wii,CIB,available,4.84,3.72,4.84,3.72,0,0,0,0,-4.84,30313,Backyard Sports: Rookie Rush,Wii,stored_id,ok
+e04cc7d8-7d88-42eb-ae59-24c4cf851025,Batman: Arkham Asylum [Game of the Year Greatest Hits],PlayStation 3,CIB,available,8.99,8.32,8.99,8.32,0,0,0,0,-8.99,63974,Batman: Arkham Asylum [Game of the Year Greatest Hits],Playstation 3,stored_id,ok
+d3ae305a-f89c-4b86-a20c-e15b0142ed97,Batman: Arkham City,PlayStation 3,CIB,available,7.34,3.99,7.34,3.99,0,0,0,0,-7.34,31859,Batman: Arkham City,Playstation 3,stored_id,ok
+27f5c1c2-d437-4d1a-a691-9bd162996e64,Battle Arena Toshinden,PlayStation,CIB,sold,8.56,7.25,8.56,7.25,0,0,0,0,-8.56,91023,Battle Arena Toshinden,JP Playstation,stored_id,ok
+7b5e7ea6-ea38-4d9c-bf1e-d80327ef2dc1,Battle Arena Toshinden,PlayStation,CIB,available,7.33,7.25,7.33,7.25,0,0,0,0,-7.33,91023,Battle Arena Toshinden,JP Playstation,stored_id,ok
+ed3a9860-9d4e-4f0c-8793-b7609ef017a3,Battlefield 3,PlayStation 3,CIB,available,6.76,3.65,6.76,3.66,0,0,0,0,-6.76,31889,Battlefield 3,Playstation 3,stored_id,ok
+e04f4fce-3db6-40b6-94ae-b37689c6a7f4,Battlefield 3 [Limited Edition],Xbox 360,CIB,available,3.99,3.91,3.99,3.12,0,0,0,0,-3.99,32723,Battlefield 3 [Limited Edition],Xbox 360,stored_id,ok
+4ac7f8c1-5a8b-4d48-ac88-ae7c33e4a07f,Battlefield 4,PlayStation 3,CIB,available,3.64,3.64,0,3.64,0,0,0,0,-3.64,34480,Battlefield 4,Playstation 3,stored_id,ok
+8e543709-69b1-4547-b7a9-3af256112896,Battlefield: Bad Company 2,PlayStation 3,CIB,available,6.32,6.32,0,6.25,0,0,0,0,-6.32,20995,Battlefield: Bad Company 2,Playstation 3,stored_id,ok
+6b931600-dd3d-4b60-a458-82dfa375927a,Big Bumpin,Xbox,CIB,available,3.71,3.71,0,3.71,0,0,0,0,-3.71,21851,Big Bumpin',Xbox 360,stored_id,ok
+41b56dc6-14d2-49af-8f80-3ac8219f0ffe,BioShock 2,Xbox 360,CIB,available,6.49,4.98,6.49,4.98,0,0,0,0,-6.49,20401,BioShock 2,Xbox 360,stored_id,ok
+6998a006-d450-4fb6-9484-295e914fdb7e,Black GameCube Controller,GameCube,CIB,available,52.83,29.49,52.83,29.49,0,0,0,0,-52.83,3191,Black Controller,Gamecube,stored_id,ok
+5d1f3886-4241-419d-b290-3a563c81ec77,ESPN NFL 2K5,Xbox,CIB,available,8.17,6.54,8.17,6.54,0,0,0,0,-8.17,6217,ESPN NFL 2K5,Xbox,title_platform,ok
+1f0bd904-86ac-448c-88f4-a792e45584d8,EX Jinsei Game,PlayStation 2,CIB,available,7.71,2.23,7.71,2.23,0,0,0,0,-7.71,3374828,EX Jinsei Game,JP Playstation 2,stored_id,ok
+68d9fdc8-e120-4272-90bf-5c237e25fa40,Eyepet & Friends,PlayStation 3,CIB,available,5.4,5.4,0,5.37,0,0,0,0,-5.4,32276,Eyepet & Friends,Playstation 3,upc,ok
+53ce0477-a8cf-40af-9b5e-a388b8c25130,FIFA 16,Xbox One,CIB,available,4.15,4.15,0,4.14,0,0,0,0,-4.15,36003,FIFA 16,Xbox One,upc,ok
+ab21c2c7-58dc-4f66-9915-d8a16a614d56,FIFA Soccer 11,PlayStation 3,CIB,available,5.18,3.99,5.18,3.99,0,0,0,0,-5.18,22051,FIFA Soccer 11,Playstation 3,upc,ok
+1b83f202-f1b2-4aa1-b84f-84d9de10c4c2,Fight Night Champion,Xbox 360,CIB,available,13.96,13.73,13.96,12.99,0,0,0,0,-13.96,31001,Fight Night Champion,Xbox 360,title_platform,ok
+c0613aa2-7f0f-4823-afd3-404e3d8da37d,Final Fantasy X-2,PlayStation 2,CIB,available,8.5,5.95,8.5,5.95,0,0,0,0,-8.5,162145,Final Fantasy X-2,JP Playstation 2,stored_id,ok
+3eb6ba18-bf82-444d-8f8b-d3a665ca55b3,Final Fantasy XII,PlayStation 2,CIB,available,10.32,8.19,10.32,8.19,0,0,0,0,-10.32,162108,Final Fantasy XII,JP Playstation 2,stored_id,ok
+bef3378a-a476-4f5f-b2fa-8d5dceac02bf,Gacharoku,PlayStation 2,CIB,available,10.8,7.55,10.8,7.55,0,0,0,0,-10.8,6943470,Gacharoku,JP Playstation 2,title_platform,ok
+50de65cc-150a-46a0-98b4-2e4e452a6d78,Game Party 2,Wii,CIB,available,8.99,4.8,8.99,4.94,0,0,0,0,-8.99,15686,Game Party 2,Wii,stored_id,ok
+7308aa57-9fb4-4ea2-a527-6a64292b16de,Gears 5,Xbox One,CIB,available,14.87,10.75,14.87,10.75,14.42,22.72,124.64,14.42,-0.45,,"Gears 5 Prices Xbox One | Compare Loose, CIB &amp; New Prices",Xbox One,pricecharting_web,price_refresh_needed
+d9abd1b7-4244-4bf8-b30e-2116be9feaeb,Genso Suikoden,PlayStation,CIB,available,23.37,9.33,23.37,9.99,0,0,0,0,-23.37,2594726,Genso Suikoden III,JP Playstation 2,title_only,ok
+855885d8-32dd-4d7f-826d-99c04612413e,Hardcore 4X4,PlayStation,CIB,available,6.77,4.16,6.77,4.16,0,0,0,0,-6.77,20089,TNN Motorsports Hardcore 4X4,Playstation,title_platform,ok
+cb5b0eaa-d7e5-46d7-97a7-32d1548b3aca,High School Musical 3 Senior Year Dance,Wii,CIB,available,4.76,2.68,4.76,4.54,0,0,0,0,-4.76,15782,High School Musical 3 Senior Year,Nintendo DS,title_only,ok
+a8bcd2e6-02da-4ffc-9208-c366412fd9b2,Hitman 2 Silent Assassin,Xbox,CIB,available,3,0,3,19.95,0,0,0,0,-3,5997583,Hitman 2: Silent Assassin [Promo],PAL Playstation 2,title_only,ok
+f093bbbc-c924-4802-af76-292208f9c8df,Home Alone,NES,CIB,available,48.33,14.99,48.33,14.99,0,0,0,0,-48.33,9119,Home Alone 2 Lost In New York,NES,title_only,ok
+e9002d59-9f30-495a-b4c5-94a6419c6b26,IHRA Drag Racing Sportsman Edition,PlayStation 2,CIB,available,6.07,2.51,6.07,2.51,0,0,0,0,-6.07,11307,IHRA Drag Racing Sportsman Edition,Playstation 2,title_only,ok
+7af37bec-c2db-424a-a503-2c010c12d126,Inuyasha,PlayStation,CIB,available,17.32,5.61,17.32,5.61,0,0,0,0,-17.32,3901412,Inuyasha,JP Playstation,stored_id,ok
+cb54af08-1eaa-46f9-b542-bdeb0c501528,Jimmy Neutron Attack of the Twonkies,PlayStation 2,CIB,available,11.99,9.7,11.99,9.74,11.74,39.99,43.99,11.74,-0.25,,"Jimmy Neutron Attack of the Twonkies Prices Playstation 2 | Compare Loose, CIB &amp; New Prices",PlayStation 2,pricecharting_web,price_refresh_needed
+a58842de-e9d5-4670-86b2-9d2f5bac3d64,Just Dance 3,Xbox 360,CIB,available,7.04,3.97,7.04,3.97,0,0,0,0,-7.04,31808,Just Dance 3,Xbox 360,title_platform,ok
+6adcffe0-98b5-48a6-a574-412afb06de7b,Just Dance Wii,Wii,CIB,available,11.78,9.99,11.78,8.99,9.99,12.99,65.49,9.99,-1.79,,"Just Dance Prices Wii | Compare Loose, CIB &amp; New Prices",Wii,pricecharting_web,price_refresh_needed
+be155024-8e6d-408e-95fa-9b147ded6c13,Just Dance Wii,Wii,CIB,available,10.89,10.89,0,9.99,0,0,0,0,-10.89,3572954,Just Dance Wii,JP Wii,stored_id,ok
+5556b870-ea60-4777-b441-7f7a0249ddb1,Karaoke Revolution 3,PlayStation 2,CIB,available,6.95,6.29,6.95,6.29,6.95,10.96,12.06,6.95,0,,"Karaoke Revolution 3 Prices Playstation 2 | Compare Loose, CIB &amp; New Prices",PlayStation 2,pricecharting_web,ok
+41043504-b4ec-4765-908b-f031c48f5664,Kelly Slater's Pro Surfer,Xbox,CIB,available,8.39,8.39,0,8.39,0,0,0,0,-8.39,6326,Kelly Slater's Pro Surfer,Xbox,title_only,ok
+4cfaba6b-3f47-4757-af1b-df3d72e280ee,Kingdom Hearts 2,PlayStation 2,CIB,available,11,7.7,11,9.56,0,0,0,0,-11,5385,Kingdom Hearts,Playstation 2,title_platform,ok
+0652f939-9f16-4616-b06b-61b7aeda9bb3,Kingdom Hearts II Final Mix [Limited Edition],PlayStation 2,CIB,available,90,28.99,90,28.99,0,0,0,0,-90,1563515,Kingdom Hearts II Final Mix [Limited Edition],JP Playstation 2,title_platform,ok
+260e1482-66a6-45f5-9c1e-de799db4236f,Legends of Wrestling,PlayStation 2,CIB,available,6.82,6.82,0,6.08,0,0,0,0,-6.82,5399,Legends of Wrestling,Playstation 2,title_platform,ok
+5bf39f66-99e0-4bda-850e-25513834edc5,LEGO Batman 2,PlayStation 3,CIB,available,6.82,6.82,0,7.25,0,0,0,0,-6.82,32858,LEGO Batman 2,Xbox 360,title_only,ok
+85e01459-9d3a-440e-8d66-41fa9111a5f7,LEGO Marvel Super Heroes,Xbox 360,CIB,available,6.18,4.29,6.18,4.28,0,0,0,0,-6.18,34434,LEGO Marvel Super Heroes,Xbox 360,title_platform,ok
+e54f45cc-f686-4fa2-9919-ca975afbff0c,LEGO Pirates of the Caribbean: The Video Game,Xbox 360,CIB,available,10.99,8.83,10.99,7.99,0,0,0,0,-10.99,31410,LEGO Pirates of the Caribbean: The Video Game,Wii,title_only,ok
+8f6be7a7-001a-45d5-8955-ea155ded1f2a,LittleBigPlanet,PlayStation 3,CIB,available,10.39,8.36,10.39,7.5,0,0,0,0,-10.39,15824,LittleBigPlanet,Playstation 3,title_only,ok
+c95ab2a6-52e8-4c1f-a342-0488ff81280a,Madden 07,GameCube,CIB,available,6.65,6.54,6.65,4.97,0,0,0,0,-6.65,5428,Madden 2007,Playstation 2,title_only,ok
+1516b15c-a0ae-4ff9-a791-b8d1807e0d75,Madden 2004,GameCube,CIB,available,8.57,7.99,8.57,7.99,0,0,0,0,-8.57,3369,Madden 2004,Gamecube,title_platform,ok
+ca119a80-e7b1-4d47-90d8-204d35fea63c,Madden 2008,PlayStation 3,CIB,available,3.69,3.69,0,3.69,6.33,14.99,16.49,6.33,2.64,,"Madden 2008 Prices Playstation 3 | Compare Loose, CIB &amp; New Prices",PlayStation 3,pricecharting_web,selected_market_value_is_loose
+d47f0fc6-728e-47a5-8e69-bc2476546627,Madden 2009,PlayStation 3,CIB,available,6,3.84,6,2.63,0,0,0,0,-6,14185,Madden 2009,Xbox 360,title_only,ok
+8e612953-da72-4f92-889f-27267d27bdf9,Madden 97,PlayStation,CIB,available,9.58,5.49,9.58,4.78,0,0,0,0,-9.58,9266,Madden 97,Sega Genesis,title_only,ok
+442116d0-ee6e-430c-ab0b-4425de2f7f0d,Madden 97,PlayStation,CIB,sold,10.32,7.51,10.32,4.78,0,0,0,0,-10.32,9266,Madden 97,Sega Genesis,title_only,ok
+c3f9cd6b-90fd-4dd6-8392-74008b7ecf38,Madden 98,PlayStation,CIB,available,9.99,4.89,9.99,4.92,0,0,0,0,-9.99,16426,Madden 98,Playstation,title_platform,ok
+4813b7af-0b8e-42d1-ba3b-be319c16db3c,Madden NFL 10,PlayStation 3,CIB,available,5.99,3.49,5.99,3.49,0,0,0,0,-5.99,19478,Madden NFL 10,Playstation 3,stored_id,ok
+2bfe5c28-954e-4db7-9f8a-aff3d83b3ed0,Madden NFL 11,PlayStation 3,CIB,available,6.63,3.61,6.63,3.58,0,0,0,0,-6.63,21863,Madden NFL 11,Playstation 3,title_only,ok
+897dbd7f-3c71-477f-a76a-4dff4acf9c0b,Madden NFL 12 Hall of Fame Edition,PlayStation 3,CIB,available,8.65,8.65,0,9.48,0,0,0,0,-8.65,31673,Madden NFL 12 Hall of Fame Edition,Xbox 360,title_only,ok
+98b657d0-a47f-4e30-a22e-8e808c3096b4,Madden NFL 13,PlayStation 3,CIB,available,8.54,3.18,8.54,3.17,0,0,0,0,-8.54,33008,Madden NFL 13,Playstation 3,title_platform,ok
+07d5286c-e792-4845-b4eb-fc2e239313fc,Madden NFL 16,PlayStation 4,CIB,available,6.75,4.99,6.75,4.94,0,0,0,0,-6.75,35878,Madden NFL 16,Playstation 4,title_platform,ok
+04a178af-252e-453e-94f1-a70e9302a0b1,Madden NFL 18,Xbox One,CIB,available,3.3,2.94,3.3,2.94,3.3,10.95,115.39,3.3,0,,"Madden NFL 18 Prices Xbox One | Compare Loose, CIB &amp; New Prices",Xbox One,pricecharting_web,ok
+c27127f9-ce97-45db-903d-956c3b75e7ea,Madden NFL 25 [Bonus Edition],Xbox 360,CIB,available,9.84,0,9.84,0,0,0,0,0,-9.84,98575,Madden NFL 25 [Bonus Edition],Xbox 360,title_platform,ok
+39c37bc2-6e70-452b-89be-35bc7fdd69f8,Major League Baseball 2K10,Xbox 360,CIB,available,6.06,3.95,6.06,3.95,6.06,15.29,16.82,6.06,0,,"Major League Baseball 2K10 Prices Xbox 360 | Compare Loose, CIB &amp; New Prices",Xbox 360,pricecharting_web,ok
+97f521c3-87c2-4bd3-b056-076738188ee0,Makai Senki Disgaea [Playstation 2 the Best],PlayStation 2,CIB,available,0,0,0,0,0,0,0,0,0,4933627,Makai Senki Disgaea [Playstation 2 the Best],JP Playstation 2,upc,ok
+0c1d0e82-c282-4421-9694-9e8724402948,Mario Party 4,GameCube,CIB,available,61.86,44.8,61.86,45,0,0,0,0,-61.86,3376,Mario Party 4,Gamecube,title_platform,ok
+3f09d817-66d6-47b9-8cf6-bd3cf4728f77,Mario Power Tennis,GameCube,CIB,available,38.09,23.99,38.09,26.74,0,0,0,0,-38.09,3382,Mario Power Tennis,Gamecube,stored_id,ok
+bb12db86-380e-4713-bd77-c01b9a829fb7,Metroid Prime,GameCube,CIB,available,24.99,16.49,24.99,16.49,0,0,0,0,-24.99,3398,Metroid Prime,Gamecube,title_platform,ok
+b55275f9-926b-48fa-ac8f-67c123451e9b,MLB 07 The Show,PlayStation 3,CIB,available,2.98,2.98,0,4.48,0,0,0,0,-2.98,5473,MLB 07 The Show,Playstation 2,title_only,ok
+df0113d2-66e0-4119-bb92-40278391e510,MLB 08 The Show,PlayStation 3,CIB,available,3.51,3.51,0,3.51,5.99,20,22,5.99,2.48,,"MLB 08 The Show Prices Playstation 3 | Compare Loose, CIB &amp; New Prices",PlayStation 3,pricecharting_web,selected_market_value_is_loose
+1c7d2f97-12f5-458f-a38d-9155d44990b9,MLB 10 The Show,PlayStation 3,CIB,available,6.96,3.49,6.96,3.49,0,0,0,0,-6.96,20996,MLB 10 The Show,Playstation 3,title_platform,ok
+70b31cea-a961-430c-8673-65e2bcc12816,Mobile Suit Gundam Seed Destiny: Generation of CE,PlayStation 2,CIB,available,10.93,6.68,10.93,6.68,0,0,0,0,-10.93,63564,Mobile Suit Gundam Seed Destiny: Generation of CE,JP Playstation 2,stored_id,ok
+1be92263-41b1-4536-bbdb-1d5d01634c4f,Monster Garage,Xbox,CIB,available,6.99,6.99,6.99,0.05,0,0,0,0,-6.99,9709158,Scrap Garage BLMM-EN030,YuGiOh Battles of Legend: Monster Mayhem,title_only,ok
+d9e8a285-4c95-4246-ba14-a0a9abe5762d,Motionsports: Adrenaline,PlayStation 3,CIB,available,6.31,5.99,6.31,5.99,0,0,0,0,-6.31,32183,Motionsports: Adrenaline,Playstation 3,title_only,ok
+9ccbd222-3c6b-4116-b0ab-339faa5d2fc1,MVP Baseball 2004,PlayStation 2,CIB,available,5.71,3.57,5.71,3.57,0,0,0,0,-5.71,5513,MVP Baseball 2004,Playstation 2,title_only,ok
+11e1aec2-ab78-47c7-8947-abe222c25817,Naruto Uzumaki Ninden,PlayStation 2,CIB,available,3.42,0,3.42,0,0,0,0,0,-3.42,4172665,Naruto Uzumaki Ninden,JP Playstation 2,upc,ok
+49213098-4555-4432-beff-53aa3920a468,NASCAR 06 Total Team Control,PlayStation 2,CIB,available,11.72,5.01,11.72,5.01,0,0,0,0,-11.72,5530,NASCAR 06 Total Team Control,Playstation 2,title_only,ok
+b95ba5c4-3a04-466d-bc81-2390e5f91a45,NASCAR 07,Xbox,CIB,available,8.84,4.59,8.84,4.59,0,0,0,0,-8.84,6424,NASCAR 07,Xbox,title_platform,ok
+8e43bf6d-30e8-4c0b-8a19-a711f74a68ab,NASCAR Chase for the Cup 2005,PlayStation 2,CIB,available,9.74,5.48,9.74,5.21,0,0,0,0,-9.74,5532,NASCAR Chase for the Cup 2005,Playstation 2,title_only,ok
+e7867447-9581-46fa-adc6-852dc1e18025,NASCAR Chase for the Cup 2005,Xbox,CIB,available,7.15,5.12,7.15,5.11,7.09,24.9,27.39,7.09,-0.06,,"NASCAR Chase for the Cup 2005 Prices Xbox | Compare Loose, CIB &amp; New Prices",Xbox,pricecharting_web,price_refresh_needed
+c01d1762-9030-4b5c-86c2-e6394511c1f7,NASCAR Thunder 2002,Xbox,CIB,available,8.96,7.12,8.96,7.51,0,0,0,0,-8.96,5535,NASCAR Thunder 2002,Playstation 2,title_only,ok
+1fde6c72-93a4-49ac-b65b-e6be42f7bb93,NBA 2K11,PlayStation 3,CIB,available,7.23,7.21,7.23,5.73,0,0,0,0,-7.23,22101,NBA 2K11,Playstation 3,stored_id,ok
+94a2ca40-b728-46b8-aa4c-f58c9c31bdd5,NBA 2K11,PlayStation 3,CIB,available,7.97,6.54,7.97,5.73,0,0,0,0,-7.97,22101,NBA 2K11,Playstation 3,upc,ok
+d4d465b2-b1b0-4a1b-baf8-233929835f23,NBA 2K12,PlayStation 3,CIB,available,9,8.46,9,8.85,0,0,0,0,-9,31797,NBA 2K12,Playstation 3,stored_id,ok
+c446bffe-088a-4ee6-be94-12cf504acc46,NBA 2K15,Xbox 360,CIB,available,5,4.65,5,4.08,0,0,0,0,-5,35141,NBA 2K15,Xbox 360,upc,ok
+e4dd73cb-86bd-4871-88a1-98eec0630b0c,NBA 2K17,PlayStation 3,CIB,available,11.81,7.5,11.81,7.5,0,0,0,0,-11.81,36948,NBA 2K17,Playstation 3,stored_id,ok
+5d3f5d38-e251-4db0-b068-308d1f0a3fd0,NBA 2K17,Xbox 360,CIB,available,7.38,6.36,7.38,6.36,0,0,0,0,-7.38,36925,NBA 2K17,Xbox 360,stored_id,ok
+1d5babd4-fbec-4f71-b58c-a61b6464325b,NBA 2K18,Xbox One,CIB,available,4.89,4.25,4.89,4.25,0,0,0,0,-4.89,39634,NBA 2K18,Xbox One,stored_id,ok
+e7e7f176-68b0-4079-a50a-910bce0c7423,NBA Live 08,PlayStation 3,CIB,available,3.7,3.7,0,3.7,5.86,14.18,41,5.86,2.16,,"NBA Live 08 Prices Playstation 3 | Compare Loose, CIB &amp; New Prices",PlayStation 3,pricecharting_web,selected_market_value_is_loose
+7aa5f31e-3302-4448-889c-74a87b5ef7ae,NBA Live 2002,PlayStation 2,CIB,available,6.13,2.92,6.13,2.92,0,0,0,0,-6.13,5550,NBA Live 2002,Playstation 2,stored_id,ok
+6a05bb72-7c1d-489a-936d-5bf2ece7321f,NBA Live 2005,GameCube,CIB,available,8.77,6.45,8.77,6.4,8.76,44.88,49.37,8.76,-0.01,,"NBA Live 2005 Prices Gamecube | Compare Loose, CIB &amp; New Prices",GameCube,pricecharting_web,ok
+dcaa57e5-55dc-4f48-9d4d-74dec5da8256,NBA Live 2006,PlayStation 2,CIB,available,6.38,3.94,6.38,3.96,0,0,0,0,-6.38,5554,NBA Live 2006,Playstation 2,stored_id,ok
+75c824d4-77e7-4321-a6c5-7f2dcc1f13c7,NBA Starting Five,PlayStation 2,CIB,available,6.1,6.1,0,6.1,0,0,0,0,-6.1,5558,NBA Starting Five,Playstation 2,upc,ok
+5ff0b80e-7407-442a-b99e-ee41602cbbad,NBA Street,GameCube,CIB,available,42.43,35.91,42.43,16.81,19.48,99.99,160,19.48,-22.95,,"NBA Street Prices Gamecube | Compare Loose, CIB &amp; New Prices",GameCube,pricecharting_web,price_refresh_needed
+36b9fca8-e3ad-4b80-afd2-f09c70b9a75c,NBA Street V3,GameCube,CIB,available,19.63,16.74,19.63,16.74,0,0,0,0,-19.63,61591,NBA Street Vol 3,JP Gamecube,stored_id,ok
+20a4e4b4-4fc2-4e63-91b6-6e16283c6230,NCAA Football 2005,GameCube,CIB,available,10.46,8.5,10.46,8.5,0,0,0,0,-10.46,3439,NCAA Football 2005,Gamecube,title_platform,ok
+d5fdf5f2-d586-4748-b5e8-23ce4fed8131,NCAA Football 2005,Xbox,CIB,available,5.98,1.86,5.98,6.38,6.86,10.95,52.99,6.86,0.88,,"NCAA Football 2005 Prices Xbox | Compare Loose, CIB &amp; New Prices",Xbox,pricecharting_web,price_refresh_needed
+9d4f5e44-eea4-4cff-843a-90cc5d7e13e6,Need for Speed Most Wanted,GameCube,CIB,available,37.5,27.04,37.5,26.89,36.08,101.07,508,36.08,-1.42,,"Need for Speed Most Wanted Prices Gamecube | Compare Loose, CIB &amp; New Prices",GameCube,pricecharting_web,price_refresh_needed
+801a49a6-6edc-4f30-93f7-b9816e779064,NFL 2K3,GameCube,CIB,available,7,7,7,5.21,0,0,0,0,-7,3445,NFL 2K3,Gamecube,stored_id,ok
+bee3b455-03a4-456d-aff1-0db63882c989,NFL 2K3,PlayStation 2,CIB,available,3.91,3.91,0,3.49,0,0,0,0,-3.91,5585,NFL 2K3,Playstation 2,stored_id,ok
+294596f9-4811-4015-8168-74e75576a394,NFL Blitz 2003,GameCube,CIB,available,21.52,10.99,21.52,11.33,0,0,0,0,-21.52,3193,NFL Blitz 2003,Gamecube,title_only,ok
+12d49863-7d40-4301-9ace-327310de82a4,NFL Street 2,Xbox,CIB,available,15,12.22,15,12.18,15,38.99,70,15,0,,"NFL Street 2 Prices Xbox | Compare Loose, CIB &amp; New Prices",Xbox,pricecharting_web,ok
+8e0207e6-9372-40f6-b419-32ce062e40b6,NFL Street 2,Xbox,CIB,available,15,12.22,15,12.18,15,38.99,70,15,0,,"NFL Street 2 Prices Xbox | Compare Loose, CIB &amp; New Prices",Xbox,pricecharting_web,ok
+3f5fe68c-6b9e-4a02-a76b-e05dcb78d82a,NHL 2001,PlayStation 2,CIB,available,8.21,3.26,8.21,3.26,0,0,0,0,-8.21,5594,NHL 2001,Playstation 2,stored_id,ok
+2f9cd6da-36bf-4467-9343-588b9c63adc8,NHL 2003,Xbox,CIB,available,5.11,2.59,5.11,21.21,0,0,0,0,-5.11,5606,NHL Hitz 2003,Playstation 2,title_only,ok
+73723d13-fc8e-450c-b262-256861e7094d,Oni Rei: Fukkatsu,PlayStation,CIB,available,14.04,0,14.04,0,0,0,0,0,-14.04,4225195,Oni Rei: Fukkatsu,JP Playstation,stored_id,ok
+25b23cff-23f2-4288-a3a1-52043ddcb506,Overwatch Origins Edition,Xbox One,CIB,available,2.89,2.89,0,3.56,5.81,18.19,149.99,5.81,2.92,,"Overwatch Origins Edition Prices Xbox One | Compare Loose, CIB &amp; New Prices",Xbox One,pricecharting_web,selected_market_value_is_loose
+4186beb5-b227-4e55-9d01-476e57df551e,Pocket Bike Racer,Xbox,CIB,available,0,0,0,19.99,0,0,0,0,0,5874209,Sora's Transforming Mech Bike Racer #71792,LEGO Ninjago,title_only,ok
+f1d3b297-7953-48e8-b68b-10bd8b9af9d0,Portal 2,Xbox 360,CIB,available,9.89,8.2,9.89,8.27,0,0,0,0,-9.89,31329,Portal 2,Xbox 360,stored_id,ok
+7e3eae70-80bd-471e-8fe2-a8117566e750,Project Gotham Racing,Xbox,CIB,available,7.99,3.77,7.99,3.74,0,0,0,0,-7.99,6521,Project Gotham Racing,Xbox,stored_id,ok
+e353195f-414c-4b83-a777-b5b039ecfed2,Puzzle Challenge Crosswords and More,PlayStation 2,CIB,available,5.35,3.47,5.35,3.49,0,0,0,0,-5.35,14328,Puzzle Challenge Crosswords and More,Playstation 2,stored_id,ok
+6f9d0ae5-c2c9-48d4-bf21-0a1ff2e96315,Rapala Pro Bass Fishing 2010,Xbox 360,CIB,available,8.47,7.67,8.47,7.68,0,0,0,0,-8.47,22060,Rapala Pro Bass Fishing 2010,Xbox 360,stored_id,ok
+120c6535-141e-4fd7-8eca-0979d7782748,Reel Fishing,PlayStation,CIB,available,9.02,3.95,9.02,3.97,9.03,14.46,15.91,9.03,0.01,,"Reel Fishing Prices Playstation | Compare Loose, CIB &amp; New Prices",PlayStation,pricecharting_web,ok
+caaafd0b-0b80-49a2-aeec-a93e3d02b75f,Ryu ga Gotoku 3,PlayStation 3,CIB,available,14.99,14.99,0,11.87,0,0,0,0,-14.99,70658,Ryu ga Gotoku: Of the End,JP Playstation 3,title_platform,ok
+f2b54a9a-855a-4880-8460-84a2295ba8ef,Samurai Western,PlayStation 2,CIB,available,15.62,0,15.62,125.91,0,0,0,0,-15.62,14469,Samurai Western,Playstation 2,title_only,ok
+0ef9d4e6-c019-4a6f-a593-64a1dabb1df2,Saw II: Flesh & Blood,PlayStation 3,CIB,available,79.99,79.99,0,79.99,0,0,0,0,-79.99,30276,Saw II: Flesh & Blood,Playstation 3,title_platform,ok
+fedd7cd6-4edb-4f40-9a5a-eee29d98847d,Shadow of Memories,PlayStation 2,CIB,sold,18.68,12,18.68,11,0,0,0,0,-18.68,5629791,Shadow of Memories,JP Playstation 2,upc,ok
+f760573f-1698-4f39-8619-c08b9fa1c4cb,Shaun White Snowboarding Road Trip,Wii,CIB,available,5,2.59,5,2.59,0,0,0,0,-5,15980,Shaun White Snowboarding Road Trip,Wii,stored_id,ok
+dc93eed5-033e-4e41-b6ad-ad16b4d7d0ff,Shin Hokuto Musou,PlayStation 3,CIB,available,7,7,0,8.07,0,0,0,0,-7,152938,Shin Hokuto Musou,JP Playstation 3,upc,ok
+d1936c29-4de3-4b90-957c-e9650846e044,Splashdown Rides Gone Wild,PlayStation 2,CIB,available,10,5.22,10,5.22,10,26.39,104,10,0,,"Splashdown Rides Gone Wild Prices Playstation 2 | Compare Loose, CIB &amp; New Prices",PlayStation 2,pricecharting_web,ok
+e11374e3-feca-46b8-bac4-7edf37d52fe8,Spy Hunter,PlayStation 2,CIB,available,7.84,7.84,0,7.92,0,0,0,0,-7.84,5813,Spy Hunter,Playstation 2,title_platform,ok
+6f459285-88f9-483c-aec3-ef2dfda7abd5,Star Wars Battlefront 2,Xbox,CIB,available,15.65,12.24,15.65,11.19,0,0,0,0,-15.65,5828,Star Wars Battlefront 2,Playstation 2,title_only,ok
+ed38a1fe-582c-4e9e-9894-d6cfe8010f50,Super Monkey Ball: Banana Mania,Xbox One,CIB,available,11.97,7.99,11.97,9.21,0,0,0,0,-11.97,2867098,Super Monkey Ball Banana Mania,Nintendo Switch,title_only,ok
+32cd9d6b-2513-481d-a542-af32d4ca1f8a,Tales of Destiny,PlayStation,CIB,available,9.17,9.17,0,129.01,0,0,0,0,-9.17,4803,Tales of Destiny 2,Playstation,title_only,ok
+ab7840df-92e1-445f-86ed-4ffb40ec1ea4,Tamagotchi no Appare! Niji-Venture,DS,CIB,available,18.8,17.95,18.8,17.95,0,0,0,0,-18.8,6073050,Tamagotchi no Appare! Niji-Venture,JP Nintendo DS,title_only,ok
+c5dbbbd3-b94b-4823-acaf-6730a525ea4d,Teikoku Sensenki,PlayStation 2,CIB,available,3.96,0,3.96,0,0,0,0,0,-3.96,11958543,Teikoku Sensenki,JP Playstation 2,stored_id,ok
+203eff95-1de1-42c2-ba78-272be06e42b1,Test Drive,Xbox,CIB,available,8.27,4.74,8.27,4.74,0,0,0,0,-8.27,6650,Test Drive,Xbox,stored_id,ok
+91395ced-25f5-4baa-9a1a-92bee80b8597,Tetris Worlds,PlayStation 2,CIB,available,7.71,4.47,7.71,4.47,0,0,0,0,-7.71,5888,Tetris Worlds,Playstation 2,upc,ok
+bd69fece-558f-491e-81d9-4907bc912fb4,The Getaway Black Monday,PlayStation 2,CIB,available,12.41,9.47,12.41,9.48,0,0,0,0,-12.41,5892,The Getaway Black Monday,Playstation 2,title_platform,ok
+1ec35fc4-ed88-46ec-84d3-ca6ad6edc2c1,The Sims 3,Xbox 360,CIB,available,8.97,5.99,8.97,5.99,0,0,0,0,-8.97,30383,The Sims 3,Xbox 360,title_only,ok
+2c78f425-ed00-4a1f-89d7-f0552645980d,Thrillville Off The Rails,PlayStation,CIB,available,8.09,5.21,8.09,4.44,0,0,0,0,-8.09,10369,Thrillville Off The Rails,Wii,title_only,ok
+8a06bb59-53ff-4455-94cd-791a6fb675be,Tiger Woods 2007,PlayStation 2,CIB,available,3.16,3.16,0,3.16,3.3,11.92,28,3.3,0.14,,"Tiger Woods 2007 Prices Playstation 2 | Compare Loose, CIB &amp; New Prices",PlayStation 2,pricecharting_web,selected_market_value_is_loose
+88021874-c58d-4d51-b005-448977a50306,Tiger Woods PGA Tour 08,PlayStation 2,CIB,available,6.93,3.29,6.93,3.29,0,0,0,0,-6.93,7471,Tiger Woods PGA Tour 08,Playstation 2,stored_id,ok
+c82d4cb5-aef0-492f-8e39-b686004dba15,Tiger Woods PGA Tour 08,PlayStation 3,CIB,available,4.79,4.79,0,5.06,0,0,0,0,-4.79,7474,Tiger Woods PGA Tour 08,Playstation 3,stored_id,ok
+818bd17b-937d-4c04-9893-3d6ea341619b,Tomb Raider Last Revelation,PlayStation,CIB,available,7.99,7.99,0,7.9,0,0,0,0,-7.99,4855,Tomb Raider Last Revelation,Playstation,upc,ok
+e9f66890-2846-4ef8-bdb0-12d84e98bcf4,Tony Hawks Pro Skater 4,GameCube,CIB,available,14.99,10.45,14.99,9.91,0,0,0,0,-14.99,5937,Tony Hawk 4,Playstation 2,title_only,ok
+616bcece-9eb0-4214-b290-431deda63be6,Tony Hawks Underground,GameCube,CIB,available,19.99,14.32,19.99,14.87,0,0,0,0,-19.99,5940,Tony Hawk Underground,Playstation 2,title_only,ok
+d8975944-acc8-4261-9d32-ef88b5e28354,Triple Play 2002,PlayStation 2,CIB,available,2.98,2.98,0,2.75,0,0,0,0,-2.98,5952,Triple Play 2002,Playstation 2,title_only,ok
+2499b792-b9e5-4c7a-9b35-ee665dc4ccfb,True Crime Streets of LA [Platinum Hits],Xbox,CIB,available,10.54,7.34,10.54,7.34,0,0,0,0,-10.54,67996,True Crime Streets of LA [Platinum Hits],Xbox,title_platform,ok
+19932709-4fb3-4692-aafb-bd6f4c72c4e4,Turning Point Fall of Liberty,Xbox 360,CIB,available,11.03,6.9,11.03,4.99,0,0,0,0,-11.03,18631,Turning Point: Fall of Liberty [Collector's Edition],Xbox 360,title_only,ok
+e851ae6e-fb70-429e-9c77-eebd4f83b75a,UFC Undisputed 2010,Xbox 360,CIB,available,8.62,4.81,8.62,4.99,9.82,12.98,19.99,9.82,1.2,,"UFC Undisputed 2010 Prices Xbox 360 | Compare Loose, CIB &amp; New Prices",Xbox 360,pricecharting_web,price_refresh_needed
+99d6d0da-4599-47eb-8fd7-7785f392e2ac,Uncharted 3: Drake's Deception,PlayStation 3,CIB,available,5.33,5.33,0,5.05,0,0,0,0,-5.33,32205,Uncharted 3: Drake's Deception,Playstation 3,stored_id,ok
+208a8c64-111e-440e-a648-381cc0a88618,Victorious: Time to Shine,Xbox 360,CIB,available,4.9,3.47,4.9,3.47,4.9,9.86,10.85,4.9,0,,"Victorious: Time to Shine Prices Xbox 360 | Compare Loose, CIB &amp; New Prices",Xbox 360,pricecharting_web,ok
+919d8bdf-73ef-4cf9-9325-77d1a6319bdb,White Knight Chronicles,PlayStation 3,CIB,available,8.28,7.6,8.28,7.55,0,0,0,0,-8.28,3206599,White Knight Chronicles,JP Playstation 3,upc,ok
+3ab5bed9-1b50-449f-8fa0-3fc6ec2a085e,Wii Fit Plus,Wii,CIB,available,6.1,3.74,6.1,3.77,0,0,0,0,-6.1,19713,Wii Fit Plus,Wii,stored_id,ok
+695d0813-aff7-43f6-a3a5-08c301a45e0a,World Party Games,Wii,CIB,available,6.99,4.4,6.99,4.4,6.72,13,14.3,6.72,-0.27,,"World Party Games Prices Wii | Compare Loose, CIB &amp; New Prices",Wii,pricecharting_web,price_refresh_needed
+1ce49234-aab6-43ff-9a6c-23276e874838,WWE Smackdown vs. Raw 2011,PlayStation 2,CIB,available,17.19,17.19,0,17.14,0,0,0,0,-17.19,30343,WWE Smackdown vs. Raw 2011,Playstation 2,title_platform,ok
+dc7ef5f0-d82d-4b9f-81f9-619928906262,Your Shape: Fitness Evolved 2012,Xbox 360,CIB,available,5.25,3.92,5.25,3.92,0,0,0,0,-5.25,32139,Your Shape: Fitness Evolved 2012,Xbox 360,title_only,ok

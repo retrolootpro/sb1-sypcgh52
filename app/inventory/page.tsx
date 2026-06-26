@@ -825,7 +825,7 @@ export default function InventoryPage() {
         <div className="rounded-2xl border border-border/40 bg-card/60 p-3">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-white/85">Find & Filter</div>
+              <div className="text-sm font-semibold text-foreground">Find & Filter</div>
               <div className="text-xs text-muted-foreground">{filteredItems.length} item{filteredItems.length === 1 ? '' : 's'} shown</div>
             </div>
           </div>
@@ -837,7 +837,7 @@ export default function InventoryPage() {
                   placeholder="Search name, UPC, ISBN, author, platform..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 bg-card border-border/50 h-11 text-base rounded-xl text-white/90 caret-primary placeholder:text-muted-foreground"
+                  className="pl-9 bg-background text-foreground border-border/50 h-11 text-base rounded-xl caret-primary placeholder:text-muted-foreground"
                 />
               </div>
               <Button

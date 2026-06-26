@@ -37,3 +37,13 @@ next-env.d.ts
 
 # Local Netlify folder
 .netlify
+
+# Android / Clover wrapper
+clover-android/.gradle/
+clover-android/.idea/
+clover-android/**/build/
+clover-android/app/release/
+clover-android/local.properties
+
+# Generated workspace tooling
+work/**/node_modules/
