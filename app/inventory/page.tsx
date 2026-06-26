@@ -837,7 +837,7 @@ export default function InventoryPage() {
                   placeholder="Search name, UPC, ISBN, author, platform..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 bg-card border-border/50 h-11 text-base rounded-xl"
+                  className="pl-9 bg-card border-border/50 h-11 text-base rounded-xl text-white/90 caret-primary placeholder:text-muted-foreground"
                 />
               </div>
               <Button
