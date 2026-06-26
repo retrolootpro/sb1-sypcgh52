@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +16,7 @@ import {
   Camera, Keyboard, History, CircleCheck as CheckCircle2,
   CircleAlert as AlertCircle, Loader as Loader2, Undo2, Trash2,
   User, TrendingUp, Layers, Play, ScanBarcode, PackageCheck, Calculator, Search, BookOpen,
+  Printer,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
@@ -69,6 +71,7 @@ function toDatabaseItemType(itemType: string | undefined) {
 
 export default function ScanPage() {
   const { user, accountId } = useAuth();
+  const router = useRouter();
   const [scanMode, setScanMode] = useState<ScanMode>('single');
   const [intakeItemType, setIntakeItemType] = useState<IntakeItemType>('game');
   const [batchMode, setBatchMode] = useState(false);
@@ -102,6 +105,31 @@ export default function ScanPage() {
   }, []);
 
   const selectedLot = lots.find((lot) => lot.id === selectedLotId) || null;
+
+  const printableGameLabelIds = useMemo(() => {
+    return queue.flatMap((item) => {
+      if (!item.inventoryItemId || !['added', 'needs_review'].includes(item.status)) return [];
+
+      const itemType = String(item.result?.classification?.itemType || '').toLowerCase();
+      const consoleName = String(item.selectedConsole || item.result?.platform || '').toLowerCase();
+      const isBook = itemType === 'book' || itemType === 'manga' || /book|manga|comic/.test(consoleName);
+      if (isBook) return [];
+
+      const count = Math.max(1, Number(item.scanCount || 1));
+      return Array.from({ length: count }, () => item.inventoryItemId as string);
+    });
+  }, [queue]);
+
+  const printCompletedGameLabels = useCallback(() => {
+    if (printableGameLabelIds.length === 0) {
+      toast.info('No game labels ready yet', {
+        description: 'Process the intake queue first, then print labels for the completed games.',
+      });
+      return;
+    }
+
+    router.push(`/labels?ids=${encodeURIComponent(printableGameLabelIds.join(','))}&autoprint=1`);
+  }, [printableGameLabelIds, router]);
 
   const startIntake = useCallback(() => {
     try {
@@ -1224,6 +1252,16 @@ export default function ScanPage() {
                 <Badge variant="secondary" className="text-xs">{queue.reduce((sum, item) => sum + Number(item.scanCount || 1), 0)}</Badge>
               </div>
               <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={printCompletedGameLabels}
+                  disabled={printableGameLabelIds.length === 0}
+                  className="h-7 text-[12px]"
+                >
+                  <Printer className="w-3 h-3 mr-1.5" />
+                  Print Labels {printableGameLabelIds.length > 0 ? `(${printableGameLabelIds.length})` : ''}
+                </Button>
                 <Button variant="ghost" size="sm" onClick={handleUndo} disabled={queue.length === 0} className="h-7 text-[12px]">
                   <Undo2 className="w-3 h-3 mr-1.5" />
                   Undo

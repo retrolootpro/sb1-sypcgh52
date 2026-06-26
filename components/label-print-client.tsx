@@ -1,6 +1,6 @@
 'use client';
 
-import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { ArrowLeft, Printer, Trash2, X } from 'lucide-react';
@@ -80,6 +80,29 @@ function labelTextStyle(title: string, price: string): CSSProperties {
   } as CSSProperties;
 }
 
+async function waitForLabelAssets() {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+  try {
+    await document.fonts?.ready;
+  } catch {
+    // If the browser does not expose font readiness, keep printing.
+  }
+
+  await new Promise<void>((resolve) => {
+    const image = new Image();
+    const done = () => resolve();
+    image.onload = done;
+    image.onerror = done;
+    image.src = LOGO_SRC;
+    if (image.complete) resolve();
+    window.setTimeout(done, 1200);
+  });
+
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
 export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const { user, accountId } = useAuth();
   const searchParams = useSearchParams();
@@ -91,9 +114,11 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [manualPrice, setManualPrice] = useState('');
   const [manualPrintLabel, setManualPrintLabel] = useState<PrintableLabel | null>(null);
   const [manualPrintRequested, setManualPrintRequested] = useState(false);
+  const autoPrintStartedRef = useRef(false);
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
+  const autoPrintRequested = searchParams.get('autoprint') === '1';
   const activeIds = queryIds.length > 0 ? queryIds : queueIds;
   const printableLabels: PrintableLabel[] = manualPrintLabel
     ? [manualPrintLabel]
@@ -204,25 +229,8 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     if (!manualPrintLabel || !manualPrintRequested) return;
     let cancelled = false;
 
-    const waitForLogo = () => new Promise<void>((resolve) => {
-      const image = new Image();
-      const done = () => resolve();
-      image.onload = done;
-      image.onerror = done;
-      image.src = LOGO_SRC;
-      if (image.complete) resolve();
-      window.setTimeout(done, 1200);
-    });
-
     const printWhenReady = async () => {
-      try {
-        await document.fonts?.ready;
-      } catch {
-        // If the browser does not expose font readiness, keep printing.
-      }
-      await waitForLogo();
-      await new Promise((resolve) => requestAnimationFrame(resolve));
-      await new Promise((resolve) => requestAnimationFrame(resolve));
+      await waitForLabelAssets();
       if (!cancelled) {
         window.print();
         setManualPrintRequested(false);
@@ -232,6 +240,20 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     printWhenReady();
     return () => { cancelled = true; };
   }, [manualPrintLabel, manualPrintRequested]);
+
+  useEffect(() => {
+    if (!autoPrintRequested || autoPrintStartedRef.current || loading || printableLabels.length === 0) return;
+    let cancelled = false;
+    autoPrintStartedRef.current = true;
+
+    const printWhenReady = async () => {
+      await waitForLabelAssets();
+      if (!cancelled) window.print();
+    };
+
+    printWhenReady();
+    return () => { cancelled = true; };
+  }, [autoPrintRequested, loading, printableLabels.length]);
 
   return (
     <DashboardLayout>
@@ -276,11 +298,11 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           </div>
         ) : (
           <div className="label-sheet mx-auto flex max-w-5xl flex-wrap gap-4">
-            {printableLabels.map((label) => {
+            {printableLabels.map((label, index) => {
               const title = label.title;
               const price = label.price;
               return (
-              <div key={label.id} className="label-card-wrap">
+              <div key={`${label.id}-${index}`} className="label-card-wrap">
                 {label.inventoryId && (
                   <button
                     type="button"
