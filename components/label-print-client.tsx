@@ -58,7 +58,14 @@ function money(value: number) {
 }
 
 function labelTitle(item: LabelItem) {
-  return item.product_name || item.console || 'Inventory Item';
+  const productName = item.product_name?.trim();
+  const consoleName = item.console?.trim();
+
+  if (productName && consoleName && productName.toLowerCase() !== consoleName.toLowerCase()) {
+    return `${productName} - ${consoleName}`;
+  }
+
+  return productName || consoleName || 'Inventory Item';
 }
 
 function labelTextStyle(title: string, price: string): CSSProperties {

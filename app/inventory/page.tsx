@@ -832,7 +832,7 @@ export default function InventoryPage() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="flex flex-1 gap-2">
               <div className="relative min-w-0 flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/40" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/40" />
                 <Input
                   placeholder="Search name, UPC, ISBN, author, platform..."
                   value={searchQuery}
