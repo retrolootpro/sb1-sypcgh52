@@ -71,7 +71,13 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", sans-serif;
     font-feature-settings: 'ss01' 1, 'cv01' 1;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.22);
+    color: hsl(var(--foreground));
   }
 
   html.light body {
@@ -148,6 +154,15 @@
     background-color: hsl(220 20% 92%) !important;
   }
 
+  html.light [class~="bg-black/82"],
+  html.light [class~="bg-black/90"] {
+    background-color: hsl(0 0% 100% / 0.9) !important;
+  }
+
+  html.light [class~="bg-black/68"] {
+    background-color: hsl(0 0% 100% / 0.72) !important;
+  }
+
   html.light [class~="bg-black/70"],
   html.light [class~="bg-black/60"],
   html.light [class~="bg-black/50"],
@@ -176,9 +191,12 @@
   }
 
   html.light [class~="text-white"],
+  html.light [class~="text-white/92"],
   html.light [class~="text-white/90"],
+  html.light [class~="text-white/88"],
   html.light [class~="text-white/85"],
   html.light [class~="text-white/80"],
+  html.light [class~="text-white/78"],
   html.light [class~="text-white/75"],
   html.light [class~="text-white/70"],
   html.light [class~="hover:text-white"]:hover,
@@ -188,6 +206,7 @@
     color: hsl(var(--foreground)) !important;
   }
 
+  html.light [class~="text-white/62"],
   html.light [class~="text-white/65"],
   html.light [class~="text-white/60"],
   html.light [class~="text-white/55"],
@@ -197,6 +216,7 @@
   html.light [class~="text-white/40"],
   html.light [class~="text-white/38"],
   html.light [class~="text-white/35"],
+  html.light [class~="text-white/32"],
   html.light [class~="text-white/30"],
   html.light [class~="text-white/28"],
   html.light [class~="text-white/20"],

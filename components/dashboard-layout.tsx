@@ -30,6 +30,8 @@ import {
   FileLock2,
   MonitorUp,
   Printer,
+  Search,
+  Sparkles,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -39,44 +41,39 @@ import { getAccountSecuritySettings, isMfaSatisfied } from '@/lib/security-servi
 
 const navGroups = [
   {
-    label: 'Daily Command',
+    label: 'Today',
     items: [
       { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { href: '/assistant', label: 'AI Assistant', icon: Bot, featured: true },
     ],
   },
   {
-    label: 'Tools',
-    items: [
-      { href: '/labels?manual=1', label: 'Manual Label', icon: Printer },
-    ],
-  },
-  {
-    label: 'Inventory Flow',
+    label: 'Inventory',
     items: [
       { href: '/inventory', label: 'Inventory', icon: Package },
       { href: '/scan', label: 'Scan Intake', icon: ScanBarcode },
       { href: '/prep', label: 'Prep Workflow', icon: ClipboardList },
       { href: '/tasks', label: 'Tasks', icon: ClipboardCheck },
       { href: '/review', label: 'Review', icon: ClipboardCheck },
+      { href: '/labels?manual=1', label: 'Labels', icon: Printer },
     ],
   },
   {
-    label: 'Sourcing & Sales',
+    label: 'Sell',
     items: [
       { href: '/planning', label: 'Lot Analyzer', icon: Target },
       { href: '/shows', label: 'Whatnot Shows', icon: ListChecks },
       { href: '/planning?tab=bundles', label: 'Bundles', icon: Boxes },
       { href: '/planning?tab=disputes', label: 'Disputes', icon: Gavel },
+      { href: '/shipping', label: 'Shipping', icon: Truck },
     ],
   },
   {
-    label: 'Money & Reports',
+    label: 'Business',
     items: [
       { href: '/finance', label: 'Finance', icon: DollarSign },
       { href: '/insights', label: 'Reports', icon: Lightbulb },
       { href: '/documents', label: 'Documents', icon: FileLock2 },
-      { href: '/shipping', label: 'Shipping', icon: Truck },
     ],
   },
   {
@@ -87,14 +84,14 @@ const navGroups = [
     ],
   },
   {
-    label: 'Guidance',
+    label: 'Support',
     items: [
       { href: '/help', label: 'Help / Manual', icon: BookOpen },
     ],
   },
 ];
 
-const ALWAYS_OPEN_GROUPS = new Set(['Daily Command']);
+const ALWAYS_OPEN_GROUPS = new Set(['Today', 'Inventory']);
 
 type NavItem = {
   href: string;
@@ -137,9 +134,9 @@ function NavLink({ item, pathname, searchParams, onNavClick }: {
         href={item.href}
         onClick={onNavClick}
         className={cn(
-          'group relative flex items-center gap-3 rounded-lg border px-3 py-3 transition-all duration-150',
+          'group relative flex items-center gap-3 rounded-xl border px-3 py-3 transition-all duration-150',
           isActive
-            ? 'border-primary/35 bg-primary/[0.12] text-primary shadow-[0_0_22px_-14px_hsl(148_100%_50%)]'
+            ? 'border-primary/35 bg-primary/[0.12] text-primary shadow-[0_16px_38px_-28px_hsl(148_100%_50%)]'
             : 'border-white/[0.07] bg-white/[0.025] text-white/65 hover:border-primary/25 hover:bg-primary/[0.06] hover:text-white/85'
         )}
       >
@@ -164,10 +161,10 @@ function NavLink({ item, pathname, searchParams, onNavClick }: {
       onClick={onNavClick}
       style={{ minHeight: 44 }}
       className={cn(
-        'group relative flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-100',
+        'group relative flex min-h-11 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all duration-100',
         isActive
-          ? 'bg-white/[0.055] text-white/90'
-          : 'text-white/42 hover:bg-white/[0.035] hover:text-white/75'
+          ? 'bg-white/[0.07] text-white/92 shadow-[inset_0_0_0_1px_hsl(0_0%_100%/0.045)]'
+          : 'text-white/46 hover:bg-white/[0.04] hover:text-white/78'
       )}
     >
       {isActive && (
@@ -220,10 +217,10 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
   };
 
   return (
-    <div className="flex h-full flex-col bg-black">
+    <div className="flex h-full flex-col bg-black/90">
       <div className="border-b border-white/[0.06] px-5 pb-5 pt-6">
         <Link href="/dashboard" className="flex items-center gap-2.5" onClick={onNavClick}>
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-primary/30 bg-primary/10">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 shadow-[0_12px_30px_-22px_hsl(148_100%_50%)]">
             <Terminal className="h-4 w-4 text-primary" />
           </div>
           <div className="min-w-0">
@@ -242,7 +239,7 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
               <button
                 type="button"
                 style={{ minHeight: 40 }}
-                className="group flex min-h-10 w-full items-center justify-between rounded-md px-2.5 py-2 text-left transition-colors hover:bg-white/[0.035]"
+                className="group flex min-h-10 w-full items-center justify-between rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-white/[0.035]"
                 onClick={() => {
                   if (ALWAYS_OPEN_GROUPS.has(group.label)) return;
                   setOpenGroups((current) => ({ ...current, [group.label]: !isGroupOpen(group) }));
@@ -302,7 +299,7 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
           </Link>
         )}
 
-        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] px-3 py-2.5">
           <div className="mb-2 truncate font-mono text-[10.5px] text-white/28">{user?.email}</div>
           {accountRole && (
             <div className="mb-2 w-fit rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-widest text-primary/75">
@@ -312,7 +309,7 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
           <button
             onClick={signOut}
             style={{ minHeight: 44 }}
-            className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-sm font-medium text-white/45 transition-colors hover:bg-white/[0.035] hover:text-white/75"
+            className="flex min-h-10 w-full items-center gap-2 rounded-xl px-2 text-sm font-medium text-white/45 transition-colors hover:bg-white/[0.035] hover:text-white/75"
           >
             <LogOut className="h-4 w-4" />
             Sign out
@@ -323,12 +320,30 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
   );
 }
 
+function getActiveNavItem(pathname: string, searchParams?: SearchParamReader) {
+  const allItems = (navGroups as NavGroup[]).flatMap((group) => group.items);
+  return allItems.find((item) => {
+    const itemPath = item.href.split('?')[0];
+    const hrefQuery = item.href.includes('?') ? new URLSearchParams(item.href.split('?')[1]) : null;
+    const isQueryMatch = hrefQuery
+      ? Array.from(hrefQuery.entries()).every(([key, value]) => searchParams?.get(key) === value)
+      : true;
+    return hrefQuery
+      ? pathname === itemPath && isQueryMatch
+      : item.href === '/planning'
+      ? pathname === '/planning' && !searchParams?.get('tab')
+      : pathname === itemPath || (itemPath !== '/dashboard' && pathname.startsWith(itemPath + '/'));
+  });
+}
+
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading, signOut, isAdmin, accountRole } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const activeItem = getActiveNavItem(pathname, searchParams);
+  const ActiveIcon = activeItem?.icon || LayoutDashboard;
 
   useEffect(() => {
     if (!loading && !user) {
@@ -374,8 +389,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex bg-black">
-      <aside className="hidden w-60 flex-shrink-0 flex-col border-r border-white/[0.06] lg:flex">
+    <div className="min-h-screen flex bg-[radial-gradient(circle_at_45%_-18%,hsl(148_100%_50%/0.08),transparent_26rem),linear-gradient(180deg,hsl(0_0%_1%),hsl(0_0%_0%))]">
+      <aside className="hidden w-64 flex-shrink-0 flex-col border-r border-white/[0.06] bg-black/82 backdrop-blur-xl lg:flex">
         <SidebarContent pathname={pathname} searchParams={searchParams} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} />
       </aside>
 
@@ -402,7 +417,40 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       )}
 
       <main className="flex-1 min-w-0 overflow-auto lg:pt-0 pt-12">
-        {children}
+        <div className="sticky top-0 z-30 hidden border-b border-white/[0.06] bg-black/68 px-5 py-3 backdrop-blur-xl lg:block">
+          <div className="mx-auto flex max-w-[1560px] items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.035]">
+                <ActiveIcon className="h-[18px] w-[18px] text-primary" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-white/88">{activeItem?.label || 'RetroLootPro'}</div>
+                <div className="text-[11px] text-white/32">Fast command view for inventory, sales, and cash decisions</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Link
+                href="/inventory"
+                className="hidden h-9 items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.035] px-3 text-sm font-medium text-white/62 transition hover:bg-white/[0.055] hover:text-white/85 xl:flex"
+              >
+                <Search className="h-4 w-4 text-white/35" />
+                Find Inventory
+              </Link>
+              <Link
+                href="/assistant"
+                className="hidden h-9 items-center gap-2 rounded-xl border border-primary/25 bg-primary/[0.09] px-3 text-sm font-semibold text-primary transition hover:bg-primary/[0.13] xl:flex"
+              >
+                <Sparkles className="h-4 w-4" />
+                Ask AI
+              </Link>
+              <ThemeToggle compact />
+            </div>
+          </div>
+        </div>
+        <div className="mx-auto max-w-[1560px]">
+          {children}
+        </div>
       </main>
 
       <Link
