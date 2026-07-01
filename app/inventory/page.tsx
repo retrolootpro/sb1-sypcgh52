@@ -829,30 +829,30 @@ export default function InventoryPage() {
               <div className="text-xs text-muted-foreground">{filteredItems.length} item{filteredItems.length === 1 ? '' : 's'} shown</div>
             </div>
           </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="flex flex-1 gap-2">
+          <div className="flex flex-col gap-3">
+            <div className="flex w-full flex-col gap-2 sm:flex-row">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground/55" />
                 <Input
                   placeholder="Search name, UPC, ISBN, author, platform..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-14 min-h-14 rounded-xl border-border/60 bg-background/95 pl-12 pr-4 text-[16px] font-medium leading-6 text-foreground shadow-sm caret-primary placeholder:text-muted-foreground/70 focus-visible:border-primary/70 focus-visible:ring-primary/25 focus-visible:ring-offset-0"
+                  className="h-14 min-h-14 w-full rounded-xl border-border/60 bg-background/95 pl-12 pr-4 text-[16px] font-medium leading-6 text-foreground shadow-sm caret-primary placeholder:text-muted-foreground/70 focus-visible:border-primary/70 focus-visible:ring-primary/25 focus-visible:ring-offset-0"
                 />
               </div>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setInventoryScannerActive(true)}
-                className="h-14 shrink-0 rounded-xl border-border/50 px-4"
+                className="h-14 shrink-0 rounded-xl border-border/50 px-4 sm:w-auto"
               >
                 <ScanBarcode className="mr-2 h-4 w-4" />
                 Scan
               </Button>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="w-full min-w-[155px] flex-1 sm:w-[180px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+              <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <ArrowUpDown className="mr-2 h-4 w-4 text-muted-foreground/50" />
                 <SelectValue placeholder="Sort" />
               </SelectTrigger>
@@ -875,7 +875,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[165px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+              <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
               <SelectContent>
@@ -887,7 +887,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={consoleFilter} onValueChange={setConsoleFilter}>
-              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[170px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+              <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Platform" />
               </SelectTrigger>
               <SelectContent>
@@ -896,7 +896,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={conditionFilter} onValueChange={setConditionFilter}>
-              <SelectTrigger className="w-full min-w-[135px] flex-1 sm:w-[150px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+              <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Condition" />
               </SelectTrigger>
               <SelectContent>
@@ -905,7 +905,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={regionFilter} onValueChange={setRegionFilter}>
-              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[160px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+              <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Region" />
               </SelectTrigger>
               <SelectContent>
@@ -917,7 +917,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             <Select value={ageFilter} onValueChange={setAgeFilter}>
-              <SelectTrigger className="w-full min-w-[145px] flex-1 sm:w-[165px] sm:flex-none bg-card border-border/50 h-11 text-sm rounded-xl">
+              <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <Clock className="mr-2 h-4 w-4 text-muted-foreground/50" />
                 <SelectValue placeholder="Age" />
               </SelectTrigger>
