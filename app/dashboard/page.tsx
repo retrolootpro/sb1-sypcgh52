@@ -189,132 +189,135 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-5 sm:p-7 lg:p-8 max-w-6xl space-y-7">
-
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <div className="label-caps">Daily Command</div>
-            <ContextHelp href="/help#daily-workflow" label="Open daily workflow help">
-              Start here each day: review cash, tasks, aging inventory, priority listing work, and sales.
-            </ContextHelp>
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:gap-4">
-            <div className="heading-display text-[38px] stat-number text-foreground sm:text-[46px]">
-              ${stats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,.55fr)]">
+          <div className="overflow-hidden rounded-[28px] border border-white/[0.07] bg-[linear-gradient(135deg,hsl(0_0%_100%/0.06),hsl(0_0%_100%/0.025))] p-5 shadow-[0_24px_70px_-54px_hsl(148_100%_50%/0.45)] sm:p-7">
+            <div className="flex items-center gap-2">
+              <div className="label-caps">Daily Command</div>
+              <ContextHelp href="/help#daily-workflow" label="Open daily workflow help">
+                Start here each day: review cash, tasks, aging inventory, priority listing work, and sales.
+              </ContextHelp>
             </div>
-            {stats.totalSpent > 0 && (
-              <div className={`flex items-center gap-1 text-base font-semibold mb-2 ${profitPositive ? 'text-emerald-400' : 'text-red-400'}`}>
-                {profitPositive ? <ArrowUpRight className="w-5 h-5" /> : <ArrowDownRight className="w-5 h-5" />}
-                {roi.toFixed(1)}% ROI
-              </div>
-            )}
-          </div>
-          <p className="text-base text-muted-foreground">
-            {stats.itemCount} items &middot; ${stats.totalSpent.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} invested
-            {stats.totalProfit !== 0 && (
-              <span className={` ml-1 ${profitPositive ? 'text-emerald-400' : 'text-red-400'}`}>
-                &middot; {profitPositive ? '+' : ''}${stats.totalProfit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} profit
-              </span>
-            )}
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            { label: 'Inventory Needing Action', value: agingAlerts.count, detail: agingAlerts.count > 0 ? `Past ${agingThresholds.reviewDays} days` : 'No aging alerts', href: '/inventory?age=stale' },
-            { label: 'Items To List Today', value: items.filter((item) => !item.listed_ebay_at && !item.listed_amazon_at && !item.listed_whatnot_at && (item.status || 'available') !== 'sold').length, detail: 'Unlisted inventory', href: '/inventory' },
-            { label: 'Show Prep Status', value: topDeals.length, detail: 'High-score candidates', href: '/shows' },
-            { label: 'Safe Buying Check', value: profitPositive ? 'Review' : 'Hold', detail: 'Open finance before buying', href: '/finance' },
-          ].map((card) => (
-            <Link key={card.label} href={card.href} className="rounded-2xl border border-border/40 bg-card p-4 transition-colors hover:border-primary/25 hover:bg-primary/[0.04]">
-              <div className="text-xs text-muted-foreground">{card.label}</div>
-              <div className="mt-2 text-2xl font-bold text-white/90">{card.value}</div>
-              <div className="mt-1 text-xs text-muted-foreground">{card.detail}</div>
-            </Link>
-          ))}
-        </div>
-
-        <div className="rounded-2xl border border-border/40 bg-card p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-white/85">Business Snapshot</div>
-              <div className="text-xs text-muted-foreground">Quick financial read without opening Finance.</div>
-            </div>
-            <Link href="/finance">
-              <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground">
-                Finance <ChevronRight className="ml-1 h-3.5 w-3.5" />
-              </Button>
-            </Link>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3 sm:divide-x sm:divide-border/30">
-            {[
-              { label: 'Invested', value: `$${stats.totalSpent.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, detail: `${stats.itemCount} items`, tone: 'text-white/90' },
-              { label: 'Unrealized Profit', value: `${profitPositive ? '+' : ''}$${stats.totalProfit.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, detail: stats.totalSpent > 0 ? `${roi >= 0 ? '+' : ''}${roi.toFixed(1)}% return` : 'No data', tone: profitPositive ? 'text-emerald-400' : 'text-red-400' },
-              { label: 'Avg Deal Score', value: String(stats.avgDealScore), detail: stats.avgDealScore >= 70 ? 'Excellent picks' : stats.avgDealScore >= 40 ? 'Good collection' : stats.itemCount > 0 ? 'Below average' : 'No data', tone: 'text-primary' },
-            ].map((metric) => (
-              <div key={metric.label} className="px-1 py-2 sm:px-4">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{metric.label}</div>
-                <div className={`mt-1 text-xl font-bold stat-number ${metric.tone}`}>{metric.value}</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">{metric.detail}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
-          <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
-            <div className="px-6 py-4 border-b border-border/40 flex items-center justify-between">
+            <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
               <div>
-                <div className="font-semibold text-base tracking-tight">Hot Deals</div>
-                <div className="text-sm text-muted-foreground mt-0.5">Ranked by deal score</div>
+                <h1 className="max-w-2xl text-[34px] font-semibold leading-tight tracking-tight text-foreground sm:text-[44px]">
+                  Today&apos;s business command center
+                </h1>
+                <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
+                  Inventory value, aging pressure, listing work, and buying confidence in one place.
+                </p>
               </div>
-              <Link href="/inventory">
-                <Button variant="ghost" size="sm" className="h-9 text-sm text-muted-foreground hover:text-foreground -mr-1">
-                  All items <ChevronRight className="w-4 h-4 ml-0.5" />
-                </Button>
-              </Link>
+              <div className="rounded-2xl border border-primary/20 bg-primary/[0.08] p-4 lg:min-w-[260px]">
+                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-primary/70">Portfolio value</div>
+                <div className="mt-2 text-[34px] font-bold leading-none text-primary sm:text-[40px]">
+                  ${stats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </div>
+                <div className={`mt-2 flex items-center gap-1 text-sm font-semibold ${profitPositive ? 'text-emerald-300' : 'text-red-300'}`}>
+                  {profitPositive ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
+                  {roi.toFixed(1)}% ROI
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-3 md:grid-cols-4">
+              {[
+                { label: 'Items', value: stats.itemCount.toLocaleString(), detail: 'Active catalog', icon: Package, href: '/inventory' },
+                { label: 'Invested', value: `$${stats.totalSpent.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, detail: 'Cost basis', icon: DollarSign, href: '/finance' },
+                { label: 'Profit', value: `${profitPositive ? '+' : ''}$${stats.totalProfit.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, detail: 'Unrealized', icon: TrendingUp, href: '/finance', tone: profitPositive ? 'text-emerald-300' : 'text-red-300' },
+                { label: 'Deal Score', value: String(stats.avgDealScore), detail: 'Average', icon: ListChecks, href: '/insights' },
+              ].map((metric) => {
+                const Icon = metric.icon;
+                return (
+                  <Link key={metric.label} href={metric.href} className="group rounded-2xl border border-white/[0.07] bg-black/20 p-4 transition hover:border-primary/25 hover:bg-primary/[0.055]">
+                    <div className="flex items-center justify-between gap-3">
+                      <Icon className="h-4 w-4 text-primary" />
+                      <ChevronRight className="h-4 w-4 text-white/18 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </div>
+                    <div className={`mt-4 text-2xl font-bold ${metric.tone || 'text-white/90'}`}>{metric.value}</div>
+                    <div className="mt-1 text-xs text-muted-foreground">{metric.label} · {metric.detail}</div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="grid gap-3">
+            {[
+              { href: '/scan', icon: ScanBarcode, label: 'Scan intake', sub: 'Add purchases fast' },
+              { href: '/inventory?age=stale', icon: Bell, label: 'Review aging', sub: `${agingAlerts.count} need action`, alert: agingAlerts.count > 0 },
+              { href: '/shows', icon: ListChecks, label: 'Build a show', sub: `${topDeals.length} strong candidates` },
+              { href: '/finance', icon: DollarSign, label: 'Buying check', sub: profitPositive ? 'Review cash position' : 'Hold and review' },
+            ].map((action) => {
+              const Icon = action.icon;
+              return (
+                <Link
+                  key={action.href}
+                  href={action.href}
+                  className={`group flex items-center gap-3 rounded-2xl border p-4 transition ${
+                    action.alert
+                      ? 'border-red-500/30 bg-red-500/10 hover:bg-red-500/15'
+                      : 'border-white/[0.07] bg-card/70 hover:border-primary/25 hover:bg-primary/[0.055]'
+                  }`}
+                >
+                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${action.alert ? 'bg-red-500/10' : 'bg-primary/10'}`}>
+                    <Icon className={`h-5 w-5 ${action.alert ? 'text-red-300' : 'text-primary'}`} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-semibold text-white/88">{action.label}</div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">{action.sub}</div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-white/20 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="overflow-hidden rounded-[24px] border border-border/40 bg-card/80">
+            <div className="flex items-center justify-between gap-3 border-b border-border/35 px-5 py-4">
+              <div>
+                <div className="text-base font-semibold tracking-tight">Best resale opportunities</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">Highest score inventory with current market values.</div>
+              </div>
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/inventory">Inventory <ChevronRight className="ml-1 h-4 w-4" /></Link>
+              </Button>
             </div>
             <div className="divide-y divide-border/30">
               {topDeals.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-14">
-                  <Package className="w-9 h-9 mb-3 text-muted-foreground/20" />
-                  <p className="text-sm text-muted-foreground mb-3">No priced items yet</p>
-                  <Link href="/scan">
-                    <Button size="sm" className="h-9 text-sm rounded-lg">
-                      <ScanBarcode className="w-4 h-4 mr-1.5" />
-                      Scan your first item
-                    </Button>
-                  </Link>
+                  <Package className="mb-3 h-9 w-9 text-muted-foreground/25" />
+                  <p className="mb-3 text-sm text-muted-foreground">No priced items yet</p>
+                  <Button asChild size="sm">
+                    <Link href="/scan"><ScanBarcode className="mr-1.5 h-4 w-4" />Scan your first item</Link>
+                  </Button>
                 </div>
               ) : (
                 topDeals.map((item, i) => {
                   const profit = item.marketValue - item.purchase_price;
                   return (
-                    <Link
-                      key={item.id}
-                      href={`/inventory/${item.id}`}
-                      className="flex items-center justify-between px-6 py-4 hover:bg-secondary/30 transition-colors group"
-                    >
-                      <div className="flex items-center gap-4 min-w-0">
-                        <div className="text-sm font-mono text-muted-foreground/40 w-5 text-center flex-shrink-0">{i + 1}</div>
-                        <div className="min-w-0">
-                          <div className="font-medium text-base truncate">{item.product_name}</div>
-                          <div className="text-sm text-muted-foreground mt-0.5">{item.console} &middot; {item.condition}</div>
-                        </div>
+                    <Link key={item.id} href={`/inventory/${item.id}`} className="grid gap-3 px-5 py-4 transition hover:bg-white/[0.035] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.035] text-sm font-bold text-muted-foreground">
+                        {i + 1}
                       </div>
-                      <div className="flex items-center gap-4 flex-shrink-0 ml-4">
-                        <div className="text-right hidden sm:block">
-                          <div className="text-base font-semibold stat-number">${item.marketValue.toFixed(2)}</div>
-                          <div className={`text-sm stat-number ${profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-semibold text-white/90">{item.product_name}</div>
+                        <div className="mt-0.5 text-sm text-muted-foreground">{item.console} · {item.condition}</div>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 sm:justify-end">
+                        <div className="text-right">
+                          <div className="text-base font-semibold">${item.marketValue.toFixed(2)}</div>
+                          <div className={`text-sm ${profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                             {profit >= 0 ? '+' : ''}${profit.toFixed(2)}
                           </div>
                         </div>
                         <Badge
                           variant="outline"
-                          className={`text-sm px-2.5 py-1 font-bold ${
-                            item.dealScore.score >= 70 ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' :
-                            item.dealScore.score >= 40 ? 'border-primary/30 text-primary bg-primary/10' :
-                            'border-red-500/30 text-red-400 bg-red-500/10'
+                          className={`px-2.5 py-1 text-sm font-bold ${
+                            item.dealScore.score >= 70 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' :
+                            item.dealScore.score >= 40 ? 'border-primary/30 bg-primary/10 text-primary' :
+                            'border-red-500/30 bg-red-500/10 text-red-400'
                           }`}
                         >
                           {item.dealScore.score}
@@ -327,24 +330,20 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="space-y-3">
-            <div className={`rounded-xl border p-4 ${
-              agingAlerts.count > 0
-                ? 'border-red-500/30 bg-red-500/10'
-                : 'border-border/40 bg-card'
-            }`}>
+          <div className="space-y-4">
+            <div className={`rounded-[24px] border p-5 ${agingAlerts.count > 0 ? 'border-red-500/30 bg-red-500/10' : 'border-border/40 bg-card/80'}`}>
               <div className="flex items-start gap-3">
-                <div className={`rounded-lg p-2 ${agingAlerts.count > 0 ? 'bg-red-500/10' : 'bg-secondary/40'}`}>
-                  <Bell className={`h-4 w-4 ${agingAlerts.count > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
+                <div className={`rounded-xl p-2.5 ${agingAlerts.count > 0 ? 'bg-red-500/10' : 'bg-secondary/50'}`}>
+                  <Bell className={`h-5 w-5 ${agingAlerts.count > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <div className="text-base font-semibold">Aging Inventory</div>
+                    <div className="text-base font-semibold">Aging inventory</div>
                     <ContextHelp href="/help#dashboard-overview" label="Open aging inventory help">
                       Aging alerts remind you to revise price, photos, sales channel, or bundle strategy.
                     </ContextHelp>
                   </div>
-                  <div className="mt-0.5 text-sm text-muted-foreground">
+                  <div className="mt-1 text-sm text-muted-foreground">
                     {agingAlerts.count > 0
                       ? `${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${agingThresholds.reviewDays} days`
                       : `No items past ${agingThresholds.reviewDays} days`}
@@ -352,12 +351,12 @@ export default function DashboardPage() {
                 </div>
               </div>
               {agingAlerts.count > 0 && (
-                <div className="mt-3 space-y-2">
+                <div className="mt-4 space-y-2">
                   {agingAlerts.items.slice(0, 3).map((item) => (
-                    <Link key={item.id} href={`/inventory/${item.id}`} className="flex items-center justify-between gap-3 rounded-lg border border-red-500/20 bg-black/10 px-3 py-2 hover:bg-red-500/10">
+                    <Link key={item.id} href={`/inventory/${item.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-black/15 px-3 py-2.5 transition hover:bg-red-500/10">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{item.product_name}</div>
-                        <div className="text-xs text-muted-foreground">{item.console} &middot; {item.condition}</div>
+                        <div className="text-xs text-muted-foreground">{item.console} · {item.condition}</div>
                       </div>
                       <Badge variant="outline" className="shrink-0 border-red-500/30 text-red-300">
                         <Clock className="mr-1 h-3 w-3" />
@@ -365,57 +364,46 @@ export default function DashboardPage() {
                       </Badge>
                     </Link>
                   ))}
-                  <Link href="/inventory?age=stale">
-                    <Button variant="outline" size="sm" className="mt-1 h-9 w-full border-red-500/30 text-red-100 hover:bg-red-500/10">
-                      Review aging items
-                    </Button>
-                  </Link>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { label: '30d', watchDays: 21, reviewDays: 30 },
-                      { label: '60d', watchDays: 45, reviewDays: 60 },
-                      { label: '90d', watchDays: 75, reviewDays: 90 },
-                    ].map((preset) => (
-                      <Button
-                        key={preset.label}
-                        variant="outline"
-                        size="sm"
-                        className="h-8 border-red-500/20 px-2 text-xs text-red-100 hover:bg-red-500/10"
-                        onClick={() => saveAgingThresholds(preset)}
-                      >
-                        {preset.label}
-                      </Button>
-                    ))}
-                  </div>
+                  <Button asChild variant="outline" size="sm" className="mt-1 h-9 w-full border-red-500/30 text-red-100 hover:bg-red-500/10">
+                    <Link href="/inventory?age=stale">Review aging items</Link>
+                  </Button>
                 </div>
               )}
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                {[
+                  { label: '30d', watchDays: 21, reviewDays: 30 },
+                  { label: '60d', watchDays: 45, reviewDays: 60 },
+                  { label: '90d', watchDays: 75, reviewDays: 90 },
+                ].map((preset) => (
+                  <Button
+                    key={preset.label}
+                    variant="outline"
+                    size="sm"
+                    className="h-8 px-2 text-xs"
+                    onClick={() => saveAgingThresholds(preset)}
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
             </div>
 
-            <div className="label-caps px-1 mb-3">Quick Actions</div>
-            {[
-              { href: '/scan', icon: ScanBarcode, label: 'Scan Items', sub: 'Add via barcode' },
-              { href: '/inventory?action=add', icon: Package, label: 'Add Manually', sub: 'Enter item details' },
-              { href: '/shows', icon: ListChecks, label: 'Show Builder', sub: 'Plan Whatnot shows' },
-              { href: '/inventory', icon: TrendingUp, label: 'View Inventory', sub: `${stats.itemCount} items` },
-            ].map((action) => {
-              const Icon = action.icon;
-              return (
-                <Link key={action.href} href={action.href}>
-                  <div className="flex items-center gap-3 p-4 rounded-xl border border-border/40 bg-card hover:border-border/60 hover:bg-card/80 transition-all cursor-pointer group">
-                    <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <Icon className="w-5 h-5 text-primary" />
-                    </div>
-                    <div>
-                      <div className="text-base font-medium">{action.label}</div>
-                      <div className="text-sm text-muted-foreground">{action.sub}</div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground/30 ml-auto group-hover:text-muted-foreground/60 transition-colors" />
+            <div className="rounded-[24px] border border-border/40 bg-card/80 p-5">
+              <div className="label-caps mb-3">Next actions</div>
+              <div className="space-y-2">
+                {[
+                  `${items.filter((item) => !item.listed_ebay_at && !item.listed_amazon_at && !item.listed_whatnot_at && (item.status || 'available') !== 'sold').length} unlisted items`,
+                  `${topDeals.length} items with strong resale scores`,
+                  profitPositive ? 'Cash outlook ready for review' : 'Profit below cost basis; review finance',
+                ].map((line) => (
+                  <div key={line} className="rounded-xl border border-white/[0.06] bg-white/[0.025] px-3 py-2 text-sm text-muted-foreground">
+                    {line}
                   </div>
-                </Link>
-              );
-            })}
+                ))}
+              </div>
+            </div>
           </div>
-        </div>
+        </section>
       </div>
     </DashboardLayout>
   );
