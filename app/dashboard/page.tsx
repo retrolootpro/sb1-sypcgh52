@@ -191,7 +191,7 @@ export default function DashboardPage() {
     <DashboardLayout>
       <div className="space-y-6 p-4 sm:p-6 lg:p-8">
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,.55fr)]">
-          <div className="overflow-hidden rounded-[28px] border border-white/[0.07] bg-[linear-gradient(135deg,hsl(0_0%_100%/0.06),hsl(0_0%_100%/0.025))] p-5 shadow-[0_24px_70px_-54px_hsl(148_100%_50%/0.45)] sm:p-7">
+          <div className="overflow-hidden rounded-[28px] border border-border bg-card p-5 shadow-[0_24px_70px_-54px_hsl(148_100%_50%/0.45)] dark:bg-[linear-gradient(135deg,hsl(0_0%_100%/0.06),hsl(0_0%_100%/0.025))] sm:p-7">
             <div className="flex items-center gap-2">
               <div className="label-caps">Daily Command</div>
               <ContextHelp href="/help#daily-workflow" label="Open daily workflow help">
@@ -228,12 +228,12 @@ export default function DashboardPage() {
               ].map((metric) => {
                 const Icon = metric.icon;
                 return (
-                  <Link key={metric.label} href={metric.href} className="group rounded-2xl border border-white/[0.07] bg-black/20 p-4 transition hover:border-primary/25 hover:bg-primary/[0.055]">
+                  <Link key={metric.label} href={metric.href} className="group rounded-2xl border border-border bg-secondary/45 p-4 transition hover:border-primary/25 hover:bg-primary/[0.055]">
                     <div className="flex items-center justify-between gap-3">
                       <Icon className="h-4 w-4 text-primary" />
-                      <ChevronRight className="h-4 w-4 text-white/18 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground/45 transition group-hover:translate-x-0.5 group-hover:text-primary" />
                     </div>
-                    <div className={`mt-4 text-2xl font-bold ${metric.tone || 'text-white/90'}`}>{metric.value}</div>
+                    <div className={`mt-4 text-2xl font-bold ${metric.tone || 'text-foreground'}`}>{metric.value}</div>
                     <div className="mt-1 text-xs text-muted-foreground">{metric.label} · {metric.detail}</div>
                   </Link>
                 );
@@ -256,17 +256,17 @@ export default function DashboardPage() {
                   className={`group flex items-center gap-3 rounded-2xl border p-4 transition ${
                     action.alert
                       ? 'border-red-500/30 bg-red-500/10 hover:bg-red-500/15'
-                      : 'border-white/[0.07] bg-card/70 hover:border-primary/25 hover:bg-primary/[0.055]'
+                      : 'border-border bg-card hover:border-primary/25 hover:bg-primary/[0.055]'
                   }`}
                 >
                   <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${action.alert ? 'bg-red-500/10' : 'bg-primary/10'}`}>
                     <Icon className={`h-5 w-5 ${action.alert ? 'text-red-300' : 'text-primary'}`} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-white/88">{action.label}</div>
+                    <div className="text-sm font-semibold text-foreground">{action.label}</div>
                     <div className="mt-0.5 truncate text-xs text-muted-foreground">{action.sub}</div>
                   </div>
-                  <ChevronRight className="h-4 w-4 text-white/20 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                  <ChevronRight className="h-4 w-4 text-muted-foreground/45 transition group-hover:translate-x-0.5 group-hover:text-primary" />
                 </Link>
               );
             })}
@@ -298,11 +298,11 @@ export default function DashboardPage() {
                   const profit = item.marketValue - item.purchase_price;
                   return (
                     <Link key={item.id} href={`/inventory/${item.id}`} className="grid gap-3 px-5 py-4 transition hover:bg-white/[0.035] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.035] text-sm font-bold text-muted-foreground">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-secondary/70 text-sm font-bold text-muted-foreground">
                         {i + 1}
                       </div>
                       <div className="min-w-0">
-                        <div className="truncate text-base font-semibold text-white/90">{item.product_name}</div>
+                        <div className="truncate text-base font-semibold text-foreground">{item.product_name}</div>
                         <div className="mt-0.5 text-sm text-muted-foreground">{item.console} · {item.condition}</div>
                       </div>
                       <div className="flex items-center justify-between gap-4 sm:justify-end">
@@ -353,7 +353,7 @@ export default function DashboardPage() {
               {agingAlerts.count > 0 && (
                 <div className="mt-4 space-y-2">
                   {agingAlerts.items.slice(0, 3).map((item) => (
-                    <Link key={item.id} href={`/inventory/${item.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-black/15 px-3 py-2.5 transition hover:bg-red-500/10">
+                    <Link key={item.id} href={`/inventory/${item.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/[0.04] px-3 py-2.5 transition hover:bg-red-500/10">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{item.product_name}</div>
                         <div className="text-xs text-muted-foreground">{item.console} · {item.condition}</div>
@@ -364,7 +364,7 @@ export default function DashboardPage() {
                       </Badge>
                     </Link>
                   ))}
-                  <Button asChild variant="outline" size="sm" className="mt-1 h-9 w-full border-red-500/30 text-red-100 hover:bg-red-500/10">
+                  <Button asChild variant="outline" size="sm" className="mt-1 h-9 w-full border-red-500/30 text-red-700 hover:bg-red-500/10 dark:text-red-100">
                     <Link href="/inventory?age=stale">Review aging items</Link>
                   </Button>
                 </div>
@@ -396,7 +396,7 @@ export default function DashboardPage() {
                   `${topDeals.length} items with strong resale scores`,
                   profitPositive ? 'Cash outlook ready for review' : 'Profit below cost basis; review finance',
                 ].map((line) => (
-                  <div key={line} className="rounded-xl border border-white/[0.06] bg-white/[0.025] px-3 py-2 text-sm text-muted-foreground">
+                  <div key={line} className="rounded-xl border border-border bg-secondary/45 px-3 py-2 text-sm text-muted-foreground">
                     {line}
                   </div>
                 ))}

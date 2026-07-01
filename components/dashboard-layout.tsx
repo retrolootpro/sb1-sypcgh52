@@ -376,7 +376,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-black">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="w-9 h-9 rounded-lg border border-primary/30 bg-primary/10 flex items-center justify-center animate-pulse">
           <Terminal className="w-4 h-4 text-primary" />
         </div>
@@ -389,19 +389,19 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex bg-[radial-gradient(circle_at_45%_-18%,hsl(148_100%_50%/0.08),transparent_26rem),linear-gradient(180deg,hsl(0_0%_1%),hsl(0_0%_0%))]">
-      <aside className="hidden w-64 flex-shrink-0 flex-col border-r border-white/[0.06] bg-black/82 backdrop-blur-xl lg:flex">
+    <div className="min-h-screen flex bg-background text-foreground dark:bg-[radial-gradient(circle_at_45%_-18%,hsl(148_100%_50%/0.08),transparent_26rem),linear-gradient(180deg,hsl(0_0%_1%),hsl(0_0%_0%))]">
+      <aside className="hidden w-64 flex-shrink-0 flex-col border-r border-border bg-card/90 backdrop-blur-xl lg:flex">
         <SidebarContent pathname={pathname} searchParams={searchParams} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} />
       </aside>
 
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b border-white/[0.06] bg-black/95 backdrop-blur-sm flex items-center justify-between px-4">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b border-border bg-card/95 backdrop-blur-sm flex items-center justify-between px-4">
         <Link href="/dashboard" className="flex items-center gap-2">
           <Terminal className="w-4 h-4 text-primary" />
-          <span className="font-bold text-sm tracking-tight text-white/90">retro<span className="text-primary">loot</span><span className="ml-1 text-[9px] font-semibold tracking-widest text-primary/70 uppercase">pro</span></span>
+          <span className="font-bold text-sm tracking-tight text-foreground">retro<span className="text-primary">loot</span><span className="ml-1 text-[9px] font-semibold tracking-widest text-primary/70 uppercase">pro</span></span>
         </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle compact />
-          <Button variant="ghost" size="icon" className="h-11 w-11 text-white/40 hover:bg-white/[0.05] hover:text-white/70" onClick={() => setMobileOpen(!mobileOpen)}>
+          <Button variant="ghost" size="icon" className="h-11 w-11 text-muted-foreground hover:bg-secondary hover:text-foreground" onClick={() => setMobileOpen(!mobileOpen)}>
             {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
           </Button>
         </div>
@@ -409,32 +409,32 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
       {mobileOpen && (
         <>
-          <div className="lg:hidden fixed inset-0 z-40 bg-black/80 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
-          <div className="fixed bottom-0 left-0 top-0 z-50 w-72 border-r border-white/[0.06] lg:hidden">
+          <div className="lg:hidden fixed inset-0 z-40 bg-background/80 backdrop-blur-sm" onClick={() => setMobileOpen(false)} />
+          <div className="fixed bottom-0 left-0 top-0 z-50 w-72 border-r border-border lg:hidden">
             <SidebarContent pathname={pathname} searchParams={searchParams} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} onNavClick={() => setMobileOpen(false)} />
           </div>
         </>
       )}
 
       <main className="flex-1 min-w-0 overflow-auto lg:pt-0 pt-12">
-        <div className="sticky top-0 z-30 hidden border-b border-white/[0.06] bg-black/68 px-5 py-3 backdrop-blur-xl lg:block">
+        <div className="sticky top-0 z-30 hidden border-b border-border bg-card/72 px-5 py-3 backdrop-blur-xl lg:block">
           <div className="mx-auto flex max-w-[1560px] items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-white/[0.07] bg-white/[0.035]">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-secondary/70">
                 <ActiveIcon className="h-[18px] w-[18px] text-primary" />
               </div>
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-white/88">{activeItem?.label || 'RetroLootPro'}</div>
-                <div className="text-[11px] text-white/32">Fast command view for inventory, sales, and cash decisions</div>
+                <div className="text-sm font-semibold text-foreground">{activeItem?.label || 'RetroLootPro'}</div>
+                <div className="text-[11px] text-muted-foreground">Fast command view for inventory, sales, and cash decisions</div>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <Link
                 href="/inventory"
-                className="hidden h-9 items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.035] px-3 text-sm font-medium text-white/62 transition hover:bg-white/[0.055] hover:text-white/85 xl:flex"
+                className="hidden h-9 items-center gap-2 rounded-xl border border-border bg-secondary/70 px-3 text-sm font-medium text-muted-foreground transition hover:bg-secondary hover:text-foreground xl:flex"
               >
-                <Search className="h-4 w-4 text-white/35" />
+                <Search className="h-4 w-4 text-muted-foreground" />
                 Find Inventory
               </Link>
               <Link

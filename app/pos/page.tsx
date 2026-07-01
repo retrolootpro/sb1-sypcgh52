@@ -784,7 +784,7 @@ export default function PosPage() {
   }
 
   return (
-    <div className="pos-register h-[100dvh] overflow-hidden bg-[radial-gradient(circle_at_top_left,hsl(148_100%_50%/0.12),transparent_34%),linear-gradient(180deg,#080908,#020403)] text-[17px] text-white">
+    <div className="pos-register h-[100dvh] overflow-hidden bg-background text-[17px] text-foreground dark:bg-[radial-gradient(circle_at_top_left,hsl(148_100%_50%/0.12),transparent_34%),linear-gradient(180deg,#080908,#020403)] dark:text-white">
       <header className="h-[82px] border-b border-white/[0.08] bg-black/70 px-4 py-3 backdrop-blur-xl sm:px-5">
         <div className="flex h-full flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
