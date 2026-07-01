@@ -832,19 +832,19 @@ export default function InventoryPage() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <div className="flex flex-1 gap-2">
               <div className="relative min-w-0 flex-1">
-                <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/40" />
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground/55" />
                 <Input
                   placeholder="Search name, UPC, ISBN, author, platform..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 bg-background text-foreground border-border/50 h-11 text-base rounded-xl caret-primary placeholder:text-muted-foreground"
+                  className="h-14 min-h-14 rounded-xl border-border/60 bg-background/95 pl-12 pr-4 text-[16px] font-medium leading-6 text-foreground shadow-sm caret-primary placeholder:text-muted-foreground/70 focus-visible:border-primary/70 focus-visible:ring-primary/25 focus-visible:ring-offset-0"
                 />
               </div>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setInventoryScannerActive(true)}
-                className="h-11 shrink-0 rounded-xl border-border/50 px-4"
+                className="h-14 shrink-0 rounded-xl border-border/50 px-4"
               >
                 <ScanBarcode className="mr-2 h-4 w-4" />
                 Scan
