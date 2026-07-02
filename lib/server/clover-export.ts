@@ -266,15 +266,74 @@ function zip(files: { name: string; data: string | Buffer }[]) {
 
 export function buildCloverWorkbook(rows: Record<string, unknown>[]) {
   const categories = Array.from(new Set(rows.map((row) => String(row.Category || '')).filter(Boolean))).sort();
+  const itemHeaders = [
+    'Clover ID',
+    'Name',
+    'Alternate Name',
+    'Description',
+    'Price',
+    'Price Type',
+    'Price Unit',
+    'Cost',
+    'Product Code',
+    'SKU',
+    'Quantity',
+    'Hidden?',
+    'Default tax rates?',
+    'Non-revenue item?',
+    'Printer Labels',
+    'Modifier Groups',
+    'Categories',
+    'Tax Rates',
+    'Variant Attribute',
+    'Variant Option',
+    '',
+  ];
+  const modifierHeaders = [
+    'Modifier Group ID',
+    'Modifier Group Name',
+    'Pop up Automatically?',
+    'Modifier',
+    'Price',
+    'Required Quantity',
+    'Max Quantity',
+  ];
+  const categoryHeaders = ['Category ID', 'Category Name', 'Subcategory Name', 'Item Sort Order'];
+  const taxHeaders = ['Tax Rate ID', 'Name', 'Tax Rate', 'Tax Amount', 'Default?'];
   const sheets = [
     {
       name: 'Items',
-      rows: [CLOVER_ITEM_HEADERS, ...rows.map((row) => CLOVER_ITEM_HEADERS.map((header) => row[header]))],
-      numericColumns: new Set(['Price', 'Quantity']),
+      rows: [
+        itemHeaders,
+        ...rows.map((row) => [
+          '',
+          row.Name || '',
+          '',
+          '',
+          Number(row.Price) || '',
+          Number(row.Price) ? 'Fixed' : 'Variable',
+          '',
+          '',
+          row.Code || '',
+          row.SKU || '',
+          Number(row.Quantity) || 1,
+          'No',
+          'Yes',
+          'No',
+          '',
+          '',
+          row.Category || '',
+          '',
+          '',
+          '',
+          '',
+        ]),
+      ],
+      numericColumns: new Set(['Price', 'Quantity', 'Cost']),
     },
-    { name: 'Modifier Groups', rows: [['Name', 'Modifier Name', 'Price']], numericColumns: new Set(['Price']) },
-    { name: 'Categories', rows: [['Name'], ...categories.map((name) => [name])], numericColumns: new Set<string>() },
-    { name: 'Tax Rates', rows: [['Name', 'Rate']], numericColumns: new Set(['Rate']) },
+    { name: 'Modifier Groups', rows: [modifierHeaders], numericColumns: new Set(['Price', 'Required Quantity', 'Max Quantity']) },
+    { name: 'Categories', rows: [categoryHeaders, ...categories.map((name) => ['', name, '', ''])], numericColumns: new Set<string>() },
+    { name: 'Tax Rates', rows: [taxHeaders], numericColumns: new Set(['Tax Rate', 'Tax Amount']) },
   ];
 
   return zip([
