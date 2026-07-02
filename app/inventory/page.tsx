@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, ScanBarcode, Tags } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, ScanBarcode, Tags, FileDown } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { BarcodeScannerView, type ScanResult } from '@/components/barcode-scanner-view';
@@ -98,6 +98,7 @@ export default function InventoryPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [syncingClover, setSyncingClover] = useState(false);
+  const [exportingCloverCsv, setExportingCloverCsv] = useState(false);
   const [cloverAutoSyncEnabled, setCloverAutoSyncEnabled] = useState(false);
 
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -631,6 +632,35 @@ export default function InventoryPage() {
     }
   };
 
+  const handleDownloadCloverCsv = async () => {
+    setExportingCloverCsv(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/clover/export-csv', {
+        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || 'Clover CSV export failed');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `retrolootpro-clover-import-${date}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Clover import CSV downloaded');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Clover CSV export failed');
+    } finally {
+      setExportingCloverCsv(false);
+    }
+  };
+
   const handleConfigureCloverAutoSync = async () => {
     try {
       const minutesText = window.prompt('Auto-sync interval in minutes. Use 0 to disable.', cloverAutoSyncEnabled ? '60' : '60');
@@ -678,7 +708,7 @@ export default function InventoryPage() {
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || loading}>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverCsv || loading}>
                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                   Tools
                 </Button>
@@ -691,6 +721,10 @@ export default function InventoryPage() {
                 <DropdownMenuItem onClick={handleBackfillBarcodeData}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${backfilling ? 'animate-spin' : ''}`} />
                   Refresh metadata
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownloadCloverCsv}>
+                  <FileDown className={`mr-2 h-4 w-4 ${exportingCloverCsv ? 'animate-pulse' : ''}`} />
+                  Download Clover CSV
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleSyncPendingToClover}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />
