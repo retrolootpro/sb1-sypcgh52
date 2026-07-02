@@ -89,6 +89,12 @@ type InventoryItem = {
   listed_ebay_at?: string | null;
   listed_amazon_at?: string | null;
   listed_whatnot_at?: string | null;
+  clover_item_id?: string | null;
+  clover_synced_at?: string | null;
+  clover_sync_status?: 'pending' | 'synced' | 'failed' | null;
+  clover_sync_error?: string | null;
+  sync_to_clover?: boolean | null;
+  sku?: string | null;
 };
 
 type MetadataForm = {
@@ -108,6 +114,8 @@ type MetadataForm = {
   purchase_price: string;
   quantity: string;
   sell_price: string;
+  sku: string;
+  sync_to_clover: boolean;
   price_loose: string;
   price_cib: string;
   price_new: string;
@@ -187,6 +195,7 @@ export default function ItemDetailPage() {
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingMetadata, setSavingMetadata] = useState(false);
+  const [syncingClover, setSyncingClover] = useState(false);
   const [editingMetadata, setEditingMetadata] = useState(false);
   const [showDiag, setShowDiag]     = useState(false);
   const [autoRefreshAttempted, setAutoRefreshAttempted] = useState(false);
@@ -207,6 +216,8 @@ export default function ItemDetailPage() {
     purchase_price: '0',
     quantity: '1',
     sell_price: '',
+    sku: '',
+    sync_to_clover: false,
     price_loose: '',
     price_cib: '',
     price_new: '',
@@ -258,6 +269,8 @@ export default function ItemDetailPage() {
       purchase_price: String(Number(item.purchase_price) || 0),
       quantity: String(Number(item.quantity) || 1),
       sell_price: item.sell_price != null ? String(Number(item.sell_price) || 0) : '',
+      sku: item.sku || '',
+      sync_to_clover: Boolean(item.sync_to_clover),
       price_loose: item.price_loose != null ? String(Number(item.price_loose) || 0) : '',
       price_cib: item.price_cib != null ? String(Number(item.price_cib) || 0) : '',
       price_new: item.price_new != null ? String(Number(item.price_new) || 0) : '',
@@ -416,8 +429,37 @@ export default function ItemDetailPage() {
     handleRefreshPricing();
   }, [item, autoRefreshAttempted, refreshing, isPricingStale, handleRefreshPricing]);
 
-  const updateMetadataForm = (field: keyof MetadataForm, value: string) => {
+  const updateMetadataForm = <K extends keyof MetadataForm>(field: K, value: MetadataForm[K]) => {
     setMetadataForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const updateMetadataChecked = (field: 'sync_to_clover', value: boolean) => {
+    setMetadataForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSyncToClover = async () => {
+    if (!item) return;
+    setSyncingClover(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/clover/sync-item', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify({ inventoryItemId: item.id }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Clover sync failed');
+      toast.success('Synced to Clover');
+      await loadItem();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Clover sync failed');
+      await loadItem();
+    } finally {
+      setSyncingClover(false);
+    }
   };
 
   const handleSaveMetadata = async () => {
@@ -481,6 +523,9 @@ export default function ItemDetailPage() {
           purchase_price: purchasePrice,
           quantity: Math.floor(quantity),
           sell_price: sellPrice,
+          sku: metadataForm.sku.trim() || null,
+          sync_to_clover: metadataForm.sync_to_clover,
+          clover_sync_status: metadataForm.sync_to_clover && item.clover_sync_status !== 'synced' ? 'pending' : item.clover_sync_status || 'pending',
           brand: metadataForm.brand.trim() || null,
           category: metadataForm.category.trim() || null,
           genre: metadataForm.genre.trim() || null,
@@ -875,6 +920,26 @@ export default function ItemDetailPage() {
                     </div>
 
                     <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">SKU</Label>
+                      <Input
+                        value={metadataForm.sku}
+                        onChange={(event) => updateMetadataForm('sku', event.target.value)}
+                        className="h-9 font-mono"
+                        placeholder="Optional Clover SKU"
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-2 rounded-lg border border-border/40 bg-secondary/20 px-3 py-2 text-sm sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={metadataForm.sync_to_clover}
+                        onChange={(event) => updateMetadataChecked('sync_to_clover', event.target.checked)}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      Sync this item to Clover
+                    </label>
+
+                    <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Publisher / Brand</Label>
                       <Input
                         value={metadataForm.brand}
@@ -1010,6 +1075,28 @@ export default function ItemDetailPage() {
               fields={item}
               onUpdate={(updates) => setItem(prev => prev ? { ...prev, ...updates } as InventoryItem : null)}
             />
+
+            <Card className="border-border/40 bg-card/40">
+              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold">Clover sync</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Status: {item.clover_sync_status || 'pending'}
+                    {item.clover_synced_at ? ` · Last synced ${format(new Date(item.clover_synced_at), 'MMM d, yyyy h:mm a')}` : ''}
+                  </div>
+                  {item.clover_item_id && (
+                    <div className="mt-1 font-mono text-[11px] text-muted-foreground">Clover item {item.clover_item_id}</div>
+                  )}
+                  {item.clover_sync_error && (
+                    <div className="mt-1 text-xs text-red-400">{item.clover_sync_error}</div>
+                  )}
+                </div>
+                <Button size="sm" onClick={handleSyncToClover} disabled={syncingClover || ['sold', 'archived', 'deleted'].includes(String(item.status || ''))}>
+                  <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncingClover ? 'animate-spin' : ''}`} />
+                  {syncingClover ? 'Syncing...' : 'Sync to Clover'}
+                </Button>
+              </CardContent>
+            </Card>
 
             {/* KPI row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

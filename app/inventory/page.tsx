@@ -97,6 +97,7 @@ export default function InventoryPage() {
   const [agingThresholds, setAgingThresholds] = useState<AgingThresholds>({ watchDays: 45, reviewDays: 60 });
   const [backfilling, setBackfilling] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [syncingClover, setSyncingClover] = useState(false);
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
@@ -594,6 +595,28 @@ export default function InventoryPage() {
     toast.success(`Aging alerts set: watch ${next.watchDays}d, review ${next.reviewDays}d`);
   };
 
+  const handleSyncPendingToClover = async () => {
+    setSyncingClover(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/clover/sync-pending', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || ''}`,
+        },
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Clover bulk sync failed');
+      toast.success(`Clover sync complete: ${result.synced || 0} synced, ${result.failed || 0} failed`);
+      await loadInventory();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Clover bulk sync failed');
+    } finally {
+      setSyncingClover(false);
+    }
+  };
+
   const activeCollection = collections.find((c) => c.id === selectedCollectionId);
 
   return (
@@ -614,7 +637,7 @@ export default function InventoryPage() {
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || loading}>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || loading}>
                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                   Tools
                 </Button>
@@ -627,6 +650,10 @@ export default function InventoryPage() {
                 <DropdownMenuItem onClick={handleBackfillBarcodeData}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${backfilling ? 'animate-spin' : ''}`} />
                   Refresh metadata
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleSyncPendingToClover}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />
+                  Sync pending to Clover
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
