@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   try {
     const authHeader = req.headers.get('authorization') || '';
     if (!authHeader) return json({ success: false, message: 'Missing authorization' }, 401);
-    const { inventoryItemId } = await req.json().catch(() => ({}));
+    const { inventoryItemId, conflictAction } = await req.json().catch(() => ({}));
     if (!inventoryItemId) return json({ success: false, message: 'inventoryItemId is required' }, 400);
 
     const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
@@ -33,7 +33,8 @@ export async function POST(req: NextRequest) {
       .single();
     if (error || !item) return json({ success: false, message: 'Item not found' }, 404);
 
-    const result = await syncInventoryItemToClover(admin, item);
+    const result = await syncInventoryItemToClover(admin, item, { conflictAction });
+    if ('conflict' in result) return json({ success: false, ...result }, 409);
     return json({ success: true, ...result });
   } catch (error) {
     return json({ success: false, message: error instanceof Error ? error.message : 'Clover sync failed' }, 500);

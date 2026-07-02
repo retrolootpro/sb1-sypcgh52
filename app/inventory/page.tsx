@@ -98,6 +98,7 @@ export default function InventoryPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [syncingClover, setSyncingClover] = useState(false);
+  const [cloverAutoSyncEnabled, setCloverAutoSyncEnabled] = useState(false);
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
@@ -137,6 +138,19 @@ export default function InventoryPage() {
       loadCollections();
     }
   }, [user, accountId, loadInventory, loadCollections]);
+
+  useEffect(() => {
+    if (!user || !accountId) return;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/clover/settings', {
+        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+      });
+      if (!response.ok) return;
+      const result = await response.json();
+      setCloverAutoSyncEnabled(Boolean(result.settings?.auto_sync_enabled));
+    })();
+  }, [user, accountId]);
 
   useEffect(() => {
     if (searchParams.get('age') === 'stale') {
@@ -617,6 +631,33 @@ export default function InventoryPage() {
     }
   };
 
+  const handleConfigureCloverAutoSync = async () => {
+    try {
+      const minutesText = window.prompt('Auto-sync interval in minutes. Use 0 to disable.', cloverAutoSyncEnabled ? '60' : '60');
+      if (minutesText == null) return;
+      const minutes = Number(minutesText);
+      const enabled = minutes > 0;
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/clover/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session?.access_token || ''}`,
+        },
+        body: JSON.stringify({
+          auto_sync_enabled: enabled,
+          auto_sync_interval_minutes: enabled ? Math.max(15, minutes) : 60,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Could not save Clover auto-sync settings');
+      setCloverAutoSyncEnabled(Boolean(result.settings?.auto_sync_enabled));
+      toast.success(enabled ? `Clover auto-sync enabled every ${Math.max(15, minutes)} minutes` : 'Clover auto-sync disabled');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not save Clover auto-sync settings');
+    }
+  };
+
   const activeCollection = collections.find((c) => c.id === selectedCollectionId);
 
   return (
@@ -654,6 +695,10 @@ export default function InventoryPage() {
                 <DropdownMenuItem onClick={handleSyncPendingToClover}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />
                   Sync pending to Clover
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleConfigureCloverAutoSync}>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  {cloverAutoSyncEnabled ? 'Edit Clover auto-sync' : 'Enable Clover auto-sync'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

@@ -37,8 +37,9 @@ export async function POST(req: NextRequest) {
     for (const item of items || []) {
       summary.processed += 1;
       try {
-        await syncInventoryItemToClover(admin, item);
-        summary.synced += 1;
+        const result = await syncInventoryItemToClover(admin, item, { conflictAction: 'skip' });
+        if ('skipped' in result) summary.skipped += 1;
+        else summary.synced += 1;
       } catch {
         summary.failed += 1;
       }

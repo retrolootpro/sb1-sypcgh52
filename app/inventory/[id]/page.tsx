@@ -437,22 +437,47 @@ export default function ItemDetailPage() {
     setMetadataForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const syncToCloverRequest = async (conflictAction?: 'create_additional' | 'update_existing' | 'skip') => {
+    if (!item) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const response = await fetch('/api/clover/sync-item', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session?.access_token || ''}`,
+      },
+      body: JSON.stringify({ inventoryItemId: item.id, conflictAction }),
+    });
+    const result = await response.json();
+    return { response, result };
+  };
+
   const handleSyncToClover = async () => {
     if (!item) return;
     setSyncingClover(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/clover/sync-item', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || ''}`,
-        },
-        body: JSON.stringify({ inventoryItemId: item.id }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.message || 'Clover sync failed');
-      toast.success('Synced to Clover');
+      const first = await syncToCloverRequest();
+      if (first?.response.status === 409 && first.result?.conflict) {
+        const choice = window.prompt(
+          'This item already appears to exist in Clover. Type create, update, or skip.',
+          'update'
+        )?.trim().toLowerCase();
+        const conflictAction =
+          choice === 'create' ? 'create_additional' :
+          choice === 'skip' ? 'skip' :
+          choice === 'update' ? 'update_existing' :
+          null;
+        if (!conflictAction) {
+          toast.info('Clover sync cancelled');
+          return;
+        }
+        const second = await syncToCloverRequest(conflictAction);
+        if (!second?.response.ok || !second.result.success) throw new Error(second?.result.message || 'Clover sync failed');
+        toast.success(conflictAction === 'skip' ? 'Skipped Clover sync' : 'Synced to Clover');
+      } else {
+        if (!first?.response.ok || !first.result.success) throw new Error(first?.result.message || 'Clover sync failed');
+        toast.success('Synced to Clover');
+      }
       await loadItem();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Clover sync failed');

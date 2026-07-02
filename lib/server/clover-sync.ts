@@ -26,6 +26,8 @@ type InventoryItem = {
   clover_item_id?: string | null;
 };
 
+export type CloverConflictAction = 'create_additional' | 'update_existing' | 'skip';
+
 function priceForItem(item: InventoryItem) {
   const explicit = Number(item.sell_price) || Number(item.selected_market_value) || 0;
   if (explicit > 0) return explicit;
@@ -79,13 +81,29 @@ export async function logCloverSync(admin: any, input: {
   });
 }
 
-export async function syncInventoryItemToClover(admin: any, item: InventoryItem) {
+export async function syncInventoryItemToClover(admin: any, item: InventoryItem, options: { conflictAction?: CloverConflictAction } = {}) {
   const payload = mapInventoryItemToClover(item);
   const action = item.clover_item_id ? 'update_item' : 'create_item';
 
   try {
-    const existing = item.clover_item_id ? null : await findCloverItemBySkuOrBarcode(payload.sku, payload.code);
-    const cloverItemId = item.clover_item_id || existing?.id;
+    const existing = item.clover_item_id || options.conflictAction === 'create_additional'
+      ? null
+      : await findCloverItemBySkuOrBarcode(payload.sku, payload.code);
+    if (existing && !options.conflictAction) {
+      return { conflict: true, existingCloverItemId: existing.id, payload };
+    }
+    if (existing && options.conflictAction === 'skip') {
+      await logCloverSync(admin, {
+        userId: item.user_id,
+        inventoryItemId: item.id,
+        cloverItemId: existing.id,
+        action: 'conflict_skip',
+        status: 'skipped',
+        requestSummary: { sku: payload.sku, code: payload.code },
+      });
+      return { skipped: true, cloverItemId: existing.id, action: 'conflict_skip' };
+    }
+    const cloverItemId = item.clover_item_id || (options.conflictAction === 'update_existing' ? existing?.id : null);
     const result = cloverItemId ? await updateCloverItem(cloverItemId, payload) : await createCloverItem(payload);
     const finalCloverItemId = cloverItemId || result.id;
 
