@@ -98,7 +98,7 @@ export default function InventoryPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [syncingClover, setSyncingClover] = useState(false);
-  const [exportingCloverCsv, setExportingCloverCsv] = useState(false);
+  const [exportingCloverWorkbook, setExportingCloverWorkbook] = useState(false);
   const [cloverAutoSyncEnabled, setCloverAutoSyncEnabled] = useState(false);
 
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -632,32 +632,32 @@ export default function InventoryPage() {
     }
   };
 
-  const handleDownloadCloverCsv = async () => {
-    setExportingCloverCsv(true);
+  const handleDownloadCloverWorkbook = async () => {
+    setExportingCloverWorkbook(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/clover/export-csv', {
+      const response = await fetch('/api/clover/export-xlsx', {
         headers: { Authorization: `Bearer ${session?.access_token || ''}` },
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(result.message || 'Clover CSV export failed');
+        throw new Error(result.message || 'Clover workbook export failed');
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       const date = new Date().toISOString().slice(0, 10);
       link.href = url;
-      link.download = `retrolootpro-clover-import-${date}.csv`;
+      link.download = `retrolootpro-clover-import-${date}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      toast.success('Clover import CSV downloaded');
+      toast.success('Clover import workbook downloaded');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Clover CSV export failed');
+      toast.error(error instanceof Error ? error.message : 'Clover workbook export failed');
     } finally {
-      setExportingCloverCsv(false);
+      setExportingCloverWorkbook(false);
     }
   };
 
@@ -708,7 +708,7 @@ export default function InventoryPage() {
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverCsv || loading}>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverWorkbook || loading}>
                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                   Tools
                 </Button>
@@ -722,9 +722,9 @@ export default function InventoryPage() {
                   <RefreshCw className={`mr-2 h-4 w-4 ${backfilling ? 'animate-spin' : ''}`} />
                   Refresh metadata
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDownloadCloverCsv}>
-                  <FileDown className={`mr-2 h-4 w-4 ${exportingCloverCsv ? 'animate-pulse' : ''}`} />
-                  Download Clover CSV
+                <DropdownMenuItem onClick={handleDownloadCloverWorkbook}>
+                  <FileDown className={`mr-2 h-4 w-4 ${exportingCloverWorkbook ? 'animate-pulse' : ''}`} />
+                  Download Clover workbook
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleSyncPendingToClover}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />

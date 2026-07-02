@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getServerAccountContext } from '@/lib/server-account';
 import { createSupabaseAdmin } from '@/lib/server/supabase-admin';
-import { buildCloverItemRows, CLOVER_ITEM_HEADERS, type InventoryExportItem, writeCsv } from '@/lib/server/clover-export';
+import { buildCloverItemRows, buildCloverWorkbook, type InventoryExportItem } from '@/lib/server/clover-export';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -32,18 +33,18 @@ export async function GET(req: NextRequest) {
     if (error) throw error;
 
     const rows = buildCloverItemRows((data || []) as InventoryExportItem[]);
-    const csv = writeCsv(CLOVER_ITEM_HEADERS, rows);
+    const workbook = buildCloverWorkbook(rows);
     const date = new Date().toISOString().slice(0, 10);
 
-    return new NextResponse(csv, {
+    return new NextResponse(workbook, {
       status: 200,
       headers: {
-        'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="retrolootpro-clover-import-${date}.csv"`,
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="retrolootpro-clover-import-${date}.xlsx"`,
         'Cache-Control': 'no-store',
       },
     });
   } catch (error) {
-    return json({ success: false, message: error instanceof Error ? error.message : 'Clover CSV export failed' }, 500);
+    return json({ success: false, message: error instanceof Error ? error.message : 'Clover workbook export failed' }, 500);
   }
 }
