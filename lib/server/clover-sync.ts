@@ -39,7 +39,7 @@ function priceForItem(item: InventoryItem) {
 }
 
 function fallbackSku(item: InventoryItem) {
-  return item.sku?.trim() || item.barcode?.trim() || `RLP-${item.id.slice(0, 8).toUpperCase()}`;
+  return item.barcode?.trim() || item.sku?.trim() || `RLP-${item.id.slice(0, 8).toUpperCase()}`;
 }
 
 export function mapInventoryItemToClover(item: InventoryItem): CloverItemPayload {

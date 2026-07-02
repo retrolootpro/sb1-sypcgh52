@@ -532,6 +532,7 @@ export default function ItemDetailPage() {
       }
       const imageUrl = metadataForm.image_url.trim();
       const thumbnailUrl = metadataForm.thumbnail_url.trim() || imageUrl;
+      const normalizedBarcode = metadataForm.barcode.trim() || null;
       const estimatedProfit = manualMarketValue > 0 ? manualMarketValue - purchasePrice : 0;
       const estimatedMarginPercent = manualMarketValue > 0 && purchasePrice > 0
         ? (estimatedProfit / purchasePrice) * 100
@@ -548,13 +549,13 @@ export default function ItemDetailPage() {
           purchase_price: purchasePrice,
           quantity: Math.floor(quantity),
           sell_price: sellPrice,
-          sku: metadataForm.sku.trim() || null,
+          sku: normalizedBarcode || metadataForm.sku.trim() || null,
           sync_to_clover: metadataForm.sync_to_clover,
           clover_sync_status: metadataForm.sync_to_clover && item.clover_sync_status !== 'synced' ? 'pending' : item.clover_sync_status || 'pending',
           brand: metadataForm.brand.trim() || null,
           category: metadataForm.category.trim() || null,
           genre: metadataForm.genre.trim() || null,
-          barcode: metadataForm.barcode.trim() || null,
+          barcode: normalizedBarcode,
           image_url: imageUrl || null,
           thumbnail_url: thumbnailUrl || null,
           description: metadataForm.description.trim() || null,
@@ -950,7 +951,7 @@ export default function ItemDetailPage() {
                         value={metadataForm.sku}
                         onChange={(event) => updateMetadataForm('sku', event.target.value)}
                         className="h-9 font-mono"
-                        placeholder="Optional Clover SKU"
+                        placeholder={metadataForm.barcode.trim() ? 'Will match UPC / barcode on save' : 'Uses UPC when available'}
                       />
                     </div>
 

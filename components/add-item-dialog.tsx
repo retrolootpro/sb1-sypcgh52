@@ -139,6 +139,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
     try {
       if (!user || !accountId) throw new Error('Not authenticated');
       const manualPricedItem = isBookLikeValue(formData.console);
+      const normalizedBarcode = formData.barcode?.trim() || null;
       const bookMetadata = bookLookupResult?.bookMetadata || null;
       const bookRetailPrice = Number(bookMetadata?.retailPrice) || 0;
       const manualEstimatedProfit = bookRetailPrice > 0 ? bookRetailPrice - price : 0;
@@ -154,7 +155,8 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           purchase_price: price,
           quantity: qty,
           notes: formData.notes?.trim() || null,
-          barcode: formData.barcode?.trim() || null,
+          barcode: normalizedBarcode,
+          sku: normalizedBarcode,
           description: bookLookupResult?.description || bookMetadata?.description || null,
           brand: bookLookupResult?.brand || bookMetadata?.publisher || null,
           image_url: bookLookupResult?.imageUrl || bookMetadata?.coverImageUrl || null,
@@ -173,7 +175,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           source_upc_provider: bookLookupResult?.source || null,
           raw_lookup_payload: bookMetadata ? {
             type: 'book_metadata',
-            barcode: formData.barcode?.trim() || '',
+            barcode: normalizedBarcode || '',
             title: bookMetadata.title || bookLookupResult?.title || '',
             subtitle: bookMetadata.subtitle || '',
             authors: Array.isArray(bookMetadata.authors) ? bookMetadata.authors : [],

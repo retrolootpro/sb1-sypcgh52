@@ -96,6 +96,8 @@ function itemName(item: InventoryExportItem) {
 }
 
 function skuFor(item: InventoryExportItem) {
+  const barcodeSku = item.barcode?.trim();
+  if (barcodeSku) return barcodeSku;
   const explicitSku = item.sku?.trim();
   if (explicitSku) return explicitSku;
   const id = String(item.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 10).toUpperCase();
