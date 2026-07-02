@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -99,7 +99,9 @@ export default function InventoryPage() {
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [syncingClover, setSyncingClover] = useState(false);
   const [exportingCloverWorkbook, setExportingCloverWorkbook] = useState(false);
+  const [buildingCloverUpdateWorkbook, setBuildingCloverUpdateWorkbook] = useState(false);
   const [cloverAutoSyncEnabled, setCloverAutoSyncEnabled] = useState(false);
+  const cloverUpdateUploadRef = useRef<HTMLInputElement | null>(null);
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
@@ -688,11 +690,57 @@ export default function InventoryPage() {
     }
   };
 
+  const handleBuildCloverUpdateWorkbook = async (file: File) => {
+    setBuildingCloverUpdateWorkbook(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('/api/clover/export-update-xlsx', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+        body: formData,
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || 'Clover update workbook generation failed');
+      }
+      const blob = await response.blob();
+      const matched = Number(response.headers.get('X-Clover-Matched') || 0);
+      const total = Number(response.headers.get('X-Clover-Total') || 0);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `retrolootpro-clover-update-${date}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Clover update workbook ready: ${matched} matched of ${total} inventory items`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Clover update workbook generation failed');
+    } finally {
+      if (cloverUpdateUploadRef.current) cloverUpdateUploadRef.current.value = '';
+      setBuildingCloverUpdateWorkbook(false);
+    }
+  };
+
   const activeCollection = collections.find((c) => c.id === selectedCollectionId);
 
   return (
     <DashboardLayout>
       <div className="p-5 sm:p-7 lg:p-8 max-w-7xl space-y-6">
+        <input
+          ref={cloverUpdateUploadRef}
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) handleBuildCloverUpdateWorkbook(file);
+          }}
+        />
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <div className="mb-1 flex items-center gap-2">
@@ -708,7 +756,7 @@ export default function InventoryPage() {
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverWorkbook || loading}>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverWorkbook || buildingCloverUpdateWorkbook || loading}>
                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                   Tools
                 </Button>
@@ -725,6 +773,10 @@ export default function InventoryPage() {
                 <DropdownMenuItem onClick={handleDownloadCloverWorkbook}>
                   <FileDown className={`mr-2 h-4 w-4 ${exportingCloverWorkbook ? 'animate-pulse' : ''}`} />
                   Download Clover workbook
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => cloverUpdateUploadRef.current?.click()}>
+                  <FileDown className={`mr-2 h-4 w-4 ${buildingCloverUpdateWorkbook ? 'animate-pulse' : ''}`} />
+                  Build Clover update workbook
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleSyncPendingToClover}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />

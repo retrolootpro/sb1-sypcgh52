@@ -1,4 +1,5 @@
 import { Buffer } from 'buffer';
+import { inflateRawSync } from 'zlib';
 
 export type InventoryExportItem = {
   id: string;
@@ -22,6 +23,13 @@ export type InventoryExportItem = {
 
 export const CLOVER_ITEM_HEADERS = ['Name', 'Price', 'SKU', 'Code', 'Category', 'Taxable', 'Quantity'];
 
+type CloverExistingItem = {
+  cloverId: string;
+  sku: string;
+  productCode: string;
+  category?: string;
+};
+
 function csvEscape(value: unknown) {
   const text = value == null ? '' : String(value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -34,6 +42,15 @@ function xmlEscape(value: unknown) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+function xmlUnescape(value: string) {
+  return value
+    .replace(/&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&gt;/g, '>')
+    .replace(/&lt;/g, '<')
+    .replace(/&amp;/g, '&');
 }
 
 function money(value: unknown) {
@@ -104,6 +121,10 @@ function skuFor(item: InventoryExportItem) {
   return id ? `RLP-${id}` : '';
 }
 
+function normalizeMatchKey(value: unknown) {
+  return String(value || '').trim().toUpperCase();
+}
+
 export function buildCloverItemRows(items: InventoryExportItem[]) {
   return items
     .filter((item) => !['sold', 'shipped', 'returned', 'archived', 'deleted', 'dead stock', 'dead_stock'].includes(String(item.status || '').toLowerCase()))
@@ -123,6 +144,15 @@ export function writeCsv(headers: string[], rows: Record<string, unknown>[]) {
     headers.map(csvEscape).join(','),
     ...rows.map((row) => headers.map((header) => csvEscape(row[header])).join(',')),
   ].join('\r\n');
+}
+
+function columnIndex(ref: string) {
+  const letters = ref.replace(/[0-9]/g, '');
+  let index = 0;
+  for (let i = 0; i < letters.length; i += 1) {
+    index = index * 26 + (letters.charCodeAt(i) - 64);
+  }
+  return Math.max(0, index - 1);
 }
 
 function columnName(index: number) {
@@ -205,6 +235,146 @@ function crc32(buffer: Buffer) {
     crc = crcTable[(crc ^ buffer[index]) & 0xff] ^ (crc >>> 8);
   }
   return (crc ^ 0xffffffff) >>> 0;
+}
+
+function unzip(buffer: Buffer) {
+  const eocdSignature = 0x06054b50;
+  let eocdOffset = -1;
+  for (let offset = buffer.length - 22; offset >= Math.max(0, buffer.length - 65557); offset -= 1) {
+    if (buffer.readUInt32LE(offset) === eocdSignature) {
+      eocdOffset = offset;
+      break;
+    }
+  }
+  if (eocdOffset < 0) throw new Error('Invalid Clover export workbook.');
+
+  const centralDirectoryOffset = buffer.readUInt32LE(eocdOffset + 16);
+  const totalEntries = buffer.readUInt16LE(eocdOffset + 10);
+  const files = new Map<string, Buffer>();
+  let offset = centralDirectoryOffset;
+
+  for (let entry = 0; entry < totalEntries; entry += 1) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) break;
+    const compressionMethod = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const fileNameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+    const fileName = buffer.slice(offset + 46, offset + 46 + fileNameLength).toString('utf8');
+
+    if (buffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) {
+      throw new Error('Invalid Clover export workbook entry.');
+    }
+
+    const localNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+    const localExtraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+    const dataStart = localHeaderOffset + 30 + localNameLength + localExtraLength;
+    const compressed = buffer.slice(dataStart, dataStart + compressedSize);
+    const data = compressionMethod === 0 ? compressed : inflateRawSync(compressed);
+    files.set(fileName, data);
+
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  return files;
+}
+
+function parseSharedStrings(xml: string) {
+  const values: string[] = [];
+  const items = xml.match(/<si[\s\S]*?<\/si>/g) || [];
+  for (const item of items) {
+    const parts = Array.from(item.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)).map((match) => xmlUnescape(match[1]));
+    values.push(parts.join(''));
+  }
+  return values;
+}
+
+function parseWorksheetRows(xml: string, sharedStrings: string[]) {
+  const rows: string[][] = [];
+  const rowMatches = xml.match(/<row\b[\s\S]*?<\/row>/g) || [];
+  for (const rowXml of rowMatches) {
+    const cells: string[] = [];
+    const cellMatches = rowXml.match(/<c\b[\s\S]*?<\/c>/g) || [];
+    for (const cellXml of cellMatches) {
+      const refMatch = cellXml.match(/\br="([^"]+)"/);
+      if (!refMatch) continue;
+      const typeMatch = cellXml.match(/\bt="([^"]+)"/);
+      const type = typeMatch?.[1] || '';
+      const index = columnIndex(refMatch[1]);
+      let value = '';
+      if (type === 'inlineStr') {
+        const text = Array.from(cellXml.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)).map((match) => xmlUnescape(match[1])).join('');
+        value = text;
+      } else {
+        const valueMatch = cellXml.match(/<v>([\s\S]*?)<\/v>/);
+        const rawValue = valueMatch ? xmlUnescape(valueMatch[1]) : '';
+        value = type === 's' ? sharedStrings[Number(rawValue)] || '' : rawValue;
+      }
+      cells[index] = value;
+    }
+    while (cells.length && !cells[cells.length - 1]) cells.pop();
+    rows.push(cells);
+  }
+  return rows;
+}
+
+function parseWorkbookSheetTargets(workbookXmlText: string, workbookRelsXmlText: string) {
+  const rels = new Map<string, string>();
+  for (const match of Array.from(workbookRelsXmlText.matchAll(/<Relationship\b[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g))) {
+    rels.set(match[1], match[2]);
+  }
+  return Array.from(workbookXmlText.matchAll(/<sheet\b[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"/g)).map((match) => ({
+    name: xmlUnescape(match[1]),
+    target: rels.get(match[2]) || '',
+  }));
+}
+
+export function parseCloverItemsFromWorkbook(buffer: Buffer) {
+  const files = unzip(buffer);
+  const workbookXmlText = files.get('xl/workbook.xml')?.toString('utf8');
+  const workbookRelsXmlText = files.get('xl/_rels/workbook.xml.rels')?.toString('utf8');
+  if (!workbookXmlText || !workbookRelsXmlText) throw new Error('Could not read Clover workbook structure.');
+
+  const sharedStrings = files.has('xl/sharedStrings.xml')
+    ? parseSharedStrings(files.get('xl/sharedStrings.xml')!.toString('utf8'))
+    : [];
+  const sheets = parseWorkbookSheetTargets(workbookXmlText, workbookRelsXmlText);
+  const itemsSheet = sheets.find((sheet) => sheet.name === 'Items');
+  if (!itemsSheet?.target) throw new Error('The Clover export is missing the Items sheet.');
+
+  const normalizedTarget = itemsSheet.target.replace(/^\.?\//, '');
+  const sheetXmlText = files.get(`xl/${normalizedTarget}`)?.toString('utf8');
+  if (!sheetXmlText) throw new Error('Could not read the Items sheet from the Clover export.');
+
+  const rows = parseWorksheetRows(sheetXmlText, sharedStrings);
+  const headers = rows[0] || [];
+  const cloverIdIndex = headers.indexOf('Clover ID');
+  const skuIndex = headers.indexOf('SKU');
+  const productCodeIndex = headers.indexOf('Product Code');
+  const categoryIndex = headers.indexOf('Categories');
+
+  if (cloverIdIndex < 0 || skuIndex < 0 || productCodeIndex < 0) {
+    throw new Error('The Clover export is missing expected Items columns.');
+  }
+
+  const matches = new Map<string, CloverExistingItem>();
+  for (const row of rows.slice(1)) {
+    const cloverId = String(row[cloverIdIndex] || '').trim();
+    if (!cloverId) continue;
+    const item: CloverExistingItem = {
+      cloverId,
+      sku: String(row[skuIndex] || '').trim(),
+      productCode: String(row[productCodeIndex] || '').trim(),
+      category: categoryIndex >= 0 ? String(row[categoryIndex] || '').trim() : '',
+    };
+    const keys = [normalizeMatchKey(item.sku), normalizeMatchKey(item.productCode)].filter(Boolean);
+    for (const key of keys) {
+      if (!matches.has(key)) matches.set(key, item);
+    }
+  }
+
+  return matches;
 }
 
 function zip(files: { name: string; data: string | Buffer }[]) {
@@ -348,4 +518,110 @@ export function buildCloverWorkbook(rows: Record<string, unknown>[]) {
       data: worksheetXml(sheet.rows, sheet.numericColumns),
     })),
   ]);
+}
+
+export function buildCloverUpdateWorkbook(rows: Record<string, unknown>[], existingItems: Map<string, CloverExistingItem>) {
+  const matchedRows = rows
+    .map((row) => {
+      const match = existingItems.get(normalizeMatchKey(row.SKU)) || existingItems.get(normalizeMatchKey(row.Code));
+      if (!match) return null;
+      return { ...row, CloverId: match.cloverId, ExistingCategory: match.category || '' };
+    })
+    .filter(Boolean) as Array<Record<string, unknown> & { CloverId: string; ExistingCategory: string }>;
+
+  if (matchedRows.length === 0) {
+    throw new Error('No items in the Clover export matched RetroLoot inventory by SKU or barcode.');
+  }
+
+  const categories = Array.from(
+    new Set(
+      matchedRows
+        .map((row) => String(row.Category || row.ExistingCategory || ''))
+        .filter(Boolean),
+    ),
+  ).sort();
+  const itemHeaders = [
+    'Clover ID',
+    'Name',
+    'Alternate Name',
+    'Description',
+    'Price',
+    'Price Type',
+    'Price Unit',
+    'Cost',
+    'Product Code',
+    'SKU',
+    'Quantity',
+    'Hidden?',
+    'Default tax rates?',
+    'Non-revenue item?',
+    'Printer Labels',
+    'Modifier Groups',
+    'Categories',
+    'Tax Rates',
+    'Variant Attribute',
+    'Variant Option',
+    '',
+  ];
+  const modifierHeaders = [
+    'Modifier Group ID',
+    'Modifier Group Name',
+    'Pop up Automatically?',
+    'Modifier',
+    'Price',
+    'Required Quantity',
+    'Max Quantity',
+  ];
+  const categoryHeaders = ['Category ID', 'Category Name', 'Subcategory Name', 'Item Sort Order'];
+  const taxHeaders = ['Tax Rate ID', 'Name', 'Tax Rate', 'Tax Amount', 'Default?'];
+  const sheets = [
+    {
+      name: 'Items',
+      rows: [
+        itemHeaders,
+        ...matchedRows.map((row) => [
+          row.CloverId || '',
+          row.Name || '',
+          '',
+          '',
+          Number(row.Price) || '',
+          Number(row.Price) ? 'Fixed' : 'Variable',
+          '',
+          '',
+          row.Code || '',
+          row.SKU || '',
+          Number(row.Quantity) || 1,
+          'No',
+          'Yes',
+          'No',
+          '',
+          '',
+          row.Category || row.ExistingCategory || '',
+          '',
+          '',
+          '',
+          '',
+        ]),
+      ],
+      numericColumns: new Set(['Price', 'Quantity', 'Cost']),
+    },
+    { name: 'Modifier Groups', rows: [modifierHeaders], numericColumns: new Set(['Price', 'Required Quantity', 'Max Quantity']) },
+    { name: 'Categories', rows: [categoryHeaders, ...categories.map((name) => ['', name, '', ''])], numericColumns: new Set<string>() },
+    { name: 'Tax Rates', rows: [taxHeaders], numericColumns: new Set(['Tax Rate', 'Tax Amount']) },
+  ];
+
+  return {
+    matched: matchedRows.length,
+    total: rows.length,
+    workbook: zip([
+      { name: '[Content_Types].xml', data: contentTypesXml(sheets.length) },
+      { name: '_rels/.rels', data: packageRelsXml() },
+      { name: 'xl/workbook.xml', data: workbookXml(sheets.map((sheet) => sheet.name)) },
+      { name: 'xl/_rels/workbook.xml.rels', data: workbookRelsXml(sheets.length) },
+      ...sheets.map((sheet, index) => ({
+        name: `xl/worksheets/sheet${index + 1}.xml`,
+        data: worksheetXml(sheet.rows, sheet.numericColumns),
+      })),
+    ]),
+  };
 }
