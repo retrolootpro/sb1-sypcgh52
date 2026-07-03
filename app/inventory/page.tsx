@@ -770,6 +770,12 @@ export default function InventoryPage() {
                   <RefreshCw className={`mr-2 h-4 w-4 ${backfilling ? 'animate-spin' : ''}`} />
                   Refresh metadata
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/review/data-issues">
+                    <Search className="mr-2 h-4 w-4" />
+                    Audit Clover missing data
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleDownloadCloverWorkbook}>
                   <FileDown className={`mr-2 h-4 w-4 ${exportingCloverWorkbook ? 'animate-pulse' : ''}`} />
                   Download Clover workbook

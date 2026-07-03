@@ -8,6 +8,7 @@ export type InventoryExportItem = {
   condition?: string | null;
   barcode?: string | null;
   sku?: string | null;
+  description?: string | null;
   quantity?: number | null;
   sell_price?: number | null;
   selected_market_value?: number | null;
@@ -25,6 +26,9 @@ export const CLOVER_ITEM_HEADERS = ['Name', 'Price', 'SKU', 'Code', 'Category', 
 
 type CloverExistingItem = {
   cloverId: string;
+  name?: string;
+  description?: string;
+  price?: string;
   sku: string;
   productCode: string;
   category?: string;
@@ -353,6 +357,9 @@ export function parseCloverItemsFromWorkbook(buffer: Buffer) {
   const skuIndex = headers.indexOf('SKU');
   const productCodeIndex = headers.indexOf('Product Code');
   const categoryIndex = headers.indexOf('Categories');
+  const nameIndex = headers.indexOf('Name');
+  const descriptionIndex = headers.indexOf('Description');
+  const priceIndex = headers.indexOf('Price');
 
   if (cloverIdIndex < 0 || skuIndex < 0 || productCodeIndex < 0) {
     throw new Error('The Clover export is missing expected Items columns.');
@@ -364,6 +371,9 @@ export function parseCloverItemsFromWorkbook(buffer: Buffer) {
     if (!cloverId) continue;
     const item: CloverExistingItem = {
       cloverId,
+      name: nameIndex >= 0 ? String(row[nameIndex] || '').trim() : '',
+      description: descriptionIndex >= 0 ? String(row[descriptionIndex] || '').trim() : '',
+      price: priceIndex >= 0 ? String(row[priceIndex] || '').trim() : '',
       sku: String(row[skuIndex] || '').trim(),
       productCode: String(row[productCodeIndex] || '').trim(),
       category: categoryIndex >= 0 ? String(row[categoryIndex] || '').trim() : '',
@@ -375,6 +385,48 @@ export function parseCloverItemsFromWorkbook(buffer: Buffer) {
   }
 
   return matches;
+}
+
+export function parseCloverWorkbookRows(buffer: Buffer) {
+  const files = unzip(buffer);
+  const workbookXmlText = files.get('xl/workbook.xml')?.toString('utf8');
+  const workbookRelsXmlText = files.get('xl/_rels/workbook.xml.rels')?.toString('utf8');
+  if (!workbookXmlText || !workbookRelsXmlText) throw new Error('Could not read Clover workbook structure.');
+
+  const sharedStrings = files.has('xl/sharedStrings.xml')
+    ? parseSharedStrings(files.get('xl/sharedStrings.xml')!.toString('utf8'))
+    : [];
+  const sheets = parseWorkbookSheetTargets(workbookXmlText, workbookRelsXmlText);
+  const itemsSheet = sheets.find((sheet) => sheet.name === 'Items');
+  if (!itemsSheet?.target) throw new Error('The Clover export is missing the Items sheet.');
+
+  const normalizedTarget = itemsSheet.target.replace(/^\.?\//, '');
+  const sheetXmlText = files.get(`xl/${normalizedTarget}`)?.toString('utf8');
+  if (!sheetXmlText) throw new Error('Could not read the Items sheet from the Clover export.');
+
+  const rows = parseWorksheetRows(sheetXmlText, sharedStrings);
+  const headers = rows[0] || [];
+  const nameIndex = headers.indexOf('Name');
+  const descriptionIndex = headers.indexOf('Description');
+  const priceIndex = headers.indexOf('Price');
+  const cloverIdIndex = headers.indexOf('Clover ID');
+  const skuIndex = headers.indexOf('SKU');
+  const productCodeIndex = headers.indexOf('Product Code');
+  const categoryIndex = headers.indexOf('Categories');
+
+  if (cloverIdIndex < 0 || skuIndex < 0 || productCodeIndex < 0) {
+    throw new Error('The Clover export is missing expected Items columns.');
+  }
+
+  return rows.slice(1).map((row) => ({
+    cloverId: String(row[cloverIdIndex] || '').trim(),
+    name: nameIndex >= 0 ? String(row[nameIndex] || '').trim() : '',
+    description: descriptionIndex >= 0 ? String(row[descriptionIndex] || '').trim() : '',
+    price: priceIndex >= 0 ? String(row[priceIndex] || '').trim() : '',
+    sku: String(row[skuIndex] || '').trim(),
+    productCode: String(row[productCodeIndex] || '').trim(),
+    category: categoryIndex >= 0 ? String(row[categoryIndex] || '').trim() : '',
+  }));
 }
 
 function zip(files: { name: string; data: string | Buffer }[]) {
@@ -520,26 +572,18 @@ export function buildCloverWorkbook(rows: Record<string, unknown>[]) {
   ]);
 }
 
-export function buildCloverUpdateWorkbook(rows: Record<string, unknown>[], existingItems: Map<string, CloverExistingItem>) {
-  const matchedRows = rows
-    .map((row) => {
-      const match = existingItems.get(normalizeMatchKey(row.SKU)) || existingItems.get(normalizeMatchKey(row.Code));
-      if (!match) return null;
-      return { ...row, CloverId: match.cloverId, ExistingCategory: match.category || '' };
-    })
-    .filter(Boolean) as Array<Record<string, unknown> & { CloverId: string; ExistingCategory: string }>;
+export function buildCloverNewItemsWorkbook(rows: Record<string, unknown>[], existingItems: Map<string, CloverExistingItem>) {
+  const newRows = rows.filter((row) => {
+    const skuKey = normalizeMatchKey(row.SKU);
+    const codeKey = normalizeMatchKey(row.Code);
+    return !existingItems.has(skuKey) && !existingItems.has(codeKey);
+  });
 
-  if (matchedRows.length === 0) {
-    throw new Error('No items in the Clover export matched RetroLoot inventory by SKU or barcode.');
+  if (newRows.length === 0) {
+    throw new Error('Every RetroLoot inventory item already exists in the Clover export by SKU or barcode.');
   }
 
-  const categories = Array.from(
-    new Set(
-      matchedRows
-        .map((row) => String(row.Category || row.ExistingCategory || ''))
-        .filter(Boolean),
-    ),
-  ).sort();
+  const categories = Array.from(new Set(newRows.map((row) => String(row.Category || '')).filter(Boolean))).sort();
   const itemHeaders = [
     'Clover ID',
     'Name',
@@ -579,8 +623,8 @@ export function buildCloverUpdateWorkbook(rows: Record<string, unknown>[], exist
       name: 'Items',
       rows: [
         itemHeaders,
-        ...matchedRows.map((row) => [
-          row.CloverId || '',
+        ...newRows.map((row) => [
+          '',
           row.Name || '',
           '',
           '',
@@ -611,7 +655,8 @@ export function buildCloverUpdateWorkbook(rows: Record<string, unknown>[], exist
   ];
 
   return {
-    matched: matchedRows.length,
+    created: newRows.length,
+    skipped: rows.length - newRows.length,
     total: rows.length,
     workbook: zip([
       { name: '[Content_Types].xml', data: contentTypesXml(sheets.length) },

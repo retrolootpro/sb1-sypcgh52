@@ -4,7 +4,7 @@ import { getServerAccountContext } from '@/lib/server-account';
 import { createSupabaseAdmin } from '@/lib/server/supabase-admin';
 import {
   buildCloverItemRows,
-  buildCloverUpdateWorkbook,
+  buildCloverNewItemsWorkbook,
   parseCloverItemsFromWorkbook,
   type InventoryExportItem,
 } from '@/lib/server/clover-export';
@@ -45,20 +45,21 @@ export async function POST(req: NextRequest) {
 
     const existingItems = parseCloverItemsFromWorkbook(Buffer.from(await upload.arrayBuffer()));
     const rows = buildCloverItemRows((data || []) as InventoryExportItem[]);
-    const { workbook, matched, total } = buildCloverUpdateWorkbook(rows, existingItems);
+    const { workbook, created, skipped, total } = buildCloverNewItemsWorkbook(rows, existingItems);
     const date = new Date().toISOString().slice(0, 10);
 
     return new NextResponse(workbook, {
       status: 200,
       headers: {
         'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'Content-Disposition': `attachment; filename="retrolootpro-clover-update-${date}.xlsx"`,
+        'Content-Disposition': `attachment; filename="retrolootpro-clover-new-items-${date}.xlsx"`,
         'Cache-Control': 'no-store',
-        'X-Clover-Matched': String(matched),
+        'X-Clover-Matched': String(created),
+        'X-Clover-Skipped': String(skipped),
         'X-Clover-Total': String(total),
       },
     });
   } catch (error) {
-    return json({ success: false, message: error instanceof Error ? error.message : 'Clover update workbook generation failed' }, 500);
+    return json({ success: false, message: error instanceof Error ? error.message : 'Clover new-items workbook generation failed' }, 500);
   }
 }
