@@ -483,14 +483,16 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
 
             html,
             body {
-              width: 2in;
               margin: 0 !important;
               padding: 0 !important;
               background: white !important;
+              width: auto !important;
+              height: auto !important;
+              overflow: hidden !important;
             }
 
             .label-screen {
-              width: 2in !important;
+              width: auto !important;
               min-height: auto !important;
               padding: 0 !important;
               margin: 0 !important;
@@ -517,8 +519,6 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
               visibility: visible !important;
             }
 
-            body > div,
-            main,
             .label-sheet {
               display: block !important;
               width: 2in !important;
@@ -543,8 +543,15 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
               border-radius: 0 !important;
               background: white !important;
               overflow: hidden !important;
+              break-inside: avoid;
+              page-break-inside: avoid;
               break-after: page;
               page-break-after: always;
+            }
+
+            .label-card-wrap:last-child {
+              break-after: auto;
+              page-break-after: auto;
             }
 
             .price-label {
