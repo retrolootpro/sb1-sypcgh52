@@ -690,7 +690,7 @@ export default function InventoryPage() {
     }
   };
 
-  const handleBuildCloverUpdateWorkbook = async (file: File) => {
+  const handleBuildCloverNewItemsWorkbook = async (file: File) => {
     setBuildingCloverUpdateWorkbook(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -703,23 +703,24 @@ export default function InventoryPage() {
       });
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));
-        throw new Error(result.message || 'Clover update workbook generation failed');
+        throw new Error(result.message || 'Clover new-items workbook generation failed');
       }
       const blob = await response.blob();
-      const matched = Number(response.headers.get('X-Clover-Matched') || 0);
+      const created = Number(response.headers.get('X-Clover-Matched') || 0);
+      const skipped = Number(response.headers.get('X-Clover-Skipped') || 0);
       const total = Number(response.headers.get('X-Clover-Total') || 0);
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       const date = new Date().toISOString().slice(0, 10);
       link.href = url;
-      link.download = `retrolootpro-clover-update-${date}.xlsx`;
+      link.download = `retrolootpro-clover-new-items-${date}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      toast.success(`Clover update workbook ready: ${matched} matched of ${total} inventory items`);
+      toast.success(`Clover new-items workbook ready: ${created} new, ${skipped} already in Clover, ${total} total`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Clover update workbook generation failed');
+      toast.error(error instanceof Error ? error.message : 'Clover new-items workbook generation failed');
     } finally {
       if (cloverUpdateUploadRef.current) cloverUpdateUploadRef.current.value = '';
       setBuildingCloverUpdateWorkbook(false);
@@ -738,7 +739,7 @@ export default function InventoryPage() {
           className="hidden"
           onChange={(event) => {
             const file = event.target.files?.[0];
-            if (file) handleBuildCloverUpdateWorkbook(file);
+            if (file) handleBuildCloverNewItemsWorkbook(file);
           }}
         />
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -782,7 +783,7 @@ export default function InventoryPage() {
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => cloverUpdateUploadRef.current?.click()}>
                   <FileDown className={`mr-2 h-4 w-4 ${buildingCloverUpdateWorkbook ? 'animate-pulse' : ''}`} />
-                  Build Clover update workbook
+                  Build Clover new-items workbook
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleSyncPendingToClover}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />
