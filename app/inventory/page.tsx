@@ -823,24 +823,24 @@ export default function InventoryPage() {
                 <DropdownMenuItem asChild>
                   <Link href="/review/data-issues">
                     <Search className="mr-2 h-4 w-4" />
-                    Audit Clover missing data
+                    Review Missing Clover Data
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleDownloadCloverWorkbook}>
                   <FileDown className={`mr-2 h-4 w-4 ${exportingCloverWorkbook ? 'animate-pulse' : ''}`} />
-                  Download Clover workbook
+                  Export All Items for Clover
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => cloverUpdateUploadRef.current?.click()}>
                   <FileDown className={`mr-2 h-4 w-4 ${buildingCloverUpdateWorkbook ? 'animate-pulse' : ''}`} />
-                  Build Clover new-items workbook
+                  Add Missing Items to Clover
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => cloverRepairUploadRef.current?.click()}>
                   <FileDown className={`mr-2 h-4 w-4 ${buildingCloverRepairWorkbook ? 'animate-pulse' : ''}`} />
-                  Build Clover repair workbook
+                  Fix Missing Clover SKU/UPC
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleSyncPendingToClover}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />
-                  Sync pending to Clover
+                  Send Pending Items to Clover
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleConfigureCloverAutoSync}>
                   <RefreshCw className="mr-2 h-4 w-4" />

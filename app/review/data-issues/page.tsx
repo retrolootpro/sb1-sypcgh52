@@ -138,9 +138,9 @@ export default function CloverMissingDataAuditPage() {
                 Upload a Clover items export to see which Clover rows are missing data that already exists in RetroLoot for manual correction.
               </ContextHelp>
             </div>
-            <h1 className="heading-lg text-[22px]">Clover Missing Data Audit</h1>
+            <h1 className="heading-lg text-[22px]">Review Missing Clover Data</h1>
             <p className="mt-1 text-[13px] text-muted-foreground">
-              Compare a Clover export against RetroLoot and get a manual-fix list for missing SKU, UPC, category, description, or price.
+              Upload a Clover export to see which Clover items are missing data RetroLoot already has for manual fixes.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -151,7 +151,7 @@ export default function CloverMissingDataAuditPage() {
               disabled={loading}
             >
               <FileSearch className={`mr-1.5 h-4 w-4 ${loading ? 'animate-pulse' : ''}`} />
-              Upload Clover export
+              Review Clover export
             </Button>
             <Button asChild variant="outline" size="sm" className="h-10 rounded-lg text-sm">
               <Link href="/inventory">Back to inventory</Link>
@@ -200,7 +200,7 @@ export default function CloverMissingDataAuditPage() {
             <FileSearch className="mx-auto mb-3 h-10 w-10 text-muted-foreground/30" />
             <div className="text-sm font-medium">No Clover issues loaded yet</div>
             <p className="mt-1 text-xs text-muted-foreground">
-              Upload a Clover export workbook to generate a manual correction list.
+              Upload a Clover export workbook to generate a review list of missing data.
             </p>
           </div>
         ) : (
