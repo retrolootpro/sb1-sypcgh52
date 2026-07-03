@@ -80,6 +80,156 @@ function labelTextStyle(title: string, price: string): CSSProperties {
   } as CSSProperties;
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildPrintDocument(labels: PrintableLabel[]) {
+  const logoUrl = typeof window === 'undefined' ? LOGO_SRC : `${window.location.origin}${LOGO_SRC}`;
+  const cards = labels.map((label) => {
+    const style = labelTextStyle(label.title, label.price) as Record<string, string>;
+    return `
+      <div class="label-card-wrap">
+        <div class="price-label press-start-label-font" style="--label-title-size:${style['--label-title-size']};--label-price-size:${style['--label-price-size']};">
+          <div class="price-label-logo">
+            <img src="${escapeHtml(logoUrl)}" alt="Pixel &amp; Page" />
+          </div>
+          <div class="price-label-copy">
+            <div class="price-label-name">${escapeHtml(label.title)}</div>
+            <div class="price-label-price">${escapeHtml(label.price)}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `<!doctype html>
+  <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>RetroLootPro Labels</title>
+      <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        @page {
+          size: 2in 1in;
+          margin: 0;
+        }
+
+        html, body {
+          margin: 0;
+          padding: 0;
+          background: #fff;
+        }
+
+        body {
+          font-family: Arial, sans-serif;
+        }
+
+        .press-start-label-font {
+          font-family: 'Press Start 2P', monospace;
+        }
+
+        .label-sheet {
+          margin: 0;
+          padding: 0;
+        }
+
+        .label-card-wrap {
+          width: 2in;
+          height: 1in;
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
+          break-inside: avoid;
+          page-break-inside: avoid;
+          break-after: page;
+          page-break-after: always;
+        }
+
+        .label-card-wrap:last-child {
+          break-after: auto;
+          page-break-after: auto;
+        }
+
+        .price-label {
+          width: 2in;
+          height: 1in;
+          display: grid;
+          grid-template-columns: 40% 60%;
+          align-items: center;
+          overflow: hidden;
+          background: white;
+          color: black;
+          border: 0;
+          box-sizing: border-box;
+        }
+
+        .price-label-logo {
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0.035in;
+          box-sizing: border-box;
+        }
+
+        .price-label-logo img {
+          width: 0.77in;
+          height: 0.77in;
+          object-fit: contain;
+          display: block;
+        }
+
+        .price-label-copy {
+          height: 100%;
+          display: grid;
+          grid-template-rows: 1fr auto;
+          align-items: stretch;
+          min-width: 0;
+          padding: 0.075in 0.03in 0.06in 0.015in;
+          text-align: right;
+          box-sizing: border-box;
+        }
+
+        .price-label-name {
+          width: 100%;
+          max-width: 100%;
+          margin-left: auto;
+          font-size: var(--label-title-size, 8px);
+          line-height: 1.35;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          overflow: hidden;
+          text-align: right;
+          align-self: start;
+        }
+
+        .price-label-price {
+          width: 100%;
+          max-width: 100%;
+          margin-left: auto;
+          font-size: var(--label-price-size, 16px);
+          line-height: 1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-align: right;
+          align-self: end;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="label-sheet">${cards}</div>
+    </body>
+  </html>`;
+}
+
 async function waitForLabelAssets() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
@@ -112,22 +262,18 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
-  const [manualPrintLabel, setManualPrintLabel] = useState<PrintableLabel | null>(null);
-  const [manualPrintRequested, setManualPrintRequested] = useState(false);
   const autoPrintStartedRef = useRef(false);
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
   const autoPrintRequested = searchParams.get('autoprint') === '1';
   const activeIds = queryIds.length > 0 ? queryIds : queueIds;
-  const printableLabels: PrintableLabel[] = manualPrintLabel
-    ? [manualPrintLabel]
-    : items.map((item) => ({
-        id: item.id,
-        inventoryId: item.id,
-        title: labelTitle(item),
-        price: money(inventoryLabelPrice(item)),
-      }));
+  const printableLabels: PrintableLabel[] = items.map((item) => ({
+    id: item.id,
+    inventoryId: item.id,
+    title: labelTitle(item),
+    price: money(inventoryLabelPrice(item)),
+  }));
 
   useEffect(() => {
     const syncQueue = () => setQueueIds(readQueue());
@@ -190,12 +336,64 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     setItems([]);
   };
 
-  const printLabels = () => {
-    if (items.length === 0) {
+  const printInWindow = useCallback(async (labels: PrintableLabel[]) => {
+    if (labels.length === 0) {
       toast.info('No labels queued');
       return;
     }
-    window.print();
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=420,height=320');
+    if (!printWindow) {
+      toast.error('Allow pop-ups to print labels');
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(buildPrintDocument(labels));
+    printWindow.document.close();
+
+    const finalize = async () => {
+      try {
+        await printWindow.document.fonts?.ready;
+      } catch {
+        // Keep going if font readiness is unavailable.
+      }
+
+      await new Promise<void>((resolve) => {
+        const images = Array.from(printWindow.document.images);
+        if (images.length === 0) {
+          resolve();
+          return;
+        }
+        let remaining = images.length;
+        const done = () => {
+          remaining -= 1;
+          if (remaining <= 0) resolve();
+        };
+        images.forEach((image) => {
+          if (image.complete) {
+            done();
+            return;
+          }
+          image.addEventListener('load', done, { once: true });
+          image.addEventListener('error', done, { once: true });
+        });
+        window.setTimeout(resolve, 1200);
+      });
+
+      printWindow.focus();
+      printWindow.print();
+      window.setTimeout(() => printWindow.close(), 500);
+    };
+
+    if (printWindow.document.readyState === 'complete') {
+      finalize();
+    } else {
+      printWindow.addEventListener('load', finalize, { once: true });
+    }
+  }, []);
+
+  const printLabels = () => {
+    printInWindow(printableLabels);
   };
 
   const printManualLabel = () => {
@@ -210,36 +408,15 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       return;
     }
 
-    setManualPrintLabel({
+    printInWindow([{
       id: `manual-${Date.now()}`,
       title,
       price: money(price),
-    });
-    setManualPrintRequested(true);
+    }]);
     setManualOpen(false);
+    setManualName('');
+    setManualPrice('');
   };
-
-  useEffect(() => {
-    const clearManualPrint = () => setManualPrintLabel(null);
-    window.addEventListener('afterprint', clearManualPrint);
-    return () => window.removeEventListener('afterprint', clearManualPrint);
-  }, []);
-
-  useEffect(() => {
-    if (!manualPrintLabel || !manualPrintRequested) return;
-    let cancelled = false;
-
-    const printWhenReady = async () => {
-      await waitForLabelAssets();
-      if (!cancelled) {
-        window.print();
-        setManualPrintRequested(false);
-      }
-    };
-
-    printWhenReady();
-    return () => { cancelled = true; };
-  }, [manualPrintLabel, manualPrintRequested]);
 
   useEffect(() => {
     if (!autoPrintRequested || autoPrintStartedRef.current || loading || printableLabels.length === 0) return;
@@ -248,12 +425,12 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
 
     const printWhenReady = async () => {
       await waitForLabelAssets();
-      if (!cancelled) window.print();
+      if (!cancelled) printInWindow(printableLabels);
     };
 
     printWhenReady();
     return () => { cancelled = true; };
-  }, [autoPrintRequested, loading, printableLabels.length]);
+  }, [autoPrintRequested, loading, printInWindow, printableLabels]);
 
   return (
     <DashboardLayout>
