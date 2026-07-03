@@ -100,8 +100,10 @@ export default function InventoryPage() {
   const [syncingClover, setSyncingClover] = useState(false);
   const [exportingCloverWorkbook, setExportingCloverWorkbook] = useState(false);
   const [buildingCloverUpdateWorkbook, setBuildingCloverUpdateWorkbook] = useState(false);
+  const [buildingCloverRepairWorkbook, setBuildingCloverRepairWorkbook] = useState(false);
   const [cloverAutoSyncEnabled, setCloverAutoSyncEnabled] = useState(false);
   const cloverUpdateUploadRef = useRef<HTMLInputElement | null>(null);
+  const cloverRepairUploadRef = useRef<HTMLInputElement | null>(null);
 
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
@@ -727,6 +729,43 @@ export default function InventoryPage() {
     }
   };
 
+  const handleBuildCloverRepairWorkbook = async (file: File) => {
+    setBuildingCloverRepairWorkbook(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch('/api/clover/export-repair-xlsx', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+        body: formData,
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || 'Clover repair workbook generation failed');
+      }
+      const blob = await response.blob();
+      const repaired = Number(response.headers.get('X-Clover-Repaired') || 0);
+      const skipped = Number(response.headers.get('X-Clover-Skipped') || 0);
+      const total = Number(response.headers.get('X-Clover-Total') || 0);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `retrolootpro-clover-repair-${date}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Clover repair workbook ready: ${repaired} fixes, ${skipped} skipped, ${total} Clover rows checked`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Clover repair workbook generation failed');
+    } finally {
+      if (cloverRepairUploadRef.current) cloverRepairUploadRef.current.value = '';
+      setBuildingCloverRepairWorkbook(false);
+    }
+  };
+
   const activeCollection = collections.find((c) => c.id === selectedCollectionId);
 
   return (
@@ -740,6 +779,16 @@ export default function InventoryPage() {
           onChange={(event) => {
             const file = event.target.files?.[0];
             if (file) handleBuildCloverNewItemsWorkbook(file);
+          }}
+        />
+        <input
+          ref={cloverRepairUploadRef}
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          className="hidden"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) handleBuildCloverRepairWorkbook(file);
           }}
         />
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
@@ -757,7 +806,7 @@ export default function InventoryPage() {
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverWorkbook || buildingCloverUpdateWorkbook || loading}>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverWorkbook || buildingCloverUpdateWorkbook || buildingCloverRepairWorkbook || loading}>
                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                   Tools
                 </Button>
@@ -784,6 +833,10 @@ export default function InventoryPage() {
                 <DropdownMenuItem onClick={() => cloverUpdateUploadRef.current?.click()}>
                   <FileDown className={`mr-2 h-4 w-4 ${buildingCloverUpdateWorkbook ? 'animate-pulse' : ''}`} />
                   Build Clover new-items workbook
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => cloverRepairUploadRef.current?.click()}>
+                  <FileDown className={`mr-2 h-4 w-4 ${buildingCloverRepairWorkbook ? 'animate-pulse' : ''}`} />
+                  Build Clover repair workbook
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleSyncPendingToClover}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />

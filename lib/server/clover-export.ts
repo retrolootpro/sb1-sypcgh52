@@ -32,6 +32,7 @@ type CloverExistingItem = {
   sku: string;
   productCode: string;
   category?: string;
+  quantity?: string;
 };
 
 function csvEscape(value: unknown) {
@@ -360,6 +361,7 @@ export function parseCloverItemsFromWorkbook(buffer: Buffer) {
   const nameIndex = headers.indexOf('Name');
   const descriptionIndex = headers.indexOf('Description');
   const priceIndex = headers.indexOf('Price');
+  const quantityIndex = headers.indexOf('Quantity');
 
   if (cloverIdIndex < 0 || skuIndex < 0 || productCodeIndex < 0) {
     throw new Error('The Clover export is missing expected Items columns.');
@@ -377,6 +379,7 @@ export function parseCloverItemsFromWorkbook(buffer: Buffer) {
       sku: String(row[skuIndex] || '').trim(),
       productCode: String(row[productCodeIndex] || '').trim(),
       category: categoryIndex >= 0 ? String(row[categoryIndex] || '').trim() : '',
+      quantity: quantityIndex >= 0 ? String(row[quantityIndex] || '').trim() : '',
     };
     const keys = [normalizeMatchKey(item.sku), normalizeMatchKey(item.productCode)].filter(Boolean);
     for (const key of keys) {
@@ -413,6 +416,7 @@ export function parseCloverWorkbookRows(buffer: Buffer) {
   const skuIndex = headers.indexOf('SKU');
   const productCodeIndex = headers.indexOf('Product Code');
   const categoryIndex = headers.indexOf('Categories');
+  const quantityIndex = headers.indexOf('Quantity');
 
   if (cloverIdIndex < 0 || skuIndex < 0 || productCodeIndex < 0) {
     throw new Error('The Clover export is missing expected Items columns.');
@@ -426,7 +430,101 @@ export function parseCloverWorkbookRows(buffer: Buffer) {
     sku: String(row[skuIndex] || '').trim(),
     productCode: String(row[productCodeIndex] || '').trim(),
     category: categoryIndex >= 0 ? String(row[categoryIndex] || '').trim() : '',
+    quantity: quantityIndex >= 0 ? String(row[quantityIndex] || '').trim() : '',
   }));
+}
+
+function buildCloverWorkbookBundle(rows: Array<{
+  cloverId?: unknown;
+  name?: unknown;
+  description?: unknown;
+  price?: unknown;
+  code?: unknown;
+  sku?: unknown;
+  quantity?: unknown;
+  category?: unknown;
+}>) {
+  const categories = Array.from(new Set(rows.map((row) => String(row.category || '')).filter(Boolean))).sort();
+  const itemHeaders = [
+    'Clover ID',
+    'Name',
+    'Alternate Name',
+    'Description',
+    'Price',
+    'Price Type',
+    'Price Unit',
+    'Cost',
+    'Product Code',
+    'SKU',
+    'Quantity',
+    'Hidden?',
+    'Default tax rates?',
+    'Non-revenue item?',
+    'Printer Labels',
+    'Modifier Groups',
+    'Categories',
+    'Tax Rates',
+    'Variant Attribute',
+    'Variant Option',
+    '',
+  ];
+  const modifierHeaders = [
+    'Modifier Group ID',
+    'Modifier Group Name',
+    'Pop up Automatically?',
+    'Modifier',
+    'Price',
+    'Required Quantity',
+    'Max Quantity',
+  ];
+  const categoryHeaders = ['Category ID', 'Category Name', 'Subcategory Name', 'Item Sort Order'];
+  const taxHeaders = ['Tax Rate ID', 'Name', 'Tax Rate', 'Tax Amount', 'Default?'];
+  const sheets = [
+    {
+      name: 'Items',
+      rows: [
+        itemHeaders,
+        ...rows.map((row) => [
+          row.cloverId || '',
+          row.name || '',
+          '',
+          row.description || '',
+          Number(row.price) || '',
+          Number(row.price) ? 'Fixed' : 'Variable',
+          '',
+          '',
+          row.code || '',
+          row.sku || '',
+          Number(row.quantity) || 1,
+          'No',
+          'Yes',
+          'No',
+          '',
+          '',
+          row.category || '',
+          '',
+          '',
+          '',
+          '',
+        ]),
+      ],
+      numericColumns: new Set(['Price', 'Quantity', 'Cost']),
+    },
+    { name: 'Modifier Groups', rows: [modifierHeaders], numericColumns: new Set(['Price', 'Required Quantity', 'Max Quantity']) },
+    { name: 'Categories', rows: [categoryHeaders, ...categories.map((name) => ['', name, '', ''])], numericColumns: new Set<string>() },
+    { name: 'Tax Rates', rows: [taxHeaders], numericColumns: new Set(['Tax Rate', 'Tax Amount']) },
+  ];
+
+  return zip([
+    { name: '[Content_Types].xml', data: contentTypesXml(sheets.length) },
+    { name: '_rels/.rels', data: packageRelsXml() },
+    { name: 'xl/workbook.xml', data: workbookXml(sheets.map((sheet) => sheet.name)) },
+    { name: 'xl/_rels/workbook.xml.rels', data: workbookRelsXml(sheets.length) },
+    ...sheets.map((sheet, index) => ({
+      name: `xl/worksheets/sheet${index + 1}.xml`,
+      data: worksheetXml(sheet.rows, sheet.numericColumns),
+    })),
+  ]);
 }
 
 function zip(files: { name: string; data: string | Buffer }[]) {
@@ -489,87 +587,15 @@ function zip(files: { name: string; data: string | Buffer }[]) {
 }
 
 export function buildCloverWorkbook(rows: Record<string, unknown>[]) {
-  const categories = Array.from(new Set(rows.map((row) => String(row.Category || '')).filter(Boolean))).sort();
-  const itemHeaders = [
-    'Clover ID',
-    'Name',
-    'Alternate Name',
-    'Description',
-    'Price',
-    'Price Type',
-    'Price Unit',
-    'Cost',
-    'Product Code',
-    'SKU',
-    'Quantity',
-    'Hidden?',
-    'Default tax rates?',
-    'Non-revenue item?',
-    'Printer Labels',
-    'Modifier Groups',
-    'Categories',
-    'Tax Rates',
-    'Variant Attribute',
-    'Variant Option',
-    '',
-  ];
-  const modifierHeaders = [
-    'Modifier Group ID',
-    'Modifier Group Name',
-    'Pop up Automatically?',
-    'Modifier',
-    'Price',
-    'Required Quantity',
-    'Max Quantity',
-  ];
-  const categoryHeaders = ['Category ID', 'Category Name', 'Subcategory Name', 'Item Sort Order'];
-  const taxHeaders = ['Tax Rate ID', 'Name', 'Tax Rate', 'Tax Amount', 'Default?'];
-  const sheets = [
-    {
-      name: 'Items',
-      rows: [
-        itemHeaders,
-        ...rows.map((row) => [
-          '',
-          row.Name || '',
-          '',
-          '',
-          Number(row.Price) || '',
-          Number(row.Price) ? 'Fixed' : 'Variable',
-          '',
-          '',
-          row.Code || '',
-          row.SKU || '',
-          Number(row.Quantity) || 1,
-          'No',
-          'Yes',
-          'No',
-          '',
-          '',
-          row.Category || '',
-          '',
-          '',
-          '',
-          '',
-        ]),
-      ],
-      numericColumns: new Set(['Price', 'Quantity', 'Cost']),
-    },
-    { name: 'Modifier Groups', rows: [modifierHeaders], numericColumns: new Set(['Price', 'Required Quantity', 'Max Quantity']) },
-    { name: 'Categories', rows: [categoryHeaders, ...categories.map((name) => ['', name, '', ''])], numericColumns: new Set<string>() },
-    { name: 'Tax Rates', rows: [taxHeaders], numericColumns: new Set(['Tax Rate', 'Tax Amount']) },
-  ];
-
-  return zip([
-    { name: '[Content_Types].xml', data: contentTypesXml(sheets.length) },
-    { name: '_rels/.rels', data: packageRelsXml() },
-    { name: 'xl/workbook.xml', data: workbookXml(sheets.map((sheet) => sheet.name)) },
-    { name: 'xl/_rels/workbook.xml.rels', data: workbookRelsXml(sheets.length) },
-    ...sheets.map((sheet, index) => ({
-      name: `xl/worksheets/sheet${index + 1}.xml`,
-      data: worksheetXml(sheet.rows, sheet.numericColumns),
-    })),
-  ]);
+  return buildCloverWorkbookBundle(rows.map((row) => ({
+    name: row.Name,
+    description: '',
+    price: row.Price,
+    code: row.Code,
+    sku: row.SKU,
+    quantity: row.Quantity,
+    category: row.Category,
+  })));
 }
 
 export function buildCloverNewItemsWorkbook(rows: Record<string, unknown>[], existingItems: Map<string, CloverExistingItem>) {
@@ -583,90 +609,73 @@ export function buildCloverNewItemsWorkbook(rows: Record<string, unknown>[], exi
     throw new Error('Every RetroLoot inventory item already exists in the Clover export by SKU or barcode.');
   }
 
-  const categories = Array.from(new Set(newRows.map((row) => String(row.Category || '')).filter(Boolean))).sort();
-  const itemHeaders = [
-    'Clover ID',
-    'Name',
-    'Alternate Name',
-    'Description',
-    'Price',
-    'Price Type',
-    'Price Unit',
-    'Cost',
-    'Product Code',
-    'SKU',
-    'Quantity',
-    'Hidden?',
-    'Default tax rates?',
-    'Non-revenue item?',
-    'Printer Labels',
-    'Modifier Groups',
-    'Categories',
-    'Tax Rates',
-    'Variant Attribute',
-    'Variant Option',
-    '',
-  ];
-  const modifierHeaders = [
-    'Modifier Group ID',
-    'Modifier Group Name',
-    'Pop up Automatically?',
-    'Modifier',
-    'Price',
-    'Required Quantity',
-    'Max Quantity',
-  ];
-  const categoryHeaders = ['Category ID', 'Category Name', 'Subcategory Name', 'Item Sort Order'];
-  const taxHeaders = ['Tax Rate ID', 'Name', 'Tax Rate', 'Tax Amount', 'Default?'];
-  const sheets = [
-    {
-      name: 'Items',
-      rows: [
-        itemHeaders,
-        ...newRows.map((row) => [
-          '',
-          row.Name || '',
-          '',
-          '',
-          Number(row.Price) || '',
-          Number(row.Price) ? 'Fixed' : 'Variable',
-          '',
-          '',
-          row.Code || '',
-          row.SKU || '',
-          Number(row.Quantity) || 1,
-          'No',
-          'Yes',
-          'No',
-          '',
-          '',
-          row.Category || row.ExistingCategory || '',
-          '',
-          '',
-          '',
-          '',
-        ]),
-      ],
-      numericColumns: new Set(['Price', 'Quantity', 'Cost']),
-    },
-    { name: 'Modifier Groups', rows: [modifierHeaders], numericColumns: new Set(['Price', 'Required Quantity', 'Max Quantity']) },
-    { name: 'Categories', rows: [categoryHeaders, ...categories.map((name) => ['', name, '', ''])], numericColumns: new Set<string>() },
-    { name: 'Tax Rates', rows: [taxHeaders], numericColumns: new Set(['Tax Rate', 'Tax Amount']) },
-  ];
-
   return {
     created: newRows.length,
     skipped: rows.length - newRows.length,
     total: rows.length,
-    workbook: zip([
-      { name: '[Content_Types].xml', data: contentTypesXml(sheets.length) },
-      { name: '_rels/.rels', data: packageRelsXml() },
-      { name: 'xl/workbook.xml', data: workbookXml(sheets.map((sheet) => sheet.name)) },
-      { name: 'xl/_rels/workbook.xml.rels', data: workbookRelsXml(sheets.length) },
-      ...sheets.map((sheet, index) => ({
-        name: `xl/worksheets/sheet${index + 1}.xml`,
-        data: worksheetXml(sheet.rows, sheet.numericColumns),
-      })),
-    ]),
+    workbook: buildCloverWorkbookBundle(newRows.map((row) => ({
+      name: row.Name,
+      description: '',
+      price: row.Price,
+      code: row.Code,
+      sku: row.SKU,
+      quantity: row.Quantity,
+      category: row.Category || row.ExistingCategory,
+    }))),
+  };
+}
+
+export function buildCloverRepairWorkbook(rows: Record<string, unknown>[], existingRows: CloverExistingItem[]) {
+  const retroByKey = new Map<string, Record<string, unknown>>();
+  rows.forEach((row) => {
+    const keys = [normalizeMatchKey(row.SKU), normalizeMatchKey(row.Code)].filter(Boolean);
+    for (const key of keys) {
+      if (!retroByKey.has(key)) retroByKey.set(key, row);
+    }
+  });
+
+  const repairRows = existingRows
+    .map((row) => {
+      const match = retroByKey.get(normalizeMatchKey(row.sku)) || retroByKey.get(normalizeMatchKey(row.productCode));
+      if (!match) return null;
+
+      const nextSku = String(row.sku || '').trim() || String(match.SKU || '').trim();
+      const nextCode = String(row.productCode || '').trim() || String(match.Code || '').trim();
+      const changedSku = !String(row.sku || '').trim() && Boolean(String(match.SKU || '').trim());
+      const changedCode = !String(row.productCode || '').trim() && Boolean(String(match.Code || '').trim());
+
+      if (!changedSku && !changedCode) return null;
+
+      return {
+        cloverId: row.cloverId,
+        name: row.name || match.Name || '',
+        description: row.description || '',
+        price: row.price || match.Price || '',
+        code: nextCode,
+        sku: nextSku,
+        quantity: row.quantity || match.Quantity || 1,
+        category: row.category || match.Category || '',
+      };
+    })
+    .filter(Boolean) as Array<{
+    cloverId: string;
+    name: unknown;
+    description: unknown;
+    price: unknown;
+    code: unknown;
+    sku: unknown;
+    quantity: unknown;
+    category: unknown;
+  }>;
+
+  if (repairRows.length === 0) {
+    throw new Error('No matched Clover items are missing SKU or Product Code values that RetroLoot can fill.');
+  }
+
+  return {
+    repaired: repairRows.length,
+    skipped: existingRows.length - repairRows.length,
+    total: existingRows.length,
+    workbook: buildCloverWorkbookBundle(repairRows),
   };
 }
