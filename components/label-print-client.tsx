@@ -123,13 +123,16 @@ function buildPrintDocument(labels: PrintableLabel[]) {
         }
 
         html, body {
+          width: 2in;
           margin: 0;
           padding: 0;
           background: #fff;
         }
 
         body {
+          width: 2in;
           font-family: Arial, sans-serif;
+          overflow: hidden;
         }
 
         .press-start-label-font {
@@ -137,8 +140,10 @@ function buildPrintDocument(labels: PrintableLabel[]) {
         }
 
         .label-sheet {
+          width: 2in;
           margin: 0;
           padding: 0;
+          overflow: hidden;
         }
 
         .label-card-wrap {
