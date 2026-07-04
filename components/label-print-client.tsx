@@ -15,6 +15,7 @@ import { inventoryLabelPrice } from '@/lib/label-pricing';
 import { toast } from 'sonner';
 
 const LABEL_QUEUE_KEY = 'retroloot-label-queue';
+const LABEL_PRINT_JOB_KEY = 'retroloot-label-print-job';
 const LOGO_SRC = '/labels/pixel-page-logo.png';
 
 type LabelItem = {
@@ -53,6 +54,21 @@ function writeQueue(ids: string[]) {
   window.dispatchEvent(new CustomEvent('retroloot-label-queue-change'));
 }
 
+function readPrintJob() {
+  if (typeof window === 'undefined') return [];
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(LABEL_PRINT_JOB_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePrintJob(labels: PrintableLabel[]) {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(LABEL_PRINT_JOB_KEY, JSON.stringify(labels));
+}
+
 function money(value: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 }
@@ -80,168 +96,13 @@ function labelTextStyle(title: string, price: string): CSSProperties {
   } as CSSProperties;
 }
 
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function buildPrintDocument(labels: PrintableLabel[]) {
-  const logoUrl = typeof window === 'undefined' ? LOGO_SRC : `${window.location.origin}${LOGO_SRC}`;
-  const cards = labels.map((label) => {
-    const style = labelTextStyle(label.title, label.price) as Record<string, string>;
-    return `
-      <div class="label-card-wrap">
-        <div class="price-label press-start-label-font" style="--label-title-size:${style['--label-title-size']};--label-price-size:${style['--label-price-size']};">
-          <div class="price-label-logo">
-            <img src="${escapeHtml(logoUrl)}" alt="Pixel &amp; Page" />
-          </div>
-          <div class="price-label-copy">
-            <div class="price-label-name">${escapeHtml(label.title)}</div>
-            <div class="price-label-price">${escapeHtml(label.price)}</div>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  return `<!doctype html>
-  <html>
-    <head>
-      <meta charset="utf-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <title>RetroLootPro Labels</title>
-      <style>
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-
-        @page {
-          size: 2in 1in;
-          margin: 0;
-        }
-
-        html, body {
-          width: 2in;
-          margin: 0;
-          padding: 0;
-          background: #fff;
-        }
-
-        body {
-          width: 2in;
-          font-family: Arial, sans-serif;
-          overflow: hidden;
-        }
-
-        .press-start-label-font {
-          font-family: 'Press Start 2P', monospace;
-        }
-
-        .label-sheet {
-          width: 2in;
-          margin: 0;
-          padding: 0;
-          overflow: hidden;
-        }
-
-        .label-card-wrap {
-          width: 2in;
-          height: 1in;
-          margin: 0;
-          padding: 0;
-          overflow: hidden;
-          break-inside: avoid;
-          page-break-inside: avoid;
-          break-after: page;
-          page-break-after: always;
-        }
-
-        .label-card-wrap:last-child {
-          break-after: auto;
-          page-break-after: auto;
-        }
-
-        .price-label {
-          width: 2in;
-          height: 1in;
-          display: grid;
-          grid-template-columns: 40% 60%;
-          align-items: center;
-          overflow: hidden;
-          background: white;
-          color: black;
-          border: 0;
-          box-sizing: border-box;
-        }
-
-        .price-label-logo {
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0.035in;
-          box-sizing: border-box;
-        }
-
-        .price-label-logo img {
-          width: 0.77in;
-          height: 0.77in;
-          object-fit: contain;
-          display: block;
-        }
-
-        .price-label-copy {
-          height: 100%;
-          display: grid;
-          grid-template-rows: 1fr auto;
-          align-items: stretch;
-          min-width: 0;
-          padding: 0.075in 0.03in 0.06in 0.015in;
-          text-align: right;
-          box-sizing: border-box;
-        }
-
-        .price-label-name {
-          width: 100%;
-          max-width: 100%;
-          margin-left: auto;
-          font-size: var(--label-title-size, 8px);
-          line-height: 1.35;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-          overflow: hidden;
-          text-align: right;
-          align-self: start;
-        }
-
-        .price-label-price {
-          width: 100%;
-          max-width: 100%;
-          margin-left: auto;
-          font-size: var(--label-price-size, 16px);
-          line-height: 1;
-          white-space: nowrap;
-          overflow: hidden;
-          text-align: right;
-          align-self: end;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="label-sheet">${cards}</div>
-    </body>
-  </html>`;
-}
-
 async function waitForLabelAssets() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
   try {
     await document.fonts?.ready;
   } catch {
-    // If the browser does not expose font readiness, keep printing.
+    // Ignore when unsupported.
   }
 
   await new Promise<void>((resolve) => {
@@ -258,6 +119,251 @@ async function waitForLabelAssets() {
   await new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
+function LabelStyles() {
+  return (
+    <style jsx global>{`
+      @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+      @page {
+        size: 2in 1in;
+        margin: 0;
+      }
+
+      .press-start-label-font {
+        font-family: 'Press Start 2P', monospace;
+      }
+
+      .label-logo-preload {
+        position: absolute;
+        height: 1px;
+        width: 1px;
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .price-label {
+        width: 2in;
+        height: 1in;
+        display: grid;
+        grid-template-columns: 40% 60%;
+        align-items: center;
+        overflow: hidden;
+        background: white;
+        color: black;
+        border: 0;
+        box-sizing: border-box;
+      }
+
+      .price-label-logo {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.035in;
+        box-sizing: border-box;
+      }
+
+      .price-label-logo img {
+        width: 0.77in;
+        height: 0.77in;
+        object-fit: contain;
+        display: block;
+      }
+
+      .price-label-copy {
+        height: 100%;
+        display: grid;
+        grid-template-rows: 1fr auto;
+        align-items: stretch;
+        min-width: 0;
+        padding: 0.075in 0.03in 0.06in 0.015in;
+        text-align: right;
+        box-sizing: border-box;
+      }
+
+      .price-label-name {
+        width: 100%;
+        max-width: 100%;
+        margin-left: auto;
+        font-size: var(--label-title-size, 8px);
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+        overflow: hidden;
+        text-align: right;
+        align-self: start;
+      }
+
+      .price-label-price {
+        width: 100%;
+        max-width: 100%;
+        margin-left: auto;
+        font-size: var(--label-price-size, 16px);
+        line-height: 1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-align: right;
+        align-self: end;
+      }
+
+      .label-card-wrap {
+        position: relative;
+        padding: 0.12in;
+        border-radius: 8px;
+        background: hsl(var(--card));
+        border: 1px solid hsl(var(--border));
+      }
+
+      .label-remove {
+        position: absolute;
+        right: -8px;
+        top: -8px;
+        z-index: 2;
+        display: flex;
+        height: 24px;
+        width: 24px;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        border: 1px solid hsl(var(--border));
+        background: hsl(var(--background));
+        color: hsl(var(--foreground));
+      }
+
+      .label-sheet-print {
+        width: 2in;
+        margin: 0;
+        padding: 0;
+      }
+
+      .label-sheet-print .label-card-wrap {
+        width: 2in;
+        height: 1in;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: white;
+        overflow: hidden;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        break-after: page;
+        page-break-after: always;
+      }
+
+      .label-sheet-print .label-card-wrap:last-child {
+        break-after: auto;
+        page-break-after: auto;
+      }
+
+      @media print {
+        html,
+        body {
+          width: 2in !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+          overflow: hidden !important;
+        }
+
+        .label-screen-print {
+          width: 2in !important;
+          min-height: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+        }
+
+        .label-screen {
+          width: auto !important;
+          min-height: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+        }
+
+        .label-controls,
+        aside,
+        nav,
+        .fixed,
+        [href='/pos'] {
+          display: none !important;
+        }
+
+        body * {
+          visibility: hidden !important;
+        }
+
+        .label-sheet-print,
+        .label-sheet-print *,
+        .price-label,
+        .price-label * {
+          visibility: visible !important;
+        }
+
+        .label-sheet-print {
+          position: absolute !important;
+          left: 0 !important;
+          top: 0 !important;
+        }
+      }
+    `}</style>
+  );
+}
+
+function LabelsMarkup({
+  labels,
+  fontClassName,
+  printMode,
+  onRemove,
+}: {
+  labels: PrintableLabel[];
+  fontClassName: string;
+  printMode: boolean;
+  onRemove: (id: string) => void;
+}) {
+  if (labels.length === 0) {
+    return (
+      <div className="mx-auto max-w-5xl rounded-xl border border-dashed border-border/60 bg-card/50 p-8 text-center">
+        <p className="font-semibold">No labels queued</p>
+        <p className="mt-1 text-sm text-muted-foreground">Select items in Inventory, then choose Print Labels or Add to Label Queue.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={printMode ? 'label-sheet-print' : 'label-sheet mx-auto flex max-w-5xl flex-wrap gap-4'}>
+      {labels.map((label, index) => {
+        const title = label.title;
+        const price = label.price;
+        return (
+          <div key={`${label.id}-${index}`} className="label-card-wrap">
+            {!printMode && label.inventoryId && (
+              <button
+                type="button"
+                className="label-remove label-controls"
+                onClick={() => onRemove(label.inventoryId!)}
+                aria-label={`Remove ${label.title}`}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <div className={`price-label ${fontClassName}`} style={labelTextStyle(title, price)}>
+              <div className="price-label-logo">
+                <img src={LOGO_SRC} alt="Pixel & Page" />
+              </div>
+              <div className="price-label-copy">
+                <div className="price-label-name">{title}</div>
+                <div className="price-label-price">{price}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const { user, accountId } = useAuth();
   const searchParams = useSearchParams();
@@ -267,21 +373,27 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
+  const [manualLabels, setManualLabels] = useState<PrintableLabel[]>([]);
   const autoPrintStartedRef = useRef(false);
-  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
   const autoPrintRequested = searchParams.get('autoprint') === '1';
+  const printMode = searchParams.get('print') === '1';
+  const manualJob = searchParams.get('manualJob') === '1';
   const activeIds = queryIds.length > 0 ? queryIds : queueIds;
-  const printableLabels: PrintableLabel[] = items.map((item) => ({
+
+  const itemLabels: PrintableLabel[] = items.map((item) => ({
     id: item.id,
     inventoryId: item.id,
     title: labelTitle(item),
     price: money(inventoryLabelPrice(item)),
   }));
+  const printableLabels = manualLabels.length > 0 ? manualLabels : itemLabels;
 
   useEffect(() => {
+    if (printMode) return;
     const syncQueue = () => setQueueIds(readQueue());
     syncQueue();
     window.addEventListener('storage', syncQueue);
@@ -290,9 +402,14 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       window.removeEventListener('storage', syncQueue);
       window.removeEventListener('retroloot-label-queue-change', syncQueue);
     };
-  }, []);
+  }, [printMode]);
 
   const loadItems = useCallback(async () => {
+    if (manualJob) {
+      setItems([]);
+      setLoading(false);
+      return;
+    }
     if (!user || !accountId) return;
     if (activeIds.length === 0) {
       setItems([]);
@@ -317,17 +434,25 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     const byId = new Map((data || []).map((item) => [item.id, item as LabelItem]));
     setItems(activeIds.map((id) => byId.get(id)).filter(Boolean) as LabelItem[]);
     setLoading(false);
-  }, [accountId, activeIds, user]);
+  }, [accountId, activeIds, manualJob, user]);
 
   useEffect(() => {
     loadItems();
   }, [loadItems]);
 
   useEffect(() => {
-    if (searchParams.get('manual') === '1') {
+    if (searchParams.get('manual') === '1' && !printMode) {
       setManualOpen(true);
     }
-  }, [searchParams]);
+  }, [printMode, searchParams]);
+
+  useEffect(() => {
+    if (!manualJob) {
+      setManualLabels([]);
+      return;
+    }
+    setManualLabels(readPrintJob() as PrintableLabel[]);
+  }, [manualJob]);
 
   const removeItem = (id: string) => {
     if (queryIds.length > 0) {
@@ -342,71 +467,23 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     setItems([]);
   };
 
-  const printInWindow = useCallback(async (labels: PrintableLabel[]) => {
-    if (labels.length === 0) {
+  const openPrintRoute = useCallback((labels?: PrintableLabel[]) => {
+    if (labels && labels.length > 0) {
+      writePrintJob(labels);
+      window.location.assign('/labels?print=1&autoprint=1&manualJob=1');
+      return;
+    }
+
+    const ids = activeIds.length > 0 ? activeIds : queueIds;
+    if (ids.length === 0) {
       toast.info('No labels queued');
       return;
     }
-
-    const frame = printFrameRef.current;
-    if (!frame) {
-      toast.error('Print frame unavailable');
-      return;
-    }
-    const html = buildPrintDocument(labels);
-    const doc = frame.contentDocument;
-    const win = frame.contentWindow;
-    if (!doc || !win) {
-      toast.error('Print frame unavailable');
-      return;
-    }
-
-    let resolved = false;
-    const finalize = async () => {
-      if (resolved) return;
-      resolved = true;
-      try {
-        await doc.fonts?.ready;
-      } catch {
-        // Keep going if font readiness is unavailable.
-      }
-
-      await new Promise<void>((resolve) => {
-        const images = Array.from(doc.images);
-        if (images.length === 0) {
-          resolve();
-          return;
-        }
-        let remaining = images.length;
-        const done = () => {
-          remaining -= 1;
-          if (remaining <= 0) resolve();
-        };
-        images.forEach((image) => {
-          if (image.complete) {
-            done();
-            return;
-          }
-          image.addEventListener('load', done, { once: true });
-          image.addEventListener('error', done, { once: true });
-        });
-        window.setTimeout(resolve, 1200);
-      });
-
-      await new Promise((resolve) => window.setTimeout(resolve, 150));
-      win.focus();
-      win.print();
-    };
-
-    frame.onload = () => { finalize(); };
-    doc.open();
-    doc.write(html);
-    doc.close();
-    window.setTimeout(() => { finalize(); }, 300);
-  }, []);
+    window.location.assign(`/labels?ids=${encodeURIComponent(ids.join(','))}&print=1&autoprint=1`);
+  }, [activeIds, queueIds]);
 
   const printLabels = () => {
-    printInWindow(printableLabels);
+    openPrintRoute();
   };
 
   const printManualLabel = () => {
@@ -421,7 +498,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       return;
     }
 
-    printInWindow([{
+    openPrintRoute([{
       id: `manual-${Date.now()}`,
       title,
       price: money(price),
@@ -432,29 +509,25 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   };
 
   useEffect(() => {
-    if (!autoPrintRequested || autoPrintStartedRef.current || loading || printableLabels.length === 0) return;
+    if (!printMode || !autoPrintRequested || autoPrintStartedRef.current || loading || printableLabels.length === 0) return;
     let cancelled = false;
     autoPrintStartedRef.current = true;
 
     const printWhenReady = async () => {
       await waitForLabelAssets();
-      if (!cancelled) printInWindow(printableLabels);
+      if (!cancelled) window.print();
     };
 
     printWhenReady();
     return () => { cancelled = true; };
-  }, [autoPrintRequested, loading, printInWindow, printableLabels]);
+  }, [autoPrintRequested, loading, printableLabels, printMode]);
 
-  return (
-    <DashboardLayout>
-      <div className="label-screen min-h-screen bg-background px-4 py-6 text-foreground sm:px-8">
-        <iframe
-          ref={printFrameRef}
-          title="Label Print Frame"
-          aria-hidden="true"
-          className="hidden"
-        />
-        <img className="label-logo-preload label-controls" src={LOGO_SRC} alt="" aria-hidden="true" />
+  const pageBody = (
+    <div className={printMode ? 'label-screen-print' : 'label-screen min-h-screen bg-background px-4 py-6 text-foreground sm:px-8'}>
+      <LabelStyles />
+      <img className="label-logo-preload label-controls" src={LOGO_SRC} alt="" aria-hidden="true" />
+
+      {!printMode && (
         <div className="label-controls mx-auto mb-6 flex max-w-5xl flex-col gap-3 rounded-xl border border-border/50 bg-card p-4 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
             <Link href="/inventory" className="mb-2 inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
@@ -476,54 +549,23 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
                 Clear Queue
               </Button>
             )}
-            <Button onClick={printLabels} disabled={items.length === 0}>
+            <Button onClick={printLabels} disabled={itemLabels.length === 0}>
               <Printer className="mr-2 h-4 w-4" />
-              Print {items.length || ''}
+              Print {itemLabels.length || ''}
             </Button>
           </div>
         </div>
+      )}
 
-        {loading ? (
-          <div className="mx-auto max-w-5xl rounded-xl border border-border/50 bg-card p-8 text-center text-muted-foreground">
-            Loading labels...
-          </div>
-        ) : printableLabels.length === 0 ? (
-          <div className="mx-auto max-w-5xl rounded-xl border border-dashed border-border/60 bg-card/50 p-8 text-center">
-            <p className="font-semibold">No labels queued</p>
-            <p className="mt-1 text-sm text-muted-foreground">Select items in Inventory, then choose Print Labels or Add to Label Queue.</p>
-          </div>
-        ) : (
-          <div className="label-sheet mx-auto flex max-w-5xl flex-wrap gap-4">
-            {printableLabels.map((label, index) => {
-              const title = label.title;
-              const price = label.price;
-              return (
-              <div key={`${label.id}-${index}`} className="label-card-wrap">
-                {label.inventoryId && (
-                  <button
-                    type="button"
-                    className="label-remove label-controls"
-                    onClick={() => removeItem(label.inventoryId!)}
-                    aria-label={`Remove ${label.title}`}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                )}
-                <div className={`price-label ${fontClassName}`} style={labelTextStyle(title, price)}>
-                  <div className="price-label-logo">
-                    <img src={LOGO_SRC} alt="Pixel & Page" />
-                  </div>
-                  <div className="price-label-copy">
-                    <div className="price-label-name">{title}</div>
-                    <div className="price-label-price">{price}</div>
-                  </div>
-                </div>
-              </div>
-              );
-            })}
-          </div>
-        )}
+      {loading ? (
+        <div className="mx-auto max-w-5xl rounded-xl border border-border/50 bg-card p-8 text-center text-muted-foreground">
+          Loading labels...
+        </div>
+      ) : (
+        <LabelsMarkup labels={printableLabels} fontClassName={fontClassName} printMode={printMode} onRemove={removeItem} />
+      )}
 
+      {!printMode && (
         <Dialog open={manualOpen} onOpenChange={setManualOpen}>
           <DialogContent className="label-controls">
             <DialogHeader>
@@ -561,201 +603,10 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             </DialogFooter>
           </DialogContent>
         </Dialog>
-
-        <style jsx global>{`
-          @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-
-          @page {
-            size: 2in 1in;
-            margin: 0;
-          }
-
-          .press-start-label-font {
-            font-family: 'Press Start 2P', monospace;
-          }
-
-          .label-logo-preload {
-            position: absolute;
-            height: 1px;
-            width: 1px;
-            opacity: 0;
-            pointer-events: none;
-          }
-
-          .price-label {
-            width: 2in;
-            height: 1in;
-            display: grid;
-            grid-template-columns: 40% 60%;
-            align-items: center;
-            overflow: hidden;
-            background: white;
-            color: black;
-            border: 0;
-            box-sizing: border-box;
-          }
-
-          .price-label-logo {
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0.035in;
-            box-sizing: border-box;
-          }
-
-          .price-label-logo img {
-            width: 0.77in;
-            height: 0.77in;
-            object-fit: contain;
-            display: block;
-          }
-
-          .price-label-copy {
-            height: 100%;
-            display: grid;
-            grid-template-rows: 1fr auto;
-            align-items: stretch;
-            min-width: 0;
-            padding: 0.075in 0.03in 0.06in 0.015in;
-            text-align: right;
-            box-sizing: border-box;
-          }
-
-          .price-label-name {
-            width: 100%;
-            max-width: 100%;
-            margin-left: auto;
-            font-size: var(--label-title-size, 8px);
-            line-height: 1.35;
-            overflow-wrap: anywhere;
-            word-break: break-word;
-            overflow: hidden;
-            text-align: right;
-            align-self: start;
-          }
-
-          .price-label-price {
-            width: 100%;
-            max-width: 100%;
-            margin-left: auto;
-            font-size: var(--label-price-size, 16px);
-            line-height: 1;
-            white-space: nowrap;
-            overflow: hidden;
-            text-align: right;
-            align-self: end;
-          }
-
-          .label-card-wrap {
-            position: relative;
-            padding: 0.12in;
-            border-radius: 8px;
-            background: hsl(var(--card));
-            border: 1px solid hsl(var(--border));
-          }
-
-          .label-remove {
-            position: absolute;
-            right: -8px;
-            top: -8px;
-            z-index: 2;
-            display: flex;
-            height: 24px;
-            width: 24px;
-            align-items: center;
-            justify-content: center;
-            border-radius: 999px;
-            border: 1px solid hsl(var(--border));
-            background: hsl(var(--background));
-            color: hsl(var(--foreground));
-          }
-
-          @media print {
-            @page {
-              size: 2in 1in;
-              margin: 0;
-            }
-
-            html,
-            body {
-              margin: 0 !important;
-              padding: 0 !important;
-              background: white !important;
-              width: auto !important;
-              height: auto !important;
-              overflow: hidden !important;
-            }
-
-            .label-screen {
-              width: auto !important;
-              min-height: auto !important;
-              padding: 0 !important;
-              margin: 0 !important;
-              background: white !important;
-            }
-
-            .label-controls,
-            aside,
-            nav,
-            .fixed,
-            [href='/pos'],
-            iframe {
-              display: none !important;
-            }
-
-            body * {
-              visibility: hidden !important;
-            }
-
-            .label-sheet,
-            .label-sheet *,
-            .price-label,
-            .price-label * {
-              visibility: visible !important;
-            }
-
-            .label-sheet {
-              display: block !important;
-              width: 2in !important;
-              max-width: 2in !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              background: white !important;
-            }
-
-            .label-sheet {
-              position: absolute !important;
-              left: 0 !important;
-              top: 0 !important;
-            }
-
-            .label-card-wrap {
-              width: 2in !important;
-              height: 1in !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              border: 0 !important;
-              border-radius: 0 !important;
-              background: white !important;
-              overflow: hidden !important;
-              break-inside: avoid;
-              page-break-inside: avoid;
-              break-after: page;
-              page-break-after: always;
-            }
-
-            .label-card-wrap:last-child {
-              break-after: auto;
-              page-break-after: auto;
-            }
-
-            .price-label {
-              border: 0 !important;
-            }
-          }
-        `}</style>
-      </div>
-    </DashboardLayout>
+      )}
+    </div>
   );
+
+  if (printMode) return pageBody;
+  return <DashboardLayout>{pageBody}</DashboardLayout>;
 }
