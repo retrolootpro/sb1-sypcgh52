@@ -263,6 +263,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
   const autoPrintStartedRef = useRef(false);
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
@@ -341,25 +342,32 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       toast.info('No labels queued');
       return;
     }
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=420,height=320');
-    if (!printWindow) {
-      toast.error('Allow pop-ups to print labels');
+
+    const frame = printFrameRef.current;
+    if (!frame) {
+      toast.error('Print frame unavailable');
+      return;
+    }
+    const html = buildPrintDocument(labels);
+    const doc = frame.contentDocument;
+    const win = frame.contentWindow;
+    if (!doc || !win) {
+      toast.error('Print frame unavailable');
       return;
     }
 
-    printWindow.document.open();
-    printWindow.document.write(buildPrintDocument(labels));
-    printWindow.document.close();
-
+    let resolved = false;
     const finalize = async () => {
+      if (resolved) return;
+      resolved = true;
       try {
-        await printWindow.document.fonts?.ready;
+        await doc.fonts?.ready;
       } catch {
         // Keep going if font readiness is unavailable.
       }
 
       await new Promise<void>((resolve) => {
-        const images = Array.from(printWindow.document.images);
+        const images = Array.from(doc.images);
         if (images.length === 0) {
           resolve();
           return;
@@ -380,16 +388,16 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
         window.setTimeout(resolve, 1200);
       });
 
-      printWindow.focus();
-      printWindow.print();
-      window.setTimeout(() => printWindow.close(), 500);
+      await new Promise((resolve) => window.setTimeout(resolve, 150));
+      win.focus();
+      win.print();
     };
 
-    if (printWindow.document.readyState === 'complete') {
-      finalize();
-    } else {
-      printWindow.addEventListener('load', finalize, { once: true });
-    }
+    frame.onload = () => { finalize(); };
+    doc.open();
+    doc.write(html);
+    doc.close();
+    window.setTimeout(() => { finalize(); }, 300);
   }, []);
 
   const printLabels = () => {
@@ -435,6 +443,12 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   return (
     <DashboardLayout>
       <div className="label-screen min-h-screen bg-background px-4 py-6 text-foreground sm:px-8">
+        <iframe
+          ref={printFrameRef}
+          title="Label Print Frame"
+          aria-hidden="true"
+          className="hidden"
+        />
         <img className="label-logo-preload label-controls" src={LOGO_SRC} alt="" aria-hidden="true" />
         <div className="label-controls mx-auto mb-6 flex max-w-5xl flex-col gap-3 rounded-xl border border-border/50 bg-card p-4 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
