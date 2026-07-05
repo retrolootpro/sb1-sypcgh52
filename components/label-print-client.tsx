@@ -142,15 +142,16 @@ function LabelStyles() {
       }
 
       .price-label {
-        width: 2in;
-        height: 1in;
+        width: 1.9in;
+        height: 0.9in;
+        margin: 0.05in;
         display: grid;
         grid-template-columns: 40% 60%;
         align-items: center;
         overflow: hidden;
         background: white;
         color: black;
-        border: 0;
+        border: 0.003in solid transparent;
         box-sizing: border-box;
       }
 
@@ -176,7 +177,7 @@ function LabelStyles() {
         grid-template-rows: 1fr auto;
         align-items: stretch;
         min-width: 0;
-        padding: 0.075in 0.03in 0.06in 0.015in;
+        padding: 0.07in 0.055in 0.055in 0.015in;
         text-align: right;
         box-sizing: border-box;
       }
