@@ -471,7 +471,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const openPrintRoute = useCallback((labels?: PrintableLabel[]) => {
     if (labels && labels.length > 0) {
       writePrintJob(labels);
-      window.location.assign('/labels?print=1&autoprint=1&manualJob=1');
+      window.location.assign('/labels?print=1&manualJob=1');
       return;
     }
 
@@ -480,7 +480,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       toast.info('No labels queued');
       return;
     }
-    window.location.assign(`/labels?ids=${encodeURIComponent(ids.join(','))}&print=1&autoprint=1`);
+    window.location.assign(`/labels?ids=${encodeURIComponent(ids.join(','))}&print=1`);
   }, [activeIds, queueIds]);
 
   const printLabels = () => {
@@ -527,6 +527,24 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     <div className={printMode ? 'label-screen-print' : 'label-screen min-h-screen bg-background px-4 py-6 text-foreground sm:px-8'}>
       <LabelStyles />
       <img className="label-logo-preload label-controls" src={LOGO_SRC} alt="" aria-hidden="true" />
+
+      {printMode && (
+        <div className="label-controls mx-auto mb-3 flex max-w-5xl flex-col gap-2 rounded-xl border border-border/50 bg-card p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="font-semibold">Ready to print labels</div>
+            <div className="text-muted-foreground">In Chrome on Mac, press Cmd + Option + P to open the system dialog, then choose 2x1 paper.</div>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/labels">Back</Link>
+            </Button>
+            <Button size="sm" onClick={() => window.print()}>
+              <Printer className="mr-1.5 h-4 w-4" />
+              Browser Print
+            </Button>
+          </div>
+        </div>
+      )}
 
       {!printMode && (
         <div className="label-controls mx-auto mb-6 flex max-w-5xl flex-col gap-3 rounded-xl border border-border/50 bg-card p-4 sm:flex-row sm:items-center">
