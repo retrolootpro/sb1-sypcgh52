@@ -3,7 +3,7 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Printer, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Download, Printer, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -94,6 +94,151 @@ function labelTextStyle(title: string, price: string): CSSProperties {
     '--label-title-size': `${titleSize}px`,
     '--label-price-size': `${priceSize}px`,
   } as CSSProperties;
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Could not load label logo'));
+    image.src = src;
+  });
+}
+
+function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth) {
+      line = next;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = word;
+    if (lines.length >= maxLines) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  return lines.length > 0 ? lines : [text.slice(0, 24)];
+}
+
+async function renderLabelJpeg(label: PrintableLabel) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 600;
+  canvas.height = 300;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not create label PDF');
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const safe = 30;
+  const logo = await loadImage(LOGO_SRC);
+  ctx.drawImage(logo, safe + 8, 38, 210, 210);
+
+  const titleLength = label.title.length;
+  const titleSize = titleLength <= 12 ? 31 : titleLength <= 22 ? 26 : titleLength <= 34 ? 22 : titleLength <= 48 ? 18 : 16;
+  const priceLength = label.price.length;
+  const priceSize = priceLength <= 5 ? 64 : priceLength <= 6 ? 54 : priceLength <= 7 ? 45 : 38;
+  const textX = 245;
+  const textRight = canvas.width - safe - 18;
+  const textWidth = textRight - textX;
+
+  ctx.fillStyle = '#000';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.font = `700 ${titleSize}px monospace`;
+  const lines = wrapCanvasText(ctx, label.title, textWidth, 4);
+  lines.forEach((line, index) => {
+    ctx.fillText(line, textRight, 38 + index * Math.round(titleSize * 1.35));
+  });
+
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `900 ${priceSize}px monospace`;
+  ctx.fillText(label.price, textRight, canvas.height - safe - 12);
+
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+function base64ToBytes(dataUrl: string) {
+  const base64 = dataUrl.split(',')[1] || '';
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function stringBytes(value: string) {
+  return new TextEncoder().encode(value);
+}
+
+function concatPdfParts(parts: Array<string | Uint8Array>) {
+  const encoded = parts.map((part) => typeof part === 'string' ? stringBytes(part) : part);
+  const total = encoded.reduce((sum, part) => sum + part.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const part of encoded) {
+    output.set(part, offset);
+    offset += part.length;
+  }
+  return output;
+}
+
+async function buildLabelPdf(labels: PrintableLabel[]) {
+  const images = await Promise.all(labels.map(renderLabelJpeg));
+  const parts: Array<string | Uint8Array> = ['%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'];
+  const offsets: number[] = [0];
+  let byteLength = stringBytes(parts[0] as string).length;
+  const pageObjectIds: number[] = [];
+  let objectId = 1;
+
+  const addObject = (body: Array<string | Uint8Array>) => {
+    const id = objectId;
+    objectId += 1;
+    offsets[id] = byteLength;
+    const objectParts: Array<string | Uint8Array> = [`${id} 0 obj\n`, ...body, '\nendobj\n'];
+    parts.push(...objectParts);
+    byteLength += objectParts.reduce((sum, part) => sum + (typeof part === 'string' ? stringBytes(part).length : part.length), 0);
+    return id;
+  };
+
+  const catalogId = addObject(['<< /Type /Catalog /Pages 2 0 R >>']);
+  const pagesId = 2;
+  objectId = 3;
+
+  images.forEach((dataUrl, index) => {
+    const imageBytes = base64ToBytes(dataUrl);
+    const imageId = addObject([
+      `<< /Type /XObject /Subtype /Image /Width 600 /Height 300 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
+      imageBytes,
+      '\nendstream',
+    ]);
+    const content = `q\n144 0 0 72 0 0 cm\n/Im${index} Do\nQ\n`;
+    const contentId = addObject([`<< /Length ${content.length} >>\nstream\n${content}endstream`]);
+    const pageId = addObject([
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 144 72] /Resources << /XObject << /Im${index} ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`,
+    ]);
+    pageObjectIds.push(pageId);
+  });
+
+  offsets[pagesId] = byteLength;
+  const pagesObject = `2 0 obj\n<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageObjectIds.length} >>\nendobj\n`;
+  parts.push(pagesObject);
+  byteLength += stringBytes(pagesObject).length;
+
+  const xrefOffset = byteLength;
+  const objectCount = objectId;
+  const xref = [
+    `xref\n0 ${objectCount}\n`,
+    '0000000000 65535 f \n',
+    ...Array.from({ length: objectCount - 1 }, (_, index) => `${String(offsets[index + 1] || 0).padStart(10, '0')} 00000 n \n`),
+    `trailer\n<< /Size ${objectCount} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
+  ].join('');
+  parts.push(xref);
+
+  return new Blob([concatPdfParts(parts)], { type: 'application/pdf' });
 }
 
 async function waitForLabelAssets() {
@@ -375,6 +520,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
   const [manualLabels, setManualLabels] = useState<PrintableLabel[]>([]);
+  const [creatingPdf, setCreatingPdf] = useState(false);
   const autoPrintStartedRef = useRef(false);
 
   const queryIds = useMemo(() => (
@@ -483,8 +629,35 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     window.location.assign(`/labels?ids=${encodeURIComponent(ids.join(','))}&print=1`);
   }, [activeIds, queueIds]);
 
+  const downloadLabelPdf = useCallback(async (labels: PrintableLabel[]) => {
+    if (labels.length === 0) {
+      toast.info('No labels queued');
+      return;
+    }
+
+    setCreatingPdf(true);
+    try {
+      await waitForLabelAssets();
+      const blob = await buildLabelPdf(labels);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `retroloot-labels-${date}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+      toast.success('2x1 label PDF downloaded');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not create label PDF');
+    } finally {
+      setCreatingPdf(false);
+    }
+  }, []);
+
   const printLabels = () => {
-    openPrintRoute();
+    downloadLabelPdf(itemLabels);
   };
 
   const printManualLabel = () => {
@@ -499,7 +672,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       return;
     }
 
-    openPrintRoute([{
+    downloadLabelPdf([{
       id: `manual-${Date.now()}`,
       title,
       price: money(price),
@@ -568,9 +741,9 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
                 Clear Queue
               </Button>
             )}
-            <Button onClick={printLabels} disabled={itemLabels.length === 0}>
-              <Printer className="mr-2 h-4 w-4" />
-              Print {itemLabels.length || ''}
+            <Button onClick={printLabels} disabled={itemLabels.length === 0 || creatingPdf}>
+              <Download className="mr-2 h-4 w-4" />
+              {creatingPdf ? 'Creating PDF' : `Download PDF ${itemLabels.length || ''}`}
             </Button>
           </div>
         </div>
@@ -615,9 +788,9 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setManualOpen(false)}>Cancel</Button>
-              <Button onClick={printManualLabel}>
-                <Printer className="mr-2 h-4 w-4" />
-                Print Label
+              <Button onClick={printManualLabel} disabled={creatingPdf}>
+                <Download className="mr-2 h-4 w-4" />
+                {creatingPdf ? 'Creating PDF' : 'Download PDF'}
               </Button>
             </DialogFooter>
           </DialogContent>
