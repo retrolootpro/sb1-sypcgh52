@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 
 const LABEL_QUEUE_KEY = 'retroloot-label-queue';
 const LOGO_SRC = '/labels/pixel-page-logo.png';
+const LABEL_FONT_FAMILY = '"Press Start 2P", monospace';
 
 type LabelItem = {
   id: string;
@@ -108,12 +109,23 @@ function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: n
   return lines.length > 0 ? lines : [text.slice(0, 24)];
 }
 
+async function waitForPressStartFont() {
+  if (typeof document === 'undefined') return;
+  try {
+    await document.fonts?.load(`16px ${LABEL_FONT_FAMILY}`);
+    await document.fonts?.ready;
+  } catch {
+    // Fall back to monospace if the browser cannot report font readiness.
+  }
+}
+
 async function renderLabelJpeg(label: PrintableLabel) {
   const canvas = document.createElement('canvas');
   canvas.width = 600;
   canvas.height = 300;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not create label print job');
+  await waitForPressStartFont();
 
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -133,14 +145,14 @@ async function renderLabelJpeg(label: PrintableLabel) {
   ctx.fillStyle = '#000';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
-  ctx.font = `700 ${titleSize}px monospace`;
+  ctx.font = `${titleSize}px ${LABEL_FONT_FAMILY}`;
   const lines = wrapCanvasText(ctx, label.title, textWidth, 4);
   lines.forEach((line, index) => {
     ctx.fillText(line, textRight, 38 + index * Math.round(titleSize * 1.35));
   });
 
   ctx.textBaseline = 'alphabetic';
-  ctx.font = `900 ${priceSize}px monospace`;
+  ctx.font = `${priceSize}px ${LABEL_FONT_FAMILY}`;
   ctx.fillText(label.price, textRight, canvas.height - safe - 12);
 
   return canvas.toDataURL('image/jpeg', 0.92);
