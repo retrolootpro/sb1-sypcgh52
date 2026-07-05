@@ -3,7 +3,7 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Printer, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Printer, RotateCw, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import { inventoryLabelPrice } from '@/lib/label-pricing';
 import { toast } from 'sonner';
 
 const LABEL_QUEUE_KEY = 'retroloot-label-queue';
+const LABEL_ROTATE_KEY = 'retroloot-label-print-rotate';
 const LOGO_SRC = '/labels/pixel-page-logo.png';
 
 type LabelItem = {
@@ -103,6 +104,196 @@ async function waitForLabelAssets() {
   await new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
+function LabelMarkup({ label, fontClassName }: { label: PrintableLabel; fontClassName: string }) {
+  return (
+    <div className={`price-label ${fontClassName}`} style={labelTextStyle(label.title, label.price)}>
+      <div className="price-label-logo">
+        <img src={LOGO_SRC} alt="Pixel & Page" />
+      </div>
+      <div className="price-label-copy">
+        <div className="price-label-name">{label.title}</div>
+        <div className="price-label-price">{label.price}</div>
+      </div>
+    </div>
+  );
+}
+
+function BrowserPrintDocument({
+  labels,
+  fontClassName,
+  rotate,
+}: {
+  labels: PrintableLabel[];
+  fontClassName: string;
+  rotate: boolean;
+}) {
+  const pageSize = rotate ? '1in 2in' : '2in 1in';
+  const pageWidth = rotate ? '1in' : '2in';
+  const pageHeight = rotate ? '2in' : '1in';
+
+  return (
+    <div className={`browser-print-document ${rotate ? 'is-rotated' : ''}`}>
+      <img className="label-logo-preload" src={LOGO_SRC} alt="" aria-hidden="true" />
+      {labels.map((label, index) => (
+        <section key={`${label.id}-${index}`} className="browser-print-page">
+          <LabelMarkup label={label} fontClassName={fontClassName} />
+        </section>
+      ))}
+
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        @page {
+          size: ${pageSize};
+          margin: 0;
+        }
+
+        html,
+        body {
+          margin: 0 !important;
+          padding: 0 !important;
+          background: white !important;
+        }
+
+        .press-start-label-font {
+          font-family: 'Press Start 2P', monospace;
+        }
+
+        .browser-print-document {
+          width: ${pageWidth};
+          margin: 0;
+          padding: 0;
+          background: white;
+          color: black;
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+
+        .browser-print-page {
+          width: ${pageWidth};
+          height: ${pageHeight};
+          margin: 0;
+          padding: 0;
+          overflow: hidden;
+          background: white;
+          break-after: page;
+          page-break-after: always;
+          break-inside: avoid;
+          page-break-inside: avoid;
+        }
+
+        .browser-print-page:last-child {
+          break-after: auto;
+          page-break-after: auto;
+        }
+
+        .price-label {
+          width: 2in;
+          height: 1in;
+          display: grid;
+          grid-template-columns: 40% 60%;
+          align-items: center;
+          overflow: hidden;
+          background: white;
+          color: black;
+          border: 0.01in solid transparent;
+          box-sizing: border-box;
+        }
+
+        .browser-print-document.is-rotated .price-label {
+          transform: rotate(90deg) translateY(-100%);
+          transform-origin: top left;
+        }
+
+        .price-label-logo {
+          height: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0.035in;
+          box-sizing: border-box;
+        }
+
+        .price-label-logo img {
+          width: 0.77in;
+          height: 0.77in;
+          object-fit: contain;
+          display: block;
+        }
+
+        .price-label-copy {
+          height: 100%;
+          display: grid;
+          grid-template-rows: 1fr auto;
+          align-items: stretch;
+          min-width: 0;
+          padding: 0.075in 0.075in 0.06in 0.015in;
+          text-align: right;
+          box-sizing: border-box;
+        }
+
+        .price-label-name {
+          width: 100%;
+          max-width: 100%;
+          margin-left: auto;
+          font-size: var(--label-title-size, 8px);
+          line-height: 1.35;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          overflow: hidden;
+          text-align: right;
+          align-self: start;
+        }
+
+        .price-label-price {
+          width: 100%;
+          max-width: 100%;
+          margin-left: auto;
+          font-size: var(--label-price-size, 16px);
+          line-height: 1;
+          white-space: nowrap;
+          overflow: hidden;
+          text-align: right;
+          align-self: end;
+        }
+
+        .label-logo-preload {
+          position: absolute;
+          height: 1px;
+          width: 1px;
+          opacity: 0;
+          pointer-events: none;
+        }
+
+        @media print {
+          html,
+          body {
+            width: ${pageWidth} !important;
+            min-width: ${pageWidth} !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          body * {
+            visibility: hidden !important;
+          }
+
+          .browser-print-document,
+          .browser-print-document * {
+            visibility: visible !important;
+          }
+
+          .browser-print-document {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+          }
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const { user, accountId } = useAuth();
   const searchParams = useSearchParams();
@@ -112,22 +303,20 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
-  const [manualPrintLabel, setManualPrintLabel] = useState<PrintableLabel | null>(null);
-  const [manualPrintRequested, setManualPrintRequested] = useState(false);
+  const [printSession, setPrintSession] = useState<PrintableLabel[] | null>(null);
+  const [rotatePrint, setRotatePrint] = useState(false);
   const autoPrintStartedRef = useRef(false);
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
   const autoPrintRequested = searchParams.get('autoprint') === '1';
   const activeIds = queryIds.length > 0 ? queryIds : queueIds;
-  const printableLabels: PrintableLabel[] = manualPrintLabel
-    ? [manualPrintLabel]
-    : items.map((item) => ({
-        id: item.id,
-        inventoryId: item.id,
-        title: labelTitle(item),
-        price: money(inventoryLabelPrice(item)),
-      }));
+  const printableLabels: PrintableLabel[] = useMemo(() => items.map((item) => ({
+    id: item.id,
+    inventoryId: item.id,
+    title: labelTitle(item),
+    price: money(inventoryLabelPrice(item)),
+  })), [items]);
 
   useEffect(() => {
     const syncQueue = () => setQueueIds(readQueue());
@@ -177,6 +366,10 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    setRotatePrint(window.localStorage.getItem(LABEL_ROTATE_KEY) === '1');
+  }, []);
+
   const removeItem = (id: string) => {
     if (queryIds.length > 0) {
       setItems((current) => current.filter((item) => item.id !== id));
@@ -190,12 +383,24 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     setItems([]);
   };
 
-  const printLabels = () => {
-    if (items.length === 0) {
+  const startBrowserPrint = useCallback((labels: PrintableLabel[]) => {
+    if (labels.length === 0) {
       toast.info('No labels queued');
       return;
     }
-    window.print();
+    setPrintSession(labels.map((label) => ({ ...label })));
+  }, []);
+
+  const toggleRotatePrint = () => {
+    setRotatePrint((current) => {
+      const next = !current;
+      window.localStorage.setItem(LABEL_ROTATE_KEY, next ? '1' : '0');
+      return next;
+    });
+  };
+
+  const printLabels = () => {
+    startBrowserPrint(printableLabels);
   };
 
   const printManualLabel = () => {
@@ -210,36 +415,33 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       return;
     }
 
-    setManualPrintLabel({
+    startBrowserPrint([{
       id: `manual-${Date.now()}`,
       title,
       price: money(price),
-    });
-    setManualPrintRequested(true);
+    }]);
     setManualOpen(false);
+    setManualName('');
+    setManualPrice('');
   };
 
   useEffect(() => {
-    const clearManualPrint = () => setManualPrintLabel(null);
-    window.addEventListener('afterprint', clearManualPrint);
-    return () => window.removeEventListener('afterprint', clearManualPrint);
-  }, []);
-
-  useEffect(() => {
-    if (!manualPrintLabel || !manualPrintRequested) return;
+    if (!printSession) return;
     let cancelled = false;
+    const clearPrintSession = () => setPrintSession(null);
+    window.addEventListener('afterprint', clearPrintSession);
 
     const printWhenReady = async () => {
       await waitForLabelAssets();
-      if (!cancelled) {
-        window.print();
-        setManualPrintRequested(false);
-      }
+      if (!cancelled) window.print();
     };
 
     printWhenReady();
-    return () => { cancelled = true; };
-  }, [manualPrintLabel, manualPrintRequested]);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('afterprint', clearPrintSession);
+    };
+  }, [printSession]);
 
   useEffect(() => {
     if (!autoPrintRequested || autoPrintStartedRef.current || loading || printableLabels.length === 0) return;
@@ -248,12 +450,16 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
 
     const printWhenReady = async () => {
       await waitForLabelAssets();
-      if (!cancelled) window.print();
+      if (!cancelled) startBrowserPrint(printableLabels);
     };
 
     printWhenReady();
     return () => { cancelled = true; };
-  }, [autoPrintRequested, loading, printableLabels.length]);
+  }, [autoPrintRequested, loading, printableLabels, startBrowserPrint]);
+
+  if (printSession) {
+    return <BrowserPrintDocument labels={printSession} fontClassName={fontClassName} rotate={rotatePrint} />;
+  }
 
   return (
     <DashboardLayout>
@@ -273,6 +479,10 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setManualOpen(true)}>
               Manual Label
+            </Button>
+            <Button variant="outline" onClick={toggleRotatePrint}>
+              <RotateCw className="mr-2 h-4 w-4" />
+              {rotatePrint ? 'Rotate On' : 'Rotate Off'}
             </Button>
             {queryIds.length === 0 && (
               <Button variant="outline" onClick={clearQueue} disabled={queueIds.length === 0}>
@@ -313,15 +523,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
-                <div className={`price-label ${fontClassName}`} style={labelTextStyle(title, price)}>
-                  <div className="price-label-logo">
-                    <img src={LOGO_SRC} alt="Pixel & Page" />
-                  </div>
-                  <div className="price-label-copy">
-                    <div className="price-label-name">{title}</div>
-                    <div className="price-label-price">{price}</div>
-                  </div>
-                </div>
+                <LabelMarkup label={label} fontClassName={fontClassName} />
               </div>
               );
             })}
