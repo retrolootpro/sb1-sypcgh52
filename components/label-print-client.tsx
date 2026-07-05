@@ -3,7 +3,7 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Printer, RotateCw, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Printer, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,6 @@ import { inventoryLabelPrice } from '@/lib/label-pricing';
 import { toast } from 'sonner';
 
 const LABEL_QUEUE_KEY = 'retroloot-label-queue';
-const LABEL_ROTATE_KEY = 'retroloot-label-print-rotate';
 const LOGO_SRC = '/labels/pixel-page-logo.png';
 
 type LabelItem = {
@@ -81,6 +80,151 @@ function labelTextStyle(title: string, price: string): CSSProperties {
   } as CSSProperties;
 }
 
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Could not load label logo'));
+    image.src = src;
+  });
+}
+
+function wrapCanvasText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number, maxLines: number) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = '';
+
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth) {
+      line = next;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = word;
+    if (lines.length >= maxLines) break;
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  return lines.length > 0 ? lines : [text.slice(0, 24)];
+}
+
+async function renderLabelJpeg(label: PrintableLabel) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 600;
+  canvas.height = 300;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not create label print job');
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const safe = 32;
+  const logo = await loadImage(LOGO_SRC);
+  ctx.drawImage(logo, safe + 8, 38, 210, 210);
+
+  const titleLength = label.title.length;
+  const titleSize = titleLength <= 12 ? 31 : titleLength <= 22 ? 26 : titleLength <= 34 ? 22 : titleLength <= 48 ? 18 : 16;
+  const priceLength = label.price.length;
+  const priceSize = priceLength <= 5 ? 64 : priceLength <= 6 ? 54 : priceLength <= 7 ? 45 : 38;
+  const textX = 245;
+  const textRight = canvas.width - safe - 18;
+  const textWidth = textRight - textX;
+
+  ctx.fillStyle = '#000';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  ctx.font = `700 ${titleSize}px monospace`;
+  const lines = wrapCanvasText(ctx, label.title, textWidth, 4);
+  lines.forEach((line, index) => {
+    ctx.fillText(line, textRight, 38 + index * Math.round(titleSize * 1.35));
+  });
+
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `900 ${priceSize}px monospace`;
+  ctx.fillText(label.price, textRight, canvas.height - safe - 12);
+
+  return canvas.toDataURL('image/jpeg', 0.92);
+}
+
+function base64ToBytes(dataUrl: string) {
+  const base64 = dataUrl.split(',')[1] || '';
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function stringBytes(value: string) {
+  return new TextEncoder().encode(value);
+}
+
+function concatPdfParts(parts: Array<string | Uint8Array>) {
+  const encoded = parts.map((part) => typeof part === 'string' ? stringBytes(part) : part);
+  const total = encoded.reduce((sum, part) => sum + part.length, 0);
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const part of encoded) {
+    output.set(part, offset);
+    offset += part.length;
+  }
+  return output;
+}
+
+async function buildLabelPdf(labels: PrintableLabel[]) {
+  const images = await Promise.all(labels.map(renderLabelJpeg));
+  const parts: Array<string | Uint8Array> = ['%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'];
+  const offsets: number[] = [0];
+  let byteLength = stringBytes(parts[0] as string).length;
+  const pageObjectIds: number[] = [];
+  let objectId = 1;
+
+  const addObject = (body: Array<string | Uint8Array>) => {
+    const id = objectId;
+    objectId += 1;
+    offsets[id] = byteLength;
+    const objectParts: Array<string | Uint8Array> = [`${id} 0 obj\n`, ...body, '\nendobj\n'];
+    parts.push(...objectParts);
+    byteLength += objectParts.reduce((sum, part) => sum + (typeof part === 'string' ? stringBytes(part).length : part.length), 0);
+    return id;
+  };
+
+  const catalogId = addObject(['<< /Type /Catalog /Pages 2 0 R >>']);
+  const pagesId = 2;
+  objectId = 3;
+
+  images.forEach((dataUrl, index) => {
+    const imageBytes = base64ToBytes(dataUrl);
+    const imageId = addObject([
+      `<< /Type /XObject /Subtype /Image /Width 600 /Height 300 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
+      imageBytes,
+      '\nendstream',
+    ]);
+    const content = `q\n144 0 0 72 0 0 cm\n/Im${index} Do\nQ\n`;
+    const contentId = addObject([`<< /Length ${content.length} >>\nstream\n${content}endstream`]);
+    const pageId = addObject([
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 144 72] /Resources << /XObject << /Im${index} ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`,
+    ]);
+    pageObjectIds.push(pageId);
+  });
+
+  offsets[pagesId] = byteLength;
+  const pagesObject = `2 0 obj\n<< /Type /Pages /Kids [${pageObjectIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageObjectIds.length} >>\nendobj\n`;
+  parts.push(pagesObject);
+  byteLength += stringBytes(pagesObject).length;
+
+  const xrefOffset = byteLength;
+  const objectCount = objectId;
+  const xref = [
+    `xref\n0 ${objectCount}\n`,
+    '0000000000 65535 f \n',
+    ...Array.from({ length: objectCount - 1 }, (_, index) => `${String(offsets[index + 1] || 0).padStart(10, '0')} 00000 n \n`),
+    `trailer\n<< /Size ${objectCount} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`,
+  ].join('');
+  parts.push(xref);
+
+  return new Blob([concatPdfParts(parts)], { type: 'application/pdf' });
+}
+
 async function waitForLabelAssets() {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
@@ -118,182 +262,6 @@ function LabelMarkup({ label, fontClassName }: { label: PrintableLabel; fontClas
   );
 }
 
-function BrowserPrintDocument({
-  labels,
-  fontClassName,
-  rotate,
-}: {
-  labels: PrintableLabel[];
-  fontClassName: string;
-  rotate: boolean;
-}) {
-  const pageSize = rotate ? '1in 2in' : '2in 1in';
-  const pageWidth = rotate ? '1in' : '2in';
-  const pageHeight = rotate ? '2in' : '1in';
-
-  return (
-    <div className={`browser-print-document ${rotate ? 'is-rotated' : ''}`}>
-      <img className="label-logo-preload" src={LOGO_SRC} alt="" aria-hidden="true" />
-      {labels.map((label, index) => (
-        <section key={`${label.id}-${index}`} className="browser-print-page">
-          <LabelMarkup label={label} fontClassName={fontClassName} />
-        </section>
-      ))}
-
-      <style jsx global>{`
-        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-
-        @page {
-          size: ${pageSize};
-          margin: 0;
-        }
-
-        html,
-        body {
-          margin: 0 !important;
-          padding: 0 !important;
-          background: white !important;
-        }
-
-        .press-start-label-font {
-          font-family: 'Press Start 2P', monospace;
-        }
-
-        .browser-print-document {
-          width: ${pageWidth};
-          margin: 0;
-          padding: 0;
-          background: white;
-          color: black;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-
-        .browser-print-page {
-          width: ${pageWidth};
-          height: ${pageHeight};
-          margin: 0;
-          padding: 0;
-          overflow: hidden;
-          background: white;
-          break-after: page;
-          page-break-after: always;
-          break-inside: avoid;
-          page-break-inside: avoid;
-        }
-
-        .browser-print-page:last-child {
-          break-after: auto;
-          page-break-after: auto;
-        }
-
-        .price-label {
-          width: 2in;
-          height: 1in;
-          display: grid;
-          grid-template-columns: 40% 60%;
-          align-items: center;
-          overflow: hidden;
-          background: white;
-          color: black;
-          border: 0.01in solid transparent;
-          box-sizing: border-box;
-        }
-
-        .browser-print-document.is-rotated .price-label {
-          transform: rotate(90deg) translateY(-100%);
-          transform-origin: top left;
-        }
-
-        .price-label-logo {
-          height: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          padding: 0.035in;
-          box-sizing: border-box;
-        }
-
-        .price-label-logo img {
-          width: 0.77in;
-          height: 0.77in;
-          object-fit: contain;
-          display: block;
-        }
-
-        .price-label-copy {
-          height: 100%;
-          display: grid;
-          grid-template-rows: 1fr auto;
-          align-items: stretch;
-          min-width: 0;
-          padding: 0.075in 0.075in 0.06in 0.015in;
-          text-align: right;
-          box-sizing: border-box;
-        }
-
-        .price-label-name {
-          width: 100%;
-          max-width: 100%;
-          margin-left: auto;
-          font-size: var(--label-title-size, 8px);
-          line-height: 1.35;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-          overflow: hidden;
-          text-align: right;
-          align-self: start;
-        }
-
-        .price-label-price {
-          width: 100%;
-          max-width: 100%;
-          margin-left: auto;
-          font-size: var(--label-price-size, 16px);
-          line-height: 1;
-          white-space: nowrap;
-          overflow: hidden;
-          text-align: right;
-          align-self: end;
-        }
-
-        .label-logo-preload {
-          position: absolute;
-          height: 1px;
-          width: 1px;
-          opacity: 0;
-          pointer-events: none;
-        }
-
-        @media print {
-          html,
-          body {
-            width: ${pageWidth} !important;
-            min-width: ${pageWidth} !important;
-            height: auto !important;
-            overflow: visible !important;
-          }
-
-          body * {
-            visibility: hidden !important;
-          }
-
-          .browser-print-document,
-          .browser-print-document * {
-            visibility: visible !important;
-          }
-
-          .browser-print-document {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-          }
-        }
-      `}</style>
-    </div>
-  );
-}
-
 export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const { user, accountId } = useAuth();
   const searchParams = useSearchParams();
@@ -303,9 +271,9 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
-  const [printSession, setPrintSession] = useState<PrintableLabel[] | null>(null);
-  const [rotatePrint, setRotatePrint] = useState(false);
+  const [printingLabels, setPrintingLabels] = useState(false);
   const autoPrintStartedRef = useRef(false);
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
@@ -366,10 +334,6 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     }
   }, [searchParams]);
 
-  useEffect(() => {
-    setRotatePrint(window.localStorage.getItem(LABEL_ROTATE_KEY) === '1');
-  }, []);
-
   const removeItem = (id: string) => {
     if (queryIds.length > 0) {
       setItems((current) => current.filter((item) => item.id !== id));
@@ -383,21 +347,58 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     setItems([]);
   };
 
-  const startBrowserPrint = useCallback((labels: PrintableLabel[]) => {
+  const startBrowserPrint = useCallback(async (labels: PrintableLabel[]) => {
     if (labels.length === 0) {
       toast.info('No labels queued');
       return;
     }
-    setPrintSession(labels.map((label) => ({ ...label })));
-  }, []);
 
-  const toggleRotatePrint = () => {
-    setRotatePrint((current) => {
-      const next = !current;
-      window.localStorage.setItem(LABEL_ROTATE_KEY, next ? '1' : '0');
-      return next;
-    });
-  };
+    setPrintingLabels(true);
+    let url = '';
+    try {
+      await waitForLabelAssets();
+      const blob = await buildLabelPdf(labels);
+      url = URL.createObjectURL(blob);
+      const frame = printFrameRef.current;
+
+      if (!frame) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+        toast.info('Label print job opened in a new tab');
+        return;
+      }
+
+      await new Promise<void>((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          resolve();
+        };
+        frame.onload = finish;
+        frame.src = url;
+        window.setTimeout(finish, 1500);
+      });
+
+      window.setTimeout(() => {
+        try {
+          frame.contentWindow?.focus();
+          frame.contentWindow?.print();
+        } catch {
+          window.open(url, '_blank', 'noopener,noreferrer');
+          toast.info('Label print job opened in a new tab');
+        }
+      }, 150);
+
+      window.setTimeout(() => {
+        if (url) URL.revokeObjectURL(url);
+      }, 60000);
+    } catch (error) {
+      if (url) URL.revokeObjectURL(url);
+      toast.error(error instanceof Error ? error.message : 'Could not create label print job');
+    } finally {
+      window.setTimeout(() => setPrintingLabels(false), 1000);
+    }
+  }, []);
 
   const printLabels = () => {
     startBrowserPrint(printableLabels);
@@ -426,24 +427,6 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   };
 
   useEffect(() => {
-    if (!printSession) return;
-    let cancelled = false;
-    const clearPrintSession = () => setPrintSession(null);
-    window.addEventListener('afterprint', clearPrintSession);
-
-    const printWhenReady = async () => {
-      await waitForLabelAssets();
-      if (!cancelled) window.print();
-    };
-
-    printWhenReady();
-    return () => {
-      cancelled = true;
-      window.removeEventListener('afterprint', clearPrintSession);
-    };
-  }, [printSession]);
-
-  useEffect(() => {
     if (!autoPrintRequested || autoPrintStartedRef.current || loading || printableLabels.length === 0) return;
     let cancelled = false;
     autoPrintStartedRef.current = true;
@@ -457,13 +440,15 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     return () => { cancelled = true; };
   }, [autoPrintRequested, loading, printableLabels, startBrowserPrint]);
 
-  if (printSession) {
-    return <BrowserPrintDocument labels={printSession} fontClassName={fontClassName} rotate={rotatePrint} />;
-  }
-
   return (
     <DashboardLayout>
       <div className="label-screen min-h-screen bg-background px-4 py-6 text-foreground sm:px-8">
+        <iframe
+          ref={printFrameRef}
+          title="Label PDF Print Frame"
+          aria-hidden="true"
+          style={{ position: 'fixed', right: 0, bottom: 0, width: 1, height: 1, border: 0, opacity: 0, pointerEvents: 'none' }}
+        />
         <img className="label-logo-preload label-controls" src={LOGO_SRC} alt="" aria-hidden="true" />
         <div className="label-controls mx-auto mb-6 flex max-w-5xl flex-col gap-3 rounded-xl border border-border/50 bg-card p-4 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
@@ -480,19 +465,15 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             <Button variant="outline" onClick={() => setManualOpen(true)}>
               Manual Label
             </Button>
-            <Button variant="outline" onClick={toggleRotatePrint}>
-              <RotateCw className="mr-2 h-4 w-4" />
-              {rotatePrint ? 'Rotate On' : 'Rotate Off'}
-            </Button>
             {queryIds.length === 0 && (
               <Button variant="outline" onClick={clearQueue} disabled={queueIds.length === 0}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Clear Queue
               </Button>
             )}
-            <Button onClick={printLabels} disabled={items.length === 0}>
+            <Button onClick={printLabels} disabled={items.length === 0 || printingLabels}>
               <Printer className="mr-2 h-4 w-4" />
-              Print {items.length || ''}
+              {printingLabels ? 'Preparing...' : `Print ${items.length || ''}`}
             </Button>
           </div>
         </div>
@@ -560,9 +541,9 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setManualOpen(false)}>Cancel</Button>
-              <Button onClick={printManualLabel}>
+              <Button onClick={printManualLabel} disabled={printingLabels}>
                 <Printer className="mr-2 h-4 w-4" />
-                Print Label
+                {printingLabels ? 'Preparing...' : 'Print Label'}
               </Button>
             </DialogFooter>
           </DialogContent>
