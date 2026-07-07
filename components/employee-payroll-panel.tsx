@@ -38,18 +38,26 @@ const monthStart = () => {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
 };
-const weekStart = () => {
+
+function addDays(dateString: string, days: number) {
+  const date = new Date(`${dateString}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return date.toISOString().split('T')[0];
+}
+
+function currentBiWeeklyWindow() {
+  const anchor = new Date('2024-01-01T00:00:00');
   const now = new Date();
-  const day = now.getDay();
-  const mondayOffset = day === 0 ? -6 : 1 - day;
-  now.setDate(now.getDate() + mondayOffset);
-  return now.toISOString().split('T')[0];
-};
-const weekEnd = () => {
-  const start = new Date(`${weekStart()}T00:00:00`);
-  start.setDate(start.getDate() + 6);
-  return start.toISOString().split('T')[0];
-};
+  const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.floor((todayLocal.getTime() - anchor.getTime()) / 86400000);
+  const biWeekOffset = Math.floor(diffDays / 14) * 14;
+  const startDate = new Date(anchor);
+  startDate.setDate(anchor.getDate() + biWeekOffset);
+  const start = startDate.toISOString().split('T')[0];
+  const end = addDays(start, 13);
+
+  return { start, end };
+}
 
 type CartItem = EmployeePurchasableInventoryItem & { cartPrice: number };
 
@@ -61,8 +69,8 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   const [saving, setSaving] = useState(false);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(monthStart());
-  const [periodStart, setPeriodStart] = useState(weekStart());
-  const [periodEnd, setPeriodEnd] = useState(weekEnd());
+  const [periodStart, setPeriodStart] = useState(() => currentBiWeeklyWindow().start);
+  const [periodEnd, setPeriodEnd] = useState(() => currentBiWeeklyWindow().end);
   const [inventorySearch, setInventorySearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [fulfillmentMethod, setFulfillmentMethod] = useState<'pickup' | 'shipping'>('pickup');
@@ -70,6 +78,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   const [taxRate, setTaxRate] = useState('7');
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, { shipping: string; taxRate: string }>>({});
   const [showAllTransactions, setShowAllTransactions] = useState(false);
+  const [showAllWorkLogs, setShowAllWorkLogs] = useState(false);
 
   const [spendForm, setSpendForm] = useState<{
     amount: string;
@@ -133,6 +142,8 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
     .slice(0, 24);
   const selectedSpendRows = selectedSummary?.spend || [];
   const visibleSpendRows = showAllTransactions ? selectedSpendRows : selectedSpendRows.slice(0, 6);
+  const selectedWorkRows = selectedSummary?.workLogs || [];
+  const visibleWorkRows = showAllWorkLogs ? selectedWorkRows : selectedWorkRows.slice(0, 12);
 
   const totals = useMemo(() => {
     return summaries.reduce(
@@ -141,10 +152,10 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         acc.monthPurchaseTotal += summary.monthPurchaseTotal;
         acc.unpaidWork += summary.unpaidWorkTotal;
         acc.unpaidSpend += summary.unpaidSpendTotal;
-        acc.weekPayout += summary.weeklyPayoutTotal;
+        acc.biWeeklyPayout += summary.biWeeklyPayoutTotal;
         return acc;
       },
-      { monthSpend: 0, monthPurchaseTotal: 0, unpaidWork: 0, unpaidSpend: 0, weekPayout: 0 }
+      { monthSpend: 0, monthPurchaseTotal: 0, unpaidWork: 0, unpaidSpend: 0, biWeeklyPayout: 0 }
     );
   }, [summaries]);
 
@@ -158,7 +169,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
       setEmployees(employeeData);
       setInventoryItems(await getEmployeePurchasableInventory());
       try {
-        const summaryData = await getEmployeePayrollSummaries({ month: selectedMonth, weekStart: periodStart, weekEnd: periodEnd });
+        const summaryData = await getEmployeePayrollSummaries({ month: selectedMonth, periodStart, periodEnd });
         setSummaries(isAdmin ? summaryData : summaryData.filter((summary) => summary.employee.id === employeeData[0]?.id));
       } catch (summaryError: any) {
         if (summaryError?.message?.includes('employee_inventory_spend') || summaryError?.message?.includes('employee_work_logs') || summaryError?.message?.includes('employee_payouts')) {
@@ -169,7 +180,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
             remainingAllowance: 500,
             unpaidWorkTotal: 0,
             unpaidSpendTotal: 0,
-            weeklyPayoutTotal: 0,
+            biWeeklyPayoutTotal: 0,
             taxWatchMonthlyPayout: 0,
             workLogs: [],
             spend: [],
@@ -352,9 +363,9 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         total_amount: total,
         status: 'approved',
         paid_at: null,
-        notes: 'Weekly payout generated from unpaid work minus approved employee inventory purchases.',
+        notes: 'Bi-weekly payout generated from unpaid work minus approved employee inventory purchases.',
       });
-      toast.success('Weekly payout created');
+      toast.success('Bi-weekly payout created');
       load();
     } catch (error: any) {
       toast.error(error.message || 'Failed to create payout');
@@ -436,7 +447,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
     return (
       <div className="rounded-2xl border border-border/40 bg-card p-5">
         <div className="text-sm font-semibold">Payroll</div>
-        <p className="mt-1 text-xs text-muted-foreground">Add an active employee before tracking inventory spend, work logs, or weekly payouts.</p>
+        <p className="mt-1 text-xs text-muted-foreground">Add an active employee before tracking inventory spend, work logs, or bi-weekly payouts.</p>
       </div>
     );
   }
@@ -451,7 +462,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
             <Badge variant="outline" className="text-[10px] uppercase">Admin only</Badge>
           </div>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Track employee inventory purchasing allowance, Whatnot moderation time, eBay commission, additional funds, and weekly payouts.
+            Track employee inventory purchasing allowance, Whatnot moderation time, eBay commission, additional funds, and bi-weekly payouts.
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-9 text-xs" onClick={load}>
@@ -465,13 +476,13 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         <SummaryCard icon={ShoppingCart} label="Employee total due" value={money(totals.monthPurchaseTotal)} />
         <SummaryCard icon={BriefcaseBusiness} label="Unpaid work" value={money(totals.unpaidWork)} />
         <SummaryCard icon={DollarSign} label="Approved allowance deductions" value={money(totals.unpaidSpend)} />
-        <SummaryCard icon={CalendarDays} label="Payouts this week" value={money(totals.weekPayout)} />
+        <SummaryCard icon={CalendarDays} label="Payouts this period" value={money(totals.biWeeklyPayout)} />
       </div>
 
       <div className="rounded-xl border border-border/40 bg-background/35 p-4">
         <div className="mb-4">
           <div className="text-sm font-semibold">Review Window</div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">Choose the employee, allowance month, and payout week before adding spend or work.</p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Choose the employee, allowance month, and bi-weekly payout window before adding spend or work.</p>
         </div>
         <div className="grid gap-4 md:grid-cols-[1.4fr_1fr_1fr]">
           <div className="space-y-2">
@@ -493,11 +504,11 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-2">
-              <Label>Week start</Label>
+              <Label>Period start</Label>
               <Input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="h-9" />
             </div>
             <div className="space-y-2">
-              <Label>Week end</Label>
+              <Label>Period end</Label>
               <Input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="h-9" />
             </div>
           </div>
@@ -542,7 +553,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-background/40 p-1 text-xs sm:grid-cols-3">
           <TabsTrigger value="spend" className="h-10 text-xs">Employee Store</TabsTrigger>
           <TabsTrigger value="work" className="h-10 text-xs">Work & Commission</TabsTrigger>
-          <TabsTrigger value="payouts" className="h-10 text-xs">Weekly Payouts</TabsTrigger>
+          <TabsTrigger value="payouts" className="h-10 text-xs">Bi-Weekly Payouts</TabsTrigger>
         </TabsList>
 
         <TabsContent value="spend" className="mt-0">
@@ -771,10 +782,20 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
               <Button type="submit" disabled={saving}>Add Work Log</Button>
             </form>
           </PanelSection>
-          <RecentList empty="No work logs yet." rows={(selectedSummary?.workLogs || []).slice(0, 6).map((entry) => ({
+          <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-xs text-muted-foreground">
+              Showing {visibleWorkRows.length} of {selectedWorkRows.length} work logs for this payout period.
+            </div>
+            {selectedWorkRows.length > 12 && (
+              <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowAllWorkLogs((current) => !current)}>
+                {showAllWorkLogs ? 'Show fewer' : 'Show all work logs'}
+              </Button>
+            )}
+          </div>
+          <RecentList empty="No work logs yet for this payout period." rows={visibleWorkRows.map((entry) => ({
             id: entry.id,
             title: entry.description,
-            meta: `${entry.work_date} • ${entry.work_type.replaceAll('_', ' ')} • ${entry.minutes_worked} min`,
+            meta: `${entry.work_date} • ${entry.work_type.replaceAll('_', ' ')} • ${entry.minutes_worked} min • ${entry.payout_status}`,
             amount: money(calculateWorkLogAmount(entry)),
           }))} />
         </TabsContent>
@@ -782,7 +803,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         <TabsContent value="payouts" className="mt-0 space-y-4">
           <div className="flex flex-col gap-4 rounded-xl border border-border/40 bg-background/35 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <div className="text-base font-semibold">Create weekly payout for {selectedEmployee?.name}</div>
+              <div className="text-base font-semibold">Create bi-weekly payout for {selectedEmployee?.name}</div>
               <div className="mt-1 text-sm leading-6 text-muted-foreground">
                 Work {money(selectedSummary?.unpaidWorkTotal || 0)} - employee purchases {money(selectedSummary?.unpaidSpendTotal || 0)} = payout {money(Math.max(0, (selectedSummary?.unpaidWorkTotal || 0) - (selectedSummary?.unpaidSpendTotal || 0)))}
               </div>

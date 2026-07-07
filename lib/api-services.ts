@@ -403,7 +403,7 @@ export interface EmployeeWorkLog {
   sale_amount: number;
   commission_rate: number;
   additional_amount: number;
-  payout_status: 'unpaid' | 'approved' | 'paid' | 'void';
+  payout_status: 'unpaid' | 'approved' | 'paid' | 'void' | null;
   payout_id?: string | null;
   notes?: string;
   created_at: string;
@@ -433,7 +433,7 @@ export interface EmployeePayrollSummary {
   remainingAllowance: number;
   unpaidWorkTotal: number;
   unpaidSpendTotal: number;
-  weeklyPayoutTotal: number;
+  biWeeklyPayoutTotal: number;
   taxWatchMonthlyPayout: number;
   workLogs: EmployeeWorkLog[];
   spend: EmployeeInventorySpend[];
@@ -502,17 +502,61 @@ function isCoveredByPaidPayout(date: string, payouts: EmployeePayout[]) {
   ));
 }
 
-export async function getEmployeePayrollSummaries(options?: { weekStart?: string; weekEnd?: string; month?: string }): Promise<EmployeePayrollSummary[]> {
+function isLinkedToPaidPayout(entry: EmployeeWorkLog, payouts: EmployeePayout[]) {
+  if (!entry.payout_id) return false;
+  return payouts.some((payout) => {
+    if (payout.id !== entry.payout_id || payout.status !== 'paid') return false;
+    if (payout.paid_at && entry.created_at && entry.created_at > payout.paid_at) return false;
+    return true;
+  });
+}
+
+function isOpenWorkLog(entry: EmployeeWorkLog) {
+  return !entry.payout_status || entry.payout_status === 'unpaid' || entry.payout_status === 'approved';
+}
+
+function isRecoverablePaidWorkLog(entry: EmployeeWorkLog, payouts: EmployeePayout[]) {
+  if (entry.payout_status !== 'paid' || !entry.payout_id) return false;
+  return payouts.some((payout) => (
+    payout.id === entry.payout_id
+    && payout.status === 'paid'
+    && Boolean(payout.paid_at)
+    && Boolean(entry.created_at)
+    && entry.created_at > String(payout.paid_at)
+  ));
+}
+
+export async function getEmployeePayrollSummaries(options?: {
+  periodStart?: string;
+  periodEnd?: string;
+  weekStart?: string;
+  weekEnd?: string;
+  month?: string;
+}): Promise<EmployeePayrollSummary[]> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
 
   const accountId = await getActiveAccountId(session.user);
   const employees = await getActiveEmployees();
   const selectedMonth = options?.month || monthStart();
-  const weekStart = options?.weekStart;
-  const weekEnd = options?.weekEnd;
-  const weekEndExclusive = weekEnd ? nextDay(weekEnd) : undefined;
+  const periodStart = options?.periodStart || options?.weekStart;
+  const periodEnd = options?.periodEnd || options?.weekEnd;
+  const periodEndExclusive = periodEnd ? nextDay(periodEnd) : undefined;
   const monthEnd = nextDay(new Date(new Date(`${selectedMonth}T00:00:00`).getFullYear(), new Date(`${selectedMonth}T00:00:00`).getMonth() + 1, 0).toISOString().split('T')[0]);
+  let workQuery = supabase
+    .from('employee_work_logs')
+    .select('*')
+    .eq('user_id', accountId)
+    .order('work_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1000);
+
+  if (periodStart) {
+    workQuery = workQuery.gte('work_date', periodStart);
+  }
+  if (periodEndExclusive) {
+    workQuery = workQuery.lt('work_date', periodEndExclusive);
+  }
 
   const [{ data: spendData, error: spendError }, { data: workData, error: workError }, { data: payoutData, error: payoutError }] = await Promise.all([
     supabase
@@ -522,12 +566,7 @@ export async function getEmployeePayrollSummaries(options?: { weekStart?: string
       .gte('spend_date', selectedMonth)
       .lt('spend_date', monthEnd)
       .order('spend_date', { ascending: false }),
-    supabase
-      .from('employee_work_logs')
-      .select('*')
-      .eq('user_id', accountId)
-      .order('work_date', { ascending: false })
-      .limit(250),
+    workQuery,
     supabase
       .from('employee_payouts')
       .select('*')
@@ -549,13 +588,13 @@ export async function getEmployeePayrollSummaries(options?: { weekStart?: string
     const employeeWork = workLogs.filter((entry) => entry.employee_id === employee.id);
     const employeePayouts = payouts.filter((entry) => entry.employee_id === employee.id);
     const unpaidWorkRows = employeeWork.filter((entry) => (
-      (entry.payout_status === 'unpaid' || entry.payout_status === 'approved')
-      && !entry.payout_id
-      && isWithinDateWindow(entry.work_date, weekStart, weekEndExclusive)
-      && !isCoveredByPaidPayout(entry.work_date, employeePayouts)
+      (isOpenWorkLog(entry) || isRecoverablePaidWorkLog(entry, employeePayouts))
+      && isWithinDateWindow(entry.work_date, periodStart, periodEndExclusive)
+      && !isLinkedToPaidPayout(entry, employeePayouts)
     ));
     const unpaidSpendRows = employeeSpend.filter((entry) => (
       entry.status === 'approved'
+      && isWithinDateWindow(entry.spend_date, periodStart, periodEndExclusive)
       && !isCoveredByPaidPayout(entry.spend_date, employeePayouts)
     ));
     const monthSpend = employeeSpend
@@ -568,10 +607,10 @@ export async function getEmployeePayrollSummaries(options?: { weekStart?: string
       .reduce((sum, entry) => sum + calculateWorkLogAmount(entry), 0);
     const unpaidSpendTotal = unpaidSpendRows
       .reduce((sum, entry) => sum + calculateEmployeePurchaseAmount(entry), 0);
-    const weeklyPayoutTotal = employeePayouts
+    const biWeeklyPayoutTotal = employeePayouts
       .filter((payout) => {
-        if (!weekStart || !weekEndExclusive) return true;
-        return payout.period_start >= weekStart && payout.period_start < weekEndExclusive;
+        if (!periodStart || !periodEndExclusive) return true;
+        return payout.period_start < periodEndExclusive && payout.period_end >= periodStart;
       })
       .filter((payout) => payout.status !== 'cancelled')
       .reduce((sum, payout) => sum + Number(payout.total_amount || 0), 0);
@@ -586,7 +625,7 @@ export async function getEmployeePayrollSummaries(options?: { weekStart?: string
       remainingAllowance: Math.max(0, 500 - monthSpend),
       unpaidWorkTotal,
       unpaidSpendTotal,
-      weeklyPayoutTotal,
+      biWeeklyPayoutTotal,
       taxWatchMonthlyPayout,
       workLogs: employeeWork,
       spend: employeeSpend,
@@ -840,18 +879,6 @@ export async function markEmployeePayoutPaid(payoutId: string): Promise<void> {
     .eq('payout_id', payoutId);
 
   if (linkedWorkError) throw linkedWorkError;
-
-  const { error: unlinkedWorkError } = await supabase
-    .from('employee_work_logs')
-    .update({ payout_status: 'paid', payout_id: payoutId })
-    .eq('user_id', accountId)
-    .eq('employee_id', payout.employee_id)
-    .gte('work_date', payout.period_start)
-    .lte('work_date', payout.period_end)
-    .in('payout_status', ['unpaid', 'approved'])
-    .is('payout_id', null);
-
-  if (unlinkedWorkError) throw unlinkedWorkError;
 
   const referenceId = `employee_payout:${payoutId}`;
   const transactionPayload = {
