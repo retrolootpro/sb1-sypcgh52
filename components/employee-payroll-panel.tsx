@@ -71,6 +71,9 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   const [selectedMonth, setSelectedMonth] = useState(monthStart());
   const [periodStart, setPeriodStart] = useState(() => currentBiWeeklyWindow().start);
   const [periodEnd, setPeriodEnd] = useState(() => currentBiWeeklyWindow().end);
+  const [draftSelectedMonth, setDraftSelectedMonth] = useState(selectedMonth);
+  const [draftPeriodStart, setDraftPeriodStart] = useState(periodStart);
+  const [draftPeriodEnd, setDraftPeriodEnd] = useState(periodEnd);
   const [inventorySearch, setInventorySearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [fulfillmentMethod, setFulfillmentMethod] = useState<'pickup' | 'shipping'>('pickup');
@@ -78,7 +81,6 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   const [taxRate, setTaxRate] = useState('7');
   const [reviewDrafts, setReviewDrafts] = useState<Record<string, { shipping: string; taxRate: string }>>({});
   const [showAllTransactions, setShowAllTransactions] = useState(false);
-  const [showAllWorkLogs, setShowAllWorkLogs] = useState(false);
 
   const [spendForm, setSpendForm] = useState<{
     amount: string;
@@ -143,7 +145,6 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   const selectedSpendRows = selectedSummary?.spend || [];
   const visibleSpendRows = showAllTransactions ? selectedSpendRows : selectedSpendRows.slice(0, 6);
   const selectedWorkRows = selectedSummary?.workLogs || [];
-  const visibleWorkRows = showAllWorkLogs ? selectedWorkRows : selectedWorkRows.slice(0, 12);
 
   const totals = useMemo(() => {
     return summaries.reduce(
@@ -160,7 +161,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   }, [summaries]);
 
   const load = async () => {
-    setLoading(true);
+    if (employees.length === 0) setLoading(true);
     try {
       const currentEmployee = isAdmin ? null : await getCurrentEmployeeProfile();
       const employeeData = isAdmin
@@ -203,6 +204,12 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMonth, periodStart, periodEnd]);
+
+  const handleApplyReviewWindow = () => {
+    setSelectedMonth(draftSelectedMonth);
+    setPeriodStart(draftPeriodStart);
+    setPeriodEnd(draftPeriodEnd);
+  };
 
   const requireEmployee = () => {
     const employeeId = selectedEmployee?.id;
@@ -500,18 +507,26 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
           </div>
           <div className="space-y-2">
             <Label>Allowance month</Label>
-            <Input type="date" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} className="h-9" />
+            <Input type="date" value={draftSelectedMonth} onChange={(event) => setDraftSelectedMonth(event.target.value)} className="h-9" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="space-y-2">
               <Label>Period start</Label>
-              <Input type="date" value={periodStart} onChange={(event) => setPeriodStart(event.target.value)} className="h-9" />
+              <Input type="date" value={draftPeriodStart} onChange={(event) => setDraftPeriodStart(event.target.value)} className="h-9" />
             </div>
             <div className="space-y-2">
               <Label>Period end</Label>
-              <Input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} className="h-9" />
+              <Input type="date" value={draftPeriodEnd} onChange={(event) => setDraftPeriodEnd(event.target.value)} className="h-9" />
             </div>
           </div>
+        </div>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs text-muted-foreground">
+            Unpaid work and payout totals use {periodStart} through {periodEnd}. Worklog history remains visible below.
+          </div>
+          <Button type="button" size="sm" className="h-9" onClick={handleApplyReviewWindow}>
+            Apply Dates
+          </Button>
         </div>
       </div>
 
@@ -784,20 +799,17 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
           </PanelSection>
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-xs text-muted-foreground">
-              Showing {visibleWorkRows.length} of {selectedWorkRows.length} work logs for this payout period.
+              Showing {selectedWorkRows.length} work logs. Unpaid work above only counts logs inside the selected payout dates that have not been paid.
             </div>
-            {selectedWorkRows.length > 12 && (
-              <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => setShowAllWorkLogs((current) => !current)}>
-                {showAllWorkLogs ? 'Show fewer' : 'Show all work logs'}
-              </Button>
-            )}
           </div>
-          <RecentList empty="No work logs yet for this payout period." rows={visibleWorkRows.map((entry) => ({
-            id: entry.id,
-            title: entry.description,
-            meta: `${entry.work_date} • ${entry.work_type.replaceAll('_', ' ')} • ${entry.minutes_worked} min • ${entry.payout_status}`,
-            amount: money(calculateWorkLogAmount(entry)),
-          }))} />
+          <div className="mt-3 max-h-[420px] overflow-y-auto rounded-xl border border-border/40 bg-background/20 pr-1">
+            <RecentList empty="No work logs found for this employee." rows={selectedWorkRows.map((entry) => ({
+              id: entry.id,
+              title: entry.description,
+              meta: `${entry.work_date} • ${entry.work_type.replaceAll('_', ' ')} • ${entry.minutes_worked} min • ${entry.payout_status || 'unpaid'}`,
+              amount: money(calculateWorkLogAmount(entry)),
+            }))} />
+          </div>
         </TabsContent>
 
         <TabsContent value="payouts" className="mt-0 space-y-4">

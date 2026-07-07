@@ -551,13 +551,6 @@ export async function getEmployeePayrollSummaries(options?: {
     .order('created_at', { ascending: false })
     .limit(1000);
 
-  if (periodStart) {
-    workQuery = workQuery.gte('work_date', periodStart);
-  }
-  if (periodEndExclusive) {
-    workQuery = workQuery.lt('work_date', periodEndExclusive);
-  }
-
   const [{ data: spendData, error: spendError }, { data: workData, error: workError }, { data: payoutData, error: payoutError }] = await Promise.all([
     supabase
       .from('employee_inventory_spend')
