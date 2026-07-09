@@ -16,6 +16,8 @@ import {
   createEmployeeInventorySpend,
   createEmployeePayout,
   createEmployeeWorkLog,
+  deleteEmployeePayout,
+  deleteEmployeeWorkLog,
   getActiveEmployees,
   getCurrentEmployeeProfile,
   getEmployeePayrollSummaries,
@@ -467,6 +469,36 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
     }
   };
 
+  const handleDeleteWorkLog = async (entry: EmployeeWorkLog) => {
+    if (!isAdmin) return;
+    if (!window.confirm(`Delete this work log?\n\n${entry.description}`)) return;
+    setSaving(true);
+    try {
+      await deleteEmployeeWorkLog(entry.id);
+      toast.success('Work log deleted');
+      load();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete work log');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeletePayout = async (payoutId: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm('Delete this payout? Linked work logs will be moved back to unpaid so you can fix the dates or entries.')) return;
+    setSaving(true);
+    try {
+      await deleteEmployeePayout(payoutId);
+      toast.success('Payout deleted and work logs reopened');
+      load();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete payout');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className="rounded-2xl border border-border/40 bg-card p-5 text-xs text-muted-foreground">Loading payroll controls...</div>;
   }
@@ -836,6 +868,11 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
               meta: `${entry.work_date} • ${entry.work_type.replaceAll('_', ' ')} • ${formatHours(entry.minutes_worked)} • ${entry.payout_status || 'unpaid'}`,
               amount: money(calculateWorkLogAmount(entry)),
               detail: entry.payout_id ? 'Already attached to a payout' : isInSelectedPayoutWindow(entry.work_date) ? 'Inside selected payout period' : 'Outside selected payout period',
+              action: isAdmin ? (
+                <Button size="sm" variant="outline" className="h-7 text-[11px] text-red-300 hover:text-red-200" onClick={() => handleDeleteWorkLog(entry)} disabled={saving}>
+                  Delete
+                </Button>
+              ) : undefined,
             }))} />
           </div>
         </TabsContent>
@@ -867,9 +904,16 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
             title: `${entry.period_start} to ${entry.period_end}`,
             meta: `${entry.status} • work ${money(entry.work_total)} • purchases deducted ${money(entry.spend_total)}`,
             amount: money(entry.total_amount),
-            action: entry.status !== 'paid' && entry.status !== 'cancelled'
-              ? <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => handleMarkPaid(entry.id)} disabled={saving}>Mark Paid</Button>
-              : undefined,
+            action: entry.status !== 'cancelled' ? (
+              <div className="flex gap-2">
+                {entry.status !== 'paid' && (
+                  <Button size="sm" variant="outline" className="h-7 text-[11px]" onClick={() => handleMarkPaid(entry.id)} disabled={saving}>Mark Paid</Button>
+                )}
+                {isAdmin && entry.status !== 'paid' && (
+                  <Button size="sm" variant="outline" className="h-7 text-[11px] text-red-300 hover:text-red-200" onClick={() => handleDeletePayout(entry.id)} disabled={saving}>Delete</Button>
+                )}
+              </div>
+            ) : undefined,
           }))} />
         </TabsContent>
       </Tabs>

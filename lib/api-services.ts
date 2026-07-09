@@ -805,6 +805,30 @@ export async function createEmployeeWorkLog(input: Omit<EmployeeWorkLog, 'id' | 
   return data;
 }
 
+export async function deleteEmployeeWorkLog(id: string): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data: workLog, error: fetchError } = await supabase
+    .from('employee_work_logs')
+    .select('id, payout_id')
+    .eq('id', id)
+    .eq('user_id', accountId)
+    .single();
+
+  if (fetchError) throw fetchError;
+  if (workLog?.payout_id) throw new Error('Delete the attached payout first, then remove this work log.');
+
+  const { error } = await supabase
+    .from('employee_work_logs')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', accountId);
+
+  if (error) throw error;
+}
+
 export async function createEmployeePayout(input: Omit<EmployeePayout, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<EmployeePayout> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
@@ -844,6 +868,39 @@ export async function createEmployeePayout(input: Omit<EmployeePayout, 'id' | 'u
   if (nullStatusWorkLinkError) throw nullStatusWorkLinkError;
 
   return data;
+}
+
+export async function deleteEmployeePayout(id: string): Promise<void> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data: payout, error: fetchError } = await supabase
+    .from('employee_payouts')
+    .select('id, employee_id, status')
+    .eq('id', id)
+    .eq('user_id', accountId)
+    .single();
+
+  if (fetchError) throw fetchError;
+  if (payout?.status === 'paid') throw new Error('Paid payouts cannot be deleted here because they may already be in accounting.');
+
+  const { error: unlinkError } = await supabase
+    .from('employee_work_logs')
+    .update({ payout_status: 'unpaid', payout_id: null })
+    .eq('user_id', accountId)
+    .eq('employee_id', payout.employee_id)
+    .eq('payout_id', id);
+
+  if (unlinkError) throw unlinkError;
+
+  const { error } = await supabase
+    .from('employee_payouts')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', accountId);
+
+  if (error) throw error;
 }
 
 export async function markEmployeePayoutPaid(payoutId: string): Promise<void> {
