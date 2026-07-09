@@ -831,6 +831,18 @@ export async function createEmployeePayout(input: Omit<EmployeePayout, 'id' | 'u
 
   if (workLinkError) throw workLinkError;
 
+  const { error: nullStatusWorkLinkError } = await supabase
+    .from('employee_work_logs')
+    .update({ payout_status: linkedStatus, payout_id: data.id })
+    .eq('user_id', accountId)
+    .eq('employee_id', input.employee_id)
+    .gte('work_date', input.period_start)
+    .lte('work_date', input.period_end)
+    .is('payout_status', null)
+    .is('payout_id', null);
+
+  if (nullStatusWorkLinkError) throw nullStatusWorkLinkError;
+
   return data;
 }
 

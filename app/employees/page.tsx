@@ -174,13 +174,16 @@ export default function EmployeesPage() {
         <div className="flex justify-between items-start">
           <div>
             <div className="label-caps mb-1">Business</div>
-            <h1 className="heading-lg text-[22px]">Team</h1>
+            <h1 className="heading-lg text-[22px]">Team & Pay</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Log employee work, review payouts, and keep team access in one place.</p>
           </div>
           <Button size="sm" className="h-9" onClick={() => setAddEmployeeOpen(true)}>
             <UserPlus className="w-3.5 h-3.5 mr-1.5" />
             Add Employee
           </Button>
         </div>
+
+        <EmployeePayrollPanel isAdmin={isAdmin} />
 
         <div className="rounded-2xl border border-border/40 bg-card p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -291,8 +294,6 @@ export default function EmployeesPage() {
             </Button>
           ))}
         </div>
-
-        <EmployeePayrollPanel isAdmin={isAdmin} />
 
         {loading ? (
           <div className="flex items-center justify-center py-16">

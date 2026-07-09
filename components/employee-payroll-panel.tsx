@@ -33,6 +33,12 @@ import { AlertTriangle, Banknote, BriefcaseBusiness, CalendarDays, DollarSign, P
 import { toast } from 'sonner';
 
 const money = (value: number) => `$${Number(value || 0).toFixed(2)}`;
+const hoursToMinutes = (value: string | number) => Math.round(Math.max(0, Number(value || 0)) * 60);
+const minutesToHours = (value: number) => Number(value || 0) / 60;
+const formatHours = (minutes: number) => {
+  const hours = minutesToHours(minutes);
+  return `${Number.isInteger(hours) ? hours.toFixed(0) : hours.toFixed(2)} hr`;
+};
 const today = () => new Date().toISOString().split('T')[0];
 const monthStart = () => {
   const now = new Date();
@@ -102,7 +108,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
     work_date: string;
     work_type: EmployeeWorkLog['work_type'];
     description: string;
-    minutes_worked: string;
+    hours_worked: string;
     hourly_rate: string;
     sale_amount: string;
     commission_rate: string;
@@ -112,7 +118,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
     work_date: today(),
     work_type: 'whatnot_moderation' as const,
     description: '',
-    minutes_worked: '60',
+    hours_worked: '1',
     hourly_rate: '12',
     sale_amount: '',
     commission_rate: '0',
@@ -121,9 +127,20 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   });
 
   const selectedSummary = summaries.find((summary) => summary.employee.id === selectedEmployeeId) || summaries[0];
-  const selectedEmployee = selectedSummary?.employee || employees[0];
+  const selectedEmployee = employees.find((employee) => employee.id === selectedEmployeeId) || selectedSummary?.employee || employees[0];
+  const isInSelectedPayoutWindow = (date: string) => date >= periodStart && date <= periodEnd;
+  const selectedUnpaidWorkRows = (selectedSummary?.workLogs || [])
+    .filter((entry) => (
+      (!entry.payout_status || entry.payout_status === 'unpaid' || entry.payout_status === 'approved')
+      && !entry.payout_id
+      && isInSelectedPayoutWindow(entry.work_date)
+    ))
+    .sort((a, b) => b.work_date.localeCompare(a.work_date));
+  const selectedPayoutWorkTotal = selectedUnpaidWorkRows.reduce((sum, entry) => sum + calculateWorkLogAmount(entry), 0);
+  const selectedPayoutWorkMinutes = selectedUnpaidWorkRows.reduce((sum, entry) => sum + Number(entry.minutes_worked || 0), 0);
+  const workDateInSelectedPeriod = isInSelectedPayoutWindow(workForm.work_date);
   const projectedWorkAmount = calculateWorkLogAmount({
-    minutes_worked: Number(workForm.minutes_worked || 0),
+    minutes_worked: hoursToMinutes(workForm.hours_worked),
     hourly_rate: Number(workForm.hourly_rate || 0),
     sale_amount: Number(workForm.sale_amount || 0),
     commission_rate: Number(workForm.commission_rate || 0),
@@ -311,6 +328,9 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
     const employeeId = requireEmployee();
     if (!employeeId) return;
     if (!workForm.description.trim()) return toast.error('Enter a work description');
+    if (hoursToMinutes(workForm.hours_worked) <= 0 && Number(workForm.additional_amount || 0) <= 0 && Number(workForm.sale_amount || 0) <= 0) {
+      return toast.error('Enter hours, a commission sale, or an additional amount');
+    }
 
     setSaving(true);
     try {
@@ -322,7 +342,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         show_id: null,
         ebay_listing_id: null,
         inventory_item_id: null,
-        minutes_worked: Number(workForm.minutes_worked || 0),
+        minutes_worked: hoursToMinutes(workForm.hours_worked),
         hourly_rate: Number(workForm.hourly_rate || 0),
         sale_amount: Number(workForm.sale_amount || 0),
         commission_rate: Number(workForm.commission_rate || 0),
@@ -336,7 +356,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         work_date: today(),
         work_type: 'whatnot_moderation',
         description: '',
-        minutes_worked: '60',
+        hours_worked: '1',
         hourly_rate: '12',
         sale_amount: '',
         commission_rate: '0',
@@ -354,7 +374,8 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
   const handleCreatePayout = async () => {
     const employeeId = requireEmployee();
     if (!employeeId || !selectedSummary) return;
-    const workTotal = selectedSummary.unpaidWorkTotal;
+    if (periodEnd < periodStart) return toast.error('Payout period end must be after the start date');
+    const workTotal = selectedPayoutWorkTotal;
     const spendTotal = selectedSummary.unpaidSpendTotal;
     const total = Math.max(0, workTotal - spendTotal);
     if (workTotal <= 0 && spendTotal <= 0) return toast.error('No unpaid work or approved employee purchases to settle');
@@ -465,11 +486,11 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         <div>
           <div className="flex items-center gap-2">
             <Banknote className="h-4 w-4 text-primary" />
-            <h2 className="font-semibold text-base">Admin Payroll & Spend</h2>
+            <h2 className="font-semibold text-base">Team Pay Center</h2>
             <Badge variant="outline" className="text-[10px] uppercase">Admin only</Badge>
           </div>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-            Track employee inventory purchasing allowance, Whatnot moderation time, eBay commission, additional funds, and bi-weekly payouts.
+            Log hours, review unpaid work, document bi-weekly payouts, and track employee inventory purchases without mixing the steps together.
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-9 text-xs" onClick={load}>
@@ -488,12 +509,12 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
 
       <div className="rounded-xl border border-border/40 bg-background/35 p-4">
         <div className="mb-4">
-          <div className="text-sm font-semibold">Review Window</div>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">Choose the employee, allowance month, and bi-weekly payout window before adding spend or work.</p>
+          <div className="text-sm font-semibold">Pay Context</div>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">Pick the employee and bi-weekly payout window first. New work logs only appear in this payout if their work date falls inside the selected period.</p>
         </div>
         <div className="grid gap-4 md:grid-cols-[1.4fr_1fr_1fr]">
           <div className="space-y-2">
-            <Label>Employee</Label>
+            <Label>Employee to pay</Label>
             <Select value={selectedEmployee?.id || ''} onValueChange={setSelectedEmployeeId}>
               <SelectTrigger className="h-9">
                 <SelectValue />
@@ -506,7 +527,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
             </Select>
           </div>
           <div className="space-y-2">
-            <Label>Allowance month</Label>
+            <Label>Purchase month</Label>
             <Input type="date" value={draftSelectedMonth} onChange={(event) => setDraftSelectedMonth(event.target.value)} className="h-9" />
           </div>
           <div className="grid grid-cols-2 gap-2">
@@ -540,7 +561,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
               </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[440px]">
-              <MiniMetric label="Unpaid work" value={money(selectedSummary.unpaidWorkTotal)} />
+              <MiniMetric label="Unpaid work in period" value={money(selectedPayoutWorkTotal)} />
               <MiniMetric label="Purchase deductions" value={money(selectedSummary.unpaidSpendTotal)} />
               <MiniMetric
                 label="Month payouts"
@@ -564,11 +585,11 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
         </div>
       )}
 
-      <Tabs defaultValue="spend" className="space-y-4">
+      <Tabs defaultValue="work" className="space-y-4">
         <TabsList className="grid h-auto w-full grid-cols-1 gap-1 bg-background/40 p-1 text-xs sm:grid-cols-3">
-          <TabsTrigger value="spend" className="h-10 text-xs">Employee Store</TabsTrigger>
-          <TabsTrigger value="work" className="h-10 text-xs">Work & Commission</TabsTrigger>
-          <TabsTrigger value="payouts" className="h-10 text-xs">Bi-Weekly Payouts</TabsTrigger>
+          <TabsTrigger value="work" className="h-10 text-xs">1. Log Work</TabsTrigger>
+          <TabsTrigger value="payouts" className="h-10 text-xs">2. Review Payout</TabsTrigger>
+          <TabsTrigger value="spend" className="h-10 text-xs">3. Purchases</TabsTrigger>
         </TabsList>
 
         <TabsContent value="spend" className="mt-0">
@@ -758,8 +779,8 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
 
         <TabsContent value="work" className="mt-0">
           <PanelSection
-            title="Add Work or Commission"
-            description="Track hourly work, eBay commission, and one-off additions in one place."
+            title="Log Work for Payout"
+            description="Enter hours as hours, not minutes. A 4-hour shift should be entered as 4."
           >
             <form onSubmit={handleWorkSubmit} className="space-y-4">
               <div className="grid gap-4 md:grid-cols-4">
@@ -780,7 +801,7 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
                     </SelectContent>
                   </Select>
                 </FormField>
-                <FormField label="15-min increments"><Input type="number" min="0" step="15" value={workForm.minutes_worked} onChange={(event) => setWorkForm({ ...workForm, minutes_worked: event.target.value })} /></FormField>
+                <FormField label="Hours worked"><Input type="number" min="0" step="0.25" value={workForm.hours_worked} onChange={(event) => setWorkForm({ ...workForm, hours_worked: event.target.value })} placeholder="4" /></FormField>
                 <FormField label="Hourly rate"><Input type="number" min="0" step="0.01" value={workForm.hourly_rate} onChange={(event) => setWorkForm({ ...workForm, hourly_rate: event.target.value })} /></FormField>
               </div>
               <div className="grid gap-4 md:grid-cols-4">
@@ -790,8 +811,14 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
                 <div className="rounded-lg border border-primary/20 bg-primary/10 p-3">
                   <div className="text-xs text-muted-foreground">Calculated pay</div>
                   <div className="mt-1 text-xl font-semibold">{money(projectedWorkAmount)}</div>
+                  <div className="mt-1 text-[11px] text-muted-foreground">{formatHours(hoursToMinutes(workForm.hours_worked))} at {money(Number(workForm.hourly_rate || 0))}/hr</div>
                 </div>
               </div>
+              {!workDateInSelectedPeriod && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-100">
+                  This work date is outside the selected payout period ({periodStart} to {periodEnd}), so it will save but will not appear in this payout.
+                </div>
+              )}
               <FormField label="Description"><Input value={workForm.description} onChange={(event) => setWorkForm({ ...workForm, description: event.target.value })} placeholder="Moderated Friday Whatnot show, listed item on eBay..." /></FormField>
               <FormField label="Notes"><Textarea value={workForm.notes} onChange={(event) => setWorkForm({ ...workForm, notes: event.target.value })} placeholder="Optional payout notes" /></FormField>
               <Button type="submit" disabled={saving}>Add Work Log</Button>
@@ -806,8 +833,9 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
             <RecentList empty="No work logs found for this employee." rows={selectedWorkRows.map((entry) => ({
               id: entry.id,
               title: entry.description,
-              meta: `${entry.work_date} • ${entry.work_type.replaceAll('_', ' ')} • ${entry.minutes_worked} min • ${entry.payout_status || 'unpaid'}`,
+              meta: `${entry.work_date} • ${entry.work_type.replaceAll('_', ' ')} • ${formatHours(entry.minutes_worked)} • ${entry.payout_status || 'unpaid'}`,
               amount: money(calculateWorkLogAmount(entry)),
+              detail: entry.payout_id ? 'Already attached to a payout' : isInSelectedPayoutWindow(entry.work_date) ? 'Inside selected payout period' : 'Outside selected payout period',
             }))} />
           </div>
         </TabsContent>
@@ -817,11 +845,23 @@ export function EmployeePayrollPanel({ isAdmin = true }: { isAdmin?: boolean }) 
             <div>
               <div className="text-base font-semibold">Create bi-weekly payout for {selectedEmployee?.name}</div>
               <div className="mt-1 text-sm leading-6 text-muted-foreground">
-                Work {money(selectedSummary?.unpaidWorkTotal || 0)} - employee purchases {money(selectedSummary?.unpaidSpendTotal || 0)} = payout {money(Math.max(0, (selectedSummary?.unpaidWorkTotal || 0) - (selectedSummary?.unpaidSpendTotal || 0)))}
+                {formatHours(selectedPayoutWorkMinutes)} unpaid work ({money(selectedPayoutWorkTotal)}) - employee purchases {money(selectedSummary?.unpaidSpendTotal || 0)} = payout {money(Math.max(0, selectedPayoutWorkTotal - (selectedSummary?.unpaidSpendTotal || 0)))}
               </div>
             </div>
             <Button onClick={handleCreatePayout} disabled={saving}>Create Payout</Button>
           </div>
+          <PanelSection
+            title="Unpaid Work Included"
+            description={`Only unpaid work dated ${periodStart} through ${periodEnd} is included in this payout.`}
+          >
+            <RecentList empty="No unpaid work is inside this payout period." rows={selectedUnpaidWorkRows.map((entry) => ({
+              id: entry.id,
+              title: entry.description,
+              meta: `${entry.work_date} • ${entry.work_type.replaceAll('_', ' ')} • ${formatHours(entry.minutes_worked)}`,
+              amount: money(calculateWorkLogAmount(entry)),
+              detail: `${money(Number(entry.hourly_rate || 0))}/hr • payout status ${entry.payout_status || 'unpaid'}`,
+            }))} />
+          </PanelSection>
           <RecentList empty="No payouts yet." rows={(selectedSummary?.payouts || []).slice(0, 8).map((entry) => ({
             id: entry.id,
             title: `${entry.period_start} to ${entry.period_end}`,
