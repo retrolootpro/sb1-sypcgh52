@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { BarcodeScannerView } from '@/components/barcode-scanner-view';
 import { ScanItemDialog } from '@/components/scan-item-dialog';
 import { ScanResult } from '@/lib/barcode-scanner';
@@ -60,6 +61,21 @@ type PendingBarcode = {
   barcode: string;
   scannedAt: number;
   scanCount?: number;
+};
+
+type ManualSearchResult = {
+  id: string;
+  productName: string;
+  consoleName: string;
+};
+
+type ManualSearchDetails = ManualSearchResult & {
+  prices: {
+    loose: number;
+    cib: number;
+    new: number;
+    graded: number;
+  };
 };
 
 type IntakeSessionDraft = {
@@ -118,6 +134,11 @@ export default function ScanPage() {
 
   const [showItemDialog, setShowItemDialog] = useState(false);
   const [currentQueueItemForDialog, setCurrentQueueItemForDialog] = useState<QueueItem | null>(null);
+  const [manualSearchOpen, setManualSearchOpen] = useState(false);
+  const [manualSearchLoading, setManualSearchLoading] = useState(false);
+  const [manualSearchResults, setManualSearchResults] = useState<ManualSearchResult[]>([]);
+  const [manualSearchMessage, setManualSearchMessage] = useState('');
+  const [manualSearchDraft, setManualSearchDraft] = useState({ title: '', platform: '' });
 
   const recentScansRef = useRef<Set<string>>(new Set());
   const intakeDraftHydratedRef = useRef(false);
@@ -939,37 +960,21 @@ export default function ScanPage() {
     setManualBarcode('');
   };
 
-  const handleManualTitleSubmit = async () => {
-    if (!user) return;
-    const title = manualTitle.trim();
-    if (!title) return;
-
+  const openManualItemDialog = useCallback((title: string, platform: string, pricingResult: PricingResult | null = null) => {
     const manualBook = intakeItemType === 'book';
-    const platform = manualPlatform.trim() || (manualBook ? 'Book' : extractPlatform(title) || '');
+    const resolvedPlatform = platform.trim() || (manualBook ? 'Book' : extractPlatform(title) || '');
     const classification = manualBook
       ? { itemType: 'book', confidence: 90, reasoning: 'Manual book/media entry' }
       : classifyItem(title, '', '');
     const confidence = calculateConfidence({
       barcodeMatch: false,
-      titleSimilarity: 85,
-      platformMatch: !!platform,
+      titleSimilarity: pricingResult?.status === 'success' ? 95 : 75,
+      platformMatch: !!resolvedPlatform,
       itemTypeConfidence: classification.confidence,
       hasImage: false,
-      hasPricing: false,
+      hasPricing: pricingResult?.status === 'success',
       editionMatch: false,
     });
-
-    let pricingResult: PricingResult | null = null;
-    if (classification.itemType === 'game' || classification.itemType === 'console') {
-      try {
-        pricingResult = await getPricingData(title, platform || 'Unknown', accountId || user.id, true);
-      } catch (pricingError) {
-        pricingResult = {
-          status: 'api_error',
-          error: pricingError instanceof Error ? pricingError.message : 'Unknown exception',
-        };
-      }
-    }
 
     const queueItem: QueueItem = {
       id: `manual-${Date.now()}`,
@@ -980,7 +985,7 @@ export default function ScanPage() {
       productName: title,
       result: {
         title,
-        platform,
+        platform: resolvedPlatform,
         category: manualBook ? 'Books' : 'Manual Entry',
         classification,
         confidence,
@@ -991,9 +996,118 @@ export default function ScanPage() {
     setQueue((prev) => [queueItem, ...prev]);
     setCurrentQueueItemForDialog(queueItem);
     setShowItemDialog(true);
+    setManualSearchOpen(false);
     setManualTitle('');
     setManualPlatform('');
+  }, [intakeItemType]);
+
+  const handleManualTitleSubmit = async () => {
+    if (!user) return;
+    const title = manualTitle.trim();
+    const platform = manualPlatform.trim();
+    if (!title) return;
+
+    setManualSearchDraft({ title, platform });
+    setManualSearchOpen(true);
+    setManualSearchLoading(true);
+    setManualSearchResults([]);
+    setManualSearchMessage('Searching by keyword...');
+
+    if (intakeItemType === 'book') {
+      setManualSearchLoading(false);
+      setManualSearchMessage('No automated game matches are searched for book/media intake. Continue manually to add this item.');
+      return;
+    }
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('No active session');
+
+      const response = await fetch('/api/pricecharting-search', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'search', title, platform: '' }),
+      });
+      const data = await response.json();
+      if (!data?.success) throw new Error(data?.message || 'Search failed');
+
+      const typedPlatform = platform.toLowerCase();
+      const results = ((data.products || []) as ManualSearchResult[])
+        .filter((item) => item.id && item.productName)
+        .sort((a, b) => {
+          if (!typedPlatform) return 0;
+          const aMatch = a.consoleName.toLowerCase().includes(typedPlatform) ? 0 : 1;
+          const bMatch = b.consoleName.toLowerCase().includes(typedPlatform) ? 0 : 1;
+          return aMatch - bMatch;
+        });
+
+      setManualSearchResults(results);
+      setManualSearchMessage(
+        results.length > 0
+          ? 'Choose the closest keyword match, or continue manually if none are right.'
+          : 'No items found. Try fewer keywords, remove the platform, or continue manually.'
+      );
+    } catch (error) {
+      setManualSearchResults([]);
+      setManualSearchMessage(error instanceof Error ? error.message : 'No items found. Continue manually or try different keywords.');
+    } finally {
+      setManualSearchLoading(false);
+    }
   };
+
+  const continueManualSearchItem = useCallback(() => {
+    const title = manualSearchDraft.title.trim();
+    if (!title) return;
+    openManualItemDialog(title, manualSearchDraft.platform, null);
+  }, [manualSearchDraft, openManualItemDialog]);
+
+  const selectManualSearchResult = useCallback(async (result: ManualSearchResult) => {
+    setManualSearchLoading(true);
+    setManualSearchMessage('Loading selected item prices...');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('No active session');
+
+      const response = await fetch('/api/pricecharting-search', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ mode: 'details', id: result.id }),
+      });
+      const data = await response.json();
+      if (!data?.success) throw new Error(data?.message || 'Could not load item prices');
+
+      const details = data.product as ManualSearchDetails;
+      const pricingResult: PricingResult = {
+        status: 'success',
+        data: {
+          productName: details.productName || result.productName,
+          console: details.consoleName || result.consoleName,
+          loosePrice: Number(details.prices?.loose || 0),
+          cibPrice: Number(details.prices?.cib || 0),
+          newPrice: Number(details.prices?.new || 0),
+          gradedPrice: Number(details.prices?.graded || 0),
+          pcProductId: details.id || result.id,
+          matchedTitle: details.productName || result.productName,
+          matchedPlatform: details.consoleName || result.consoleName,
+          confidence: 90,
+          strategy: 'manual_keyword_search',
+        },
+      };
+
+      openManualItemDialog(details.productName || result.productName, details.consoleName || result.consoleName, pricingResult);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not load selected item');
+      setManualSearchMessage(error instanceof Error ? error.message : 'Could not load selected item');
+    } finally {
+      setManualSearchLoading(false);
+    }
+  }, [openManualItemDialog]);
 
   const handleUndo = async () => {
     if (queue.length === 0 || !user) return;
@@ -1461,6 +1575,54 @@ export default function ScanPage() {
             </div>
           </div>
         )}
+
+        <Dialog open={manualSearchOpen} onOpenChange={setManualSearchOpen}>
+          <DialogContent className="max-w-2xl bg-card border-border">
+            <DialogHeader>
+              <DialogTitle>Manual Search Results</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="rounded-lg border border-border/40 bg-secondary/30 px-3 py-2">
+                <div className="text-sm font-medium text-foreground">
+                  {manualSearchDraft.title || 'Manual item'}
+                </div>
+                {manualSearchDraft.platform && (
+                  <div className="mt-0.5 text-xs text-muted-foreground">Keyword platform: {manualSearchDraft.platform}</div>
+                )}
+              </div>
+
+              <div className="text-sm text-muted-foreground">
+                {manualSearchLoading ? 'Searching...' : manualSearchMessage}
+              </div>
+
+              {manualSearchResults.length > 0 && (
+                <div className="max-h-[45vh] space-y-2 overflow-y-auto pr-1">
+                  {manualSearchResults.map((result) => (
+                    <button
+                      key={result.id}
+                      type="button"
+                      className="w-full rounded-lg border border-border/50 bg-card/60 px-3 py-2 text-left transition-colors hover:border-primary/40 hover:bg-primary/5"
+                      onClick={() => selectManualSearchResult(result)}
+                      disabled={manualSearchLoading}
+                    >
+                      <div className="text-sm font-semibold text-foreground">{result.productName}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{result.consoleName || 'Unknown platform'}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <Button variant="outline" onClick={() => setManualSearchOpen(false)} disabled={manualSearchLoading}>
+                  Cancel
+                </Button>
+                <Button onClick={continueManualSearchItem} disabled={manualSearchLoading || !manualSearchDraft.title.trim()}>
+                  Continue Manually
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <ScanItemDialog
           open={showItemDialog}
