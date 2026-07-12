@@ -588,7 +588,7 @@ export default function ScanPage() {
     if (!user) throw new Error('Not authenticated');
 
     const pricingStatus = pricingResult ? toDatabaseStatus(pricingResult) : 'pending';
-    const condition = defaultConditionForPlatform(selectedConsole || lookupResult.platform);
+    const condition = lookupResult.condition || defaultConditionForPlatform(selectedConsole || lookupResult.platform);
     const normalizedTitleStr = normalizeTitle(lookupResult.title || '');
     const bookMetadata = lookupResult.bookMetadata || null;
 
@@ -866,7 +866,7 @@ export default function ScanPage() {
     }
 
     const hasPricing = pricingResult?.status === 'success' && pricingResult.data;
-    const condition = defaultConditionForPlatform(selectedConsole || lookupResult.platform);
+    const condition = lookupResult.condition || defaultConditionForPlatform(selectedConsole || lookupResult.platform);
     let dealScoreData = null;
     let marketValue = 0;
 
@@ -1083,12 +1083,13 @@ export default function ScanPage() {
       if (!data?.success) throw new Error(data?.message || 'Could not load item prices');
 
       const details = data.product as ManualSearchDetails;
+      const loosePrice = Number(details.prices?.loose || 0);
       const pricingResult: PricingResult = {
         status: 'success',
         data: {
           productName: details.productName || result.productName,
           console: details.consoleName || result.consoleName,
-          loosePrice: Number(details.prices?.loose || 0),
+          loosePrice,
           cibPrice: Number(details.prices?.cib || 0),
           newPrice: Number(details.prices?.new || 0),
           gradedPrice: Number(details.prices?.graded || 0),
@@ -1100,14 +1101,53 @@ export default function ScanPage() {
         },
       };
 
-      openManualItemDialog(details.productName || result.productName, details.consoleName || result.consoleName, pricingResult);
+      const title = details.productName || result.productName;
+      const platform = details.consoleName || result.consoleName;
+      const manualBook = intakeItemType === 'book';
+      const classification = manualBook
+        ? { itemType: 'book', confidence: 90, reasoning: 'Manual book/media entry' }
+        : classifyItem(title, '', '');
+      const confidence = calculateConfidence({
+        barcodeMatch: false,
+        titleSimilarity: 95,
+        platformMatch: !!platform,
+        itemTypeConfidence: classification.confidence,
+        hasImage: false,
+        hasPricing: true,
+        editionMatch: false,
+      });
+      const queueItem: QueueItem = {
+        id: `manual-${Date.now()}`,
+        barcode: '',
+        status: 'awaiting_price',
+        scannedAt: Date.now(),
+        scanCount: 1,
+        productName: title,
+        result: {
+          title,
+          platform,
+          condition: 'Loose',
+          category: 'Manual Entry',
+          classification,
+          confidence,
+          pricingResult,
+          suggestedAskingPrice: loosePrice,
+        },
+      };
+
+      setQueue((prev) => [queueItem, ...prev]);
+      setCurrentQueueItemForDialog(queueItem);
+      setShowItemDialog(true);
+      setManualSearchOpen(false);
+      setManualTitle('');
+      setManualPlatform('');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Could not load selected item');
       setManualSearchMessage(error instanceof Error ? error.message : 'Could not load selected item');
     } finally {
       setManualSearchLoading(false);
     }
-  }, [openManualItemDialog]);
+  }, [intakeItemType]);
 
   const handleUndo = async () => {
     if (queue.length === 0 || !user) return;
@@ -1640,7 +1680,7 @@ export default function ScanPage() {
             })
           )}
           bookMetadata={currentQueueItemForDialog?.result?.bookMetadata || null}
-          suggestedAskingPrice={Number(currentQueueItemForDialog?.result?.bookMetadata?.retailPrice) || undefined}
+          suggestedAskingPrice={Number(currentQueueItemForDialog?.result?.suggestedAskingPrice || currentQueueItemForDialog?.result?.bookMetadata?.retailPrice) || undefined}
         />
       </div>
     </DashboardLayout>

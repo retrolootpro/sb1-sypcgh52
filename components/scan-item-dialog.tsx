@@ -125,7 +125,7 @@ export function ScanItemDialog({
   const [askingPriceError, setAskingPriceError] = useState('');
   const [consoleError, setConsoleError] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const priceInputRef = useRef<HTMLInputElement>(null);
+  const askingPriceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (open) {
@@ -159,8 +159,8 @@ export function ScanItemDialog({
           return;
         }
         if (!detectedConsole) return;
-        priceInputRef.current?.focus();
-        priceInputRef.current?.select();
+        askingPriceInputRef.current?.focus();
+        askingPriceInputRef.current?.select();
       }, 120);
     }
   }, [open, detectedConsole, productName, suggestedPrice, suggestedAskingPrice, allowTitleEdit, bookMetadata]);
@@ -401,7 +401,6 @@ export function ScanItemDialog({
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span>
               <Input
-                ref={priceInputRef}
                 type="number"
                 step="0.01"
                 min="0"
@@ -428,6 +427,7 @@ export function ScanItemDialog({
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span>
               <Input
+                ref={askingPriceInputRef}
                 type="number"
                 step="0.01"
                 min="0"
