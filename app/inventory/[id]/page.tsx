@@ -1127,8 +1127,15 @@ export default function ItemDetailPage() {
             {/* KPI row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3 rounded-xl border border-border/40 bg-card/40">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Cost</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">
+                  {item.quantity > 1 ? 'Unit Cost' : 'Cost'}
+                </div>
                 <div className="text-xl font-bold">${item.purchase_price.toFixed(2)}</div>
+                {item.quantity > 1 && (
+                  <div className="text-[10px] text-muted-foreground/50 mt-0.5">
+                    Total COGS: ${(item.purchase_price * item.quantity).toFixed(2)}
+                  </div>
+                )}
               </div>
               <div className="p-3 rounded-xl border border-border/40 bg-card/40">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Market Value</div>
@@ -1147,7 +1154,9 @@ export default function ItemDetailPage() {
                   ) : '--'}
                 </div>
                 {hasPricing && (
-                  <div className="text-[10px] text-muted-foreground/50 mt-0.5">{profitMargin.toFixed(0)}% margin</div>
+                  <div className="text-[10px] text-muted-foreground/50 mt-0.5">
+                    {profitMargin.toFixed(0)}% margin{item.quantity > 1 ? ` / total ${profit >= 0 ? '+' : ''}$${(profit * item.quantity).toFixed(2)}` : ''}
+                  </div>
                 )}
               </div>
               <div className="p-3 rounded-xl border border-border/40 bg-card/40">

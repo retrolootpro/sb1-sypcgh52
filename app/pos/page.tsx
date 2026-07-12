@@ -40,8 +40,8 @@ const cents = (value: number) => Math.round((Number(value) || 0) * 100);
 const fromCents = (value: number) => Number((value / 100).toFixed(2));
 const currency = (value: number) => fromCents(cents(value));
 const money = (value: number) => `$${currency(value).toFixed(2)}`;
-const CASH_OFFER_RATE = 0.35;
-const TRADE_OFFER_RATE = 0.6;
+const CASH_OFFER_RATE = 0.25;
+const TRADE_OFFER_RATE = 0.4;
 const RECOMMENDED_OFFER_RATE = (CASH_OFFER_RATE + TRADE_OFFER_RATE) / 2;
 const CONDITION_RATING_MULTIPLIERS: Record<number, number> = {
   5: 1,
@@ -125,13 +125,19 @@ function conditionRatingLabel(rating: number) {
   }
 }
 
-function baselinePriceChartingValue(details: PriceChartingDetails) {
-  const marketBaseline = Math.max(
-    Number(details.prices.loose || 0),
-    Number(details.prices.cib || 0),
-    Number(details.prices.new || 0),
-    Number(details.prices.graded || 0)
-  );
+function baselinePriceChartingValue(details: PriceChartingDetails, condition: string) {
+  const normalizedCondition = String(condition || '').toLowerCase();
+  const looseValue = Number(details.prices.loose || 0);
+  const cibValue = Number(details.prices.cib || 0);
+  const newValue = Number(details.prices.new || 0);
+  const gradedValue = Number(details.prices.graded || 0);
+  const marketBaseline = normalizedCondition.includes('graded')
+    ? gradedValue || newValue || cibValue || looseValue
+    : normalizedCondition.includes('new') || normalizedCondition.includes('sealed')
+      ? newValue || cibValue || looseValue
+      : normalizedCondition.includes('cib') || normalizedCondition.includes('complete')
+        ? cibValue || looseValue
+        : looseValue || cibValue;
   const buyFallback = Math.max(
     Number(details.prices.retailLooseBuy || 0),
     Number(details.prices.retailCibBuy || 0),
@@ -497,7 +503,7 @@ export default function PosPage() {
   };
 
   const applyPriceChartingDetailsToTradeItem = (item: TradeItem, details: PriceChartingDetails, fallback?: Partial<PriceChartingSearchResult>) => {
-    const pcValue = baselinePriceChartingValue(details);
+    const pcValue = baselinePriceChartingValue(details, item.condition || 'Loose');
     const gamestopValue = Number(details.prices.gamestop || 0);
     const marketValue = bestMarketValue(pcValue, gamestopValue);
     const quantity = Math.max(1, Number(item.quantity || 1));

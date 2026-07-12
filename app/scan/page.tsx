@@ -150,6 +150,26 @@ export default function ScanPage() {
   }, []);
 
   const selectedLot = lots.find((lot) => lot.id === selectedLotId) || null;
+  const completedQueueItems = queue.filter((item) => ['added', 'needs_review'].includes(item.status));
+  const unresolvedQueueItems = queue.filter((item) => !['added', 'needs_review'].includes(item.status));
+  const intakeHasScans = pendingBarcodes.length > 0 || queue.length > 0;
+  const intakeScansComplete = intakeHasScans && pendingBarcodes.length === 0 && !isProcessingBatch;
+  const intakeItemsConfirmed = queue.length > 0 && unresolvedQueueItems.length === 0 && completedQueueItems.length > 0;
+  const selectedLotCogsComplete = Boolean(
+    selectedLot &&
+    (
+      selectedLot.cost_allocated_at ||
+      selectedLot.allocation_status === 'allocated' ||
+      Number(selectedLot.allocation_ratio || 0) > 0
+    )
+  );
+  const intakeCanFinish = Boolean(selectedLot && intakeScansComplete && intakeItemsConfirmed && selectedLotCogsComplete);
+  const intakeSteps = [
+    { label: '1. Select lot', complete: Boolean(selectedLot) },
+    { label: '2. Scan or enter', complete: intakeScansComplete },
+    { label: '3. Confirm items', complete: intakeItemsConfirmed },
+    { label: '4. Finalize COGS', complete: selectedLotCogsComplete },
+  ];
 
   const printableGameLabelIds = useMemo(() => {
     return queue.flatMap((item) => {
@@ -241,6 +261,34 @@ export default function ScanPage() {
     setSavedIntakeAvailable(true);
     toast.success('Intake saved');
   }, [persistIntakeDraft]);
+
+  const finishIntake = useCallback(() => {
+    if (!intakeCanFinish) {
+      toast.error('Finish the intake checklist first', {
+        description: 'Select a lot, process all scans, confirm every item, and finalize COGS.',
+      });
+      return;
+    }
+
+    setScannerActive(false);
+    setIntakeActive(false);
+    setSavedIntakeAvailable(false);
+    setPendingBarcodes([]);
+    setQueue([]);
+    setManualBarcode('');
+    setManualTitle('');
+    setManualPlatform('');
+    setSelectedLotId('none');
+    setSelectedEmployeeId(null);
+    setBatchMode(false);
+    setScanMode('single');
+    setIntakeItemType('game');
+    recentScansRef.current.clear();
+    try {
+      window.localStorage.removeItem(INTAKE_SESSION_KEY);
+    } catch {}
+    toast.success('Intake finished. Ready for the next lot.');
+  }, [intakeCanFinish]);
 
   const updateQueueItem = useCallback((id: string, updates: Partial<QueueItem>) => {
     setQueue((prev) =>
@@ -1049,9 +1097,17 @@ export default function ScanPage() {
             </div>
           </div>
           <div className="mt-4 grid gap-2 text-xs sm:grid-cols-4">
-            {['1. Select lot', '2. Scan or enter', '3. Confirm item', '4. Finalize COGS'].map((step) => (
-              <div key={step} className="rounded-lg border border-white/10 bg-card/70 px-3 py-2 text-muted-foreground">
-                {step}
+            {intakeSteps.map((step) => (
+              <div
+                key={step.label}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-2 ${
+                  step.complete
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-white/10 bg-card/70 text-muted-foreground'
+                }`}
+              >
+                {step.complete && <CheckCircle2 className="h-3.5 w-3.5" />}
+                {step.label}
               </div>
             ))}
           </div>
@@ -1235,7 +1291,9 @@ export default function ScanPage() {
                   <div className="text-sm font-semibold">{selectedLot.name}</div>
                   <div className="mt-1 flex flex-wrap gap-3 text-xs text-muted-foreground">
                     <span>Paid {formatCurrency(Number(selectedLot.totalCost || selectedLot.total_paid || 0))}</span>
-                    <span>{selectedLot.itemCount} item{selectedLot.itemCount === 1 ? '' : 's'}</span>
+                    <span>
+                      {selectedLot.itemCount} row{selectedLot.itemCount === 1 ? '' : 's'} / {(selectedLot.unitCount || selectedLot.itemCount)} unit{(selectedLot.unitCount || selectedLot.itemCount) === 1 ? '' : 's'}
+                    </span>
                     <span>FMV {formatCurrency(Number(selectedLot.totalMarketValue || selectedLot.total_market_value || 0))}</span>
                     {Number(selectedLot.allocation_ratio) > 0 && <span>COGS ratio {(Number(selectedLot.allocation_ratio) * 100).toFixed(1)}%</span>}
                   </div>
@@ -1244,6 +1302,16 @@ export default function ScanPage() {
               <Button size="sm" className="h-9 text-xs" onClick={handleAllocateSelectedLot} disabled={allocatingLot}>
                 {allocatingLot ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Calculator className="w-3.5 h-3.5 mr-1.5" />}
                 Finalize Lot COGS
+              </Button>
+              <Button
+                size="sm"
+                variant={intakeCanFinish ? 'default' : 'outline'}
+                className="h-9 text-xs"
+                onClick={finishIntake}
+                disabled={!intakeCanFinish}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                Finished Intake
               </Button>
             </div>
           </div>

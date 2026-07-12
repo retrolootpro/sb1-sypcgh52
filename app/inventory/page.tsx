@@ -99,6 +99,7 @@ export default function InventoryPage() {
   const [refreshingPrices, setRefreshingPrices] = useState(false);
   const [syncingClover, setSyncingClover] = useState(false);
   const [exportingCloverWorkbook, setExportingCloverWorkbook] = useState(false);
+  const [exportingCloverNewWorkbook, setExportingCloverNewWorkbook] = useState(false);
   const [buildingCloverUpdateWorkbook, setBuildingCloverUpdateWorkbook] = useState(false);
   const [buildingCloverRepairWorkbook, setBuildingCloverRepairWorkbook] = useState(false);
   const [cloverAutoSyncEnabled, setCloverAutoSyncEnabled] = useState(false);
@@ -665,6 +666,36 @@ export default function InventoryPage() {
     }
   };
 
+  const handleDownloadCloverNewWorkbook = async () => {
+    setExportingCloverNewWorkbook(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/clover/export-new-xlsx', {
+        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+      });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.message || 'Clover new-items export failed');
+      }
+      const blob = await response.blob();
+      const total = Number(response.headers.get('X-Clover-Total') || 0);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const date = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `retrolootpro-clover-new-items-${date}.xlsx`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Clover new-items workbook downloaded${total > 0 ? `: ${total} item${total === 1 ? '' : 's'}` : ''}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Clover new-items export failed');
+    } finally {
+      setExportingCloverNewWorkbook(false);
+    }
+  };
+
   const handleConfigureCloverAutoSync = async () => {
     try {
       const minutesText = window.prompt('Auto-sync interval in minutes. Use 0 to disable.', cloverAutoSyncEnabled ? '60' : '60');
@@ -806,7 +837,7 @@ export default function InventoryPage() {
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverWorkbook || buildingCloverUpdateWorkbook || buildingCloverRepairWorkbook || loading}>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverWorkbook || exportingCloverNewWorkbook || buildingCloverUpdateWorkbook || buildingCloverRepairWorkbook || loading}>
                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                   Tools
                 </Button>
@@ -830,9 +861,13 @@ export default function InventoryPage() {
                   <FileDown className={`mr-2 h-4 w-4 ${exportingCloverWorkbook ? 'animate-pulse' : ''}`} />
                   Export All Items for Clover
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownloadCloverNewWorkbook}>
+                  <FileDown className={`mr-2 h-4 w-4 ${exportingCloverNewWorkbook ? 'animate-pulse' : ''}`} />
+                  Export Newly Added for Clover
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => cloverUpdateUploadRef.current?.click()}>
                   <FileDown className={`mr-2 h-4 w-4 ${buildingCloverUpdateWorkbook ? 'animate-pulse' : ''}`} />
-                  Add Missing Items to Clover
+                  Compare Clover Export for Missing Items
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => cloverRepairUploadRef.current?.click()}>
                   <FileDown className={`mr-2 h-4 w-4 ${buildingCloverRepairWorkbook ? 'animate-pulse' : ''}`} />

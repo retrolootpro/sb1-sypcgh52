@@ -149,6 +149,7 @@ export type LotCostSummary = {
   totalMarketValue: number;
   discountPercent: number;
   itemCount: number;
+  unitCount: number;
   allocatedCost: number;
   averageCost: number;
   items: LotCostItem[];
@@ -667,6 +668,7 @@ export async function getLotCostSummaries(): Promise<LotCostSummary[]> {
   return (lots || []).map((lot) => {
     const lotItems = itemsByLot.get(lot.id) || [];
     const tx = txByLot.get(lot.id);
+    const unitCount = lotItems.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
     const allocatedCost = lotItems.reduce((sum, item) => sum + (Number(item.purchase_price) || 0) * (Number(item.quantity) || 1), 0);
     const liveMarketValue = lotItems.reduce((sum, item) => sum + marketWeight(item) * (Number(item.quantity) || 1), 0);
     const storedPaid = Number((lot as any).total_paid) || 0;
@@ -688,8 +690,9 @@ export async function getLotCostSummaries(): Promise<LotCostSummary[]> {
       totalMarketValue,
       discountPercent: allocationRatio > 0 ? (1 - allocationRatio) * 100 : 0,
       itemCount: lotItems.length,
+      unitCount,
       allocatedCost,
-      averageCost: lotItems.length > 0 ? totalCost / lotItems.length : 0,
+      averageCost: unitCount > 0 ? totalCost / unitCount : 0,
       items: lotItems,
       purchaseTransactionId: tx?.id ?? null,
     };
@@ -775,6 +778,7 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
   const totalWeight = weights.reduce((sum, weight) => sum + weight, 0) || items.length;
   const fallbackEqual = totalWeight <= 0;
   const marketTotal = items.reduce((sum, item) => sum + marketWeight(item as LotCostItem) * (Number(item.quantity) || 1), 0);
+  const allocatableUnitCount = items.reduce((sum, item) => item.purchase_price_override ? sum : sum + (Number(item.quantity) || 1), 0);
   const allocationRatio = marketTotal > 0 ? totalCost / marketTotal : 0;
   const now = new Date().toISOString();
 
@@ -786,8 +790,8 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
     const quantity = Number(item.quantity) || 1;
     const allocatedUnitCost = item.purchase_price_override
       ? Number(item.purchase_price) || 0
-      : useMarketWeight && totalWeight > 0
-        ? (remainingCost * weight) / divisor / quantity
+      : fallbackEqual
+        ? remainingCost / Math.max(1, allocatableUnitCount)
         : (remainingCost * weight) / divisor / quantity;
     const profit = itemMarket - allocatedUnitCost;
     return supabase

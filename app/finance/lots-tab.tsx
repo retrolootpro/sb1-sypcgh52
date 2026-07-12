@@ -58,7 +58,8 @@ function LotCostDialog({
   }, [lot, open]);
 
   const amountNum = Number(amount) || 0;
-  const projectedAverage = lot?.itemCount ? amountNum / lot.itemCount : 0;
+  const unitCount = lot?.unitCount || lot?.itemCount || 0;
+  const projectedAverage = unitCount ? amountNum / unitCount : 0;
 
   const handleSave = async () => {
     if (!lot) return;
@@ -93,7 +94,7 @@ function LotCostDialog({
             <div className="rounded-xl border border-border/40 bg-white/[0.02] p-3">
               <div className="text-sm font-semibold text-white/85">{lot.name}</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                {lot.itemCount} item{lot.itemCount === 1 ? '' : 's'}{lot.source ? ` · ${lot.source}` : ''}
+                {lot.itemCount} row{lot.itemCount === 1 ? '' : 's'} / {unitCount} unit{unitCount === 1 ? '' : 's'}{lot.source ? ` · ${lot.source}` : ''}
               </div>
             </div>
 
@@ -125,8 +126,8 @@ function LotCostDialog({
             </div>
 
             <div className="grid grid-cols-2 gap-2">
-              <CostStat label="Projected Avg" value={formatCurrency(projectedAverage)} tone="amber" />
-              <CostStat label="Items" value={String(lot.itemCount)} />
+              <CostStat label="Projected Unit Avg" value={formatCurrency(projectedAverage)} tone="amber" />
+              <CostStat label="Units" value={String(unitCount)} />
             </div>
           </div>
         )}
@@ -164,8 +165,9 @@ export function LotsTab() {
     acc.totalCost += lot.totalCost;
     acc.allocated += lot.allocatedCost;
     acc.items += lot.itemCount;
+    acc.units += lot.unitCount || lot.itemCount;
     return acc;
-  }, { totalCost: 0, allocated: 0, items: 0 }), [lots]);
+  }, { totalCost: 0, allocated: 0, items: 0, units: 0 }), [lots]);
 
   return (
     <div className="space-y-4">
@@ -180,7 +182,7 @@ export function LotsTab() {
         <div>
           <h2 className="text-sm font-semibold text-white/85">Lot Costing</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            Lots come from received shipments. Allocate COGS by each item's share of current market value.
+            Lots come from received shipments. Allocate COGS by each item&apos;s share of current market value.
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-8 text-xs" onClick={load} disabled={loading}>
@@ -192,7 +194,7 @@ export function LotsTab() {
       <div className="grid grid-cols-3 gap-3">
         <CostStat label="Lot Spend" value={formatCurrency(totals.totalCost)} tone="amber" />
         <CostStat label="Allocated Cost" value={formatCurrency(totals.allocated)} tone="green" />
-        <CostStat label="Lot Items" value={String(totals.items)} />
+        <CostStat label="Lot Units" value={String(totals.units)} />
       </div>
 
       <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
@@ -225,7 +227,7 @@ export function LotsTab() {
                       <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                         {lot.source && <span>{lot.source}</span>}
                         {lot.received_at && <span>{format(new Date(lot.received_at), 'MMM d, yyyy')}</span>}
-                        <span>{lot.itemCount} item{lot.itemCount === 1 ? '' : 's'}</span>
+                        <span>{lot.itemCount} row{lot.itemCount === 1 ? '' : 's'} / {(lot.unitCount || lot.itemCount)} unit{(lot.unitCount || lot.itemCount) === 1 ? '' : 's'}</span>
                       </div>
                     </div>
 
@@ -247,8 +249,11 @@ export function LotsTab() {
                         <div key={item.id} className="rounded-lg border border-white/10 bg-white/[0.02] p-2">
                           <div className="truncate text-xs font-medium text-white/75">{item.product_name}</div>
                           <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
-                            <span>{item.console} · {item.condition}</span>
-                            <span className="font-semibold text-white/70">{formatCurrency(Number(item.purchase_price) || 0)}</span>
+                            <span>{item.console} · {item.condition}{Number(item.quantity || 1) > 1 ? ` · qty ${item.quantity}` : ''}</span>
+                            <span className="font-semibold text-white/70">
+                              {formatCurrency(Number(item.purchase_price) || 0)}
+                              {Number(item.quantity || 1) > 1 ? ` / ${formatCurrency((Number(item.purchase_price) || 0) * Number(item.quantity || 1))}` : ''}
+                            </span>
                           </div>
                         </div>
                       ))}

@@ -14,6 +14,14 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -119,6 +127,33 @@ function getDealBadge(label: string, _score: number) {
   return styles[label] || 'bg-muted text-muted-foreground border-border';
 }
 
+function normalizeDuplicateValue(value?: string | null) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getDuplicateKey(item: InventoryItem) {
+  const barcode = normalizeDuplicateValue(item.barcode);
+  if (barcode) return `barcode:${barcode}`;
+
+  return [
+    normalizeDuplicateValue(item.product_name),
+    normalizeDuplicateValue(item.console),
+    normalizeDuplicateValue(item.condition),
+    normalizeDuplicateValue(item.region),
+  ].join('|');
+}
+
+function formatDuplicateDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Unknown date';
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 export function InventoryTable({
   items,
   onRefresh,
@@ -130,9 +165,26 @@ export function InventoryTable({
   const router = useRouter();
   const { user, accountId } = useAuth();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
+  const [duplicateRemovalIds, setDuplicateRemovalIds] = useState<Set<string>>(new Set());
   const isSelectionMode = selectedIds.size > 0;
   const allSelected = items.length > 0 && selectedIds.size === items.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < items.length;
+  const duplicateGroups = Array.from(
+    items.reduce((groups, item) => {
+      const key = getDuplicateKey(item);
+      if (!key.replace(/[|]/g, '')) return groups;
+      const group = groups.get(key) || [];
+      group.push(item);
+      groups.set(key, group);
+      return groups;
+    }, new Map<string, InventoryItem[]>()).values()
+  )
+    .map((group) => [...group].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()))
+    .filter((group) => group.length > 1);
+  const duplicateRemovalCount = duplicateRemovalIds.size;
+  const duplicateGroupCount = duplicateGroups.length;
+  const duplicateExtraCount = duplicateGroups.reduce((sum, group) => sum + Math.max(0, group.length - 1), 0);
 
   const toggleSelection = (id: string) => {
     setSelectedIds((prev) => {
@@ -186,6 +238,39 @@ export function InventoryTable({
     clearSelection();
   };
 
+  const openDuplicateDialog = () => {
+    setDuplicateRemovalIds(new Set(duplicateGroups.flatMap((group) => group.slice(1).map((item) => item.id))));
+    setDuplicateDialogOpen(true);
+  };
+
+  const toggleDuplicateRemoval = (id: string) => {
+    setDuplicateRemovalIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleRemoveDuplicates = async () => {
+    if (!user || duplicateRemovalIds.size === 0) return;
+    const ids = Array.from(duplicateRemovalIds);
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .delete()
+        .in('id', ids)
+        .eq('user_id', accountId || user.id);
+      if (error) throw error;
+      toast.success(`Removed ${ids.length} duplicate item${ids.length === 1 ? '' : 's'}`);
+      setDuplicateDialogOpen(false);
+      setDuplicateRemovalIds(new Set());
+      onRefresh();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to remove duplicates');
+    }
+  };
+
   const selectedIdList = () => Array.from(selectedIds);
 
   const handlePrintSelectedLabels = () => {
@@ -223,6 +308,115 @@ export function InventoryTable({
 
   return (
     <div className="space-y-3">
+      {duplicateGroupCount > 0 && !isSelectionMode && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border border-amber-500/30 bg-amber-500/10">
+          <div className="flex-1 min-w-[220px]">
+            <p className="text-sm font-medium text-foreground">
+              {duplicateGroupCount} possible duplicate group{duplicateGroupCount === 1 ? '' : 's'} found
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Review {duplicateExtraCount} extra item{duplicateExtraCount === 1 ? '' : 's'} before removing anything.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 text-sm gap-1.5 border-amber-500/40 text-amber-200 hover:bg-amber-500/15"
+            onClick={openDuplicateDialog}
+          >
+            <Trash2 className="w-4 h-4" />
+            Remove Duplicates
+          </Button>
+        </div>
+      )}
+
+      <Dialog open={duplicateDialogOpen} onOpenChange={setDuplicateDialogOpen}>
+        <DialogContent className="max-w-3xl bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>Review Possible Duplicates</DialogTitle>
+            <DialogDescription>
+              Later copies are selected by default. Uncheck anything you want to keep as a real separate copy.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-[55vh] overflow-y-auto pr-1 space-y-3">
+            {duplicateGroups.map((group) => {
+              const keeper = group[0];
+              return (
+                <div key={getDuplicateKey(keeper)} className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border/40">
+                    <div className="font-medium text-sm truncate">{keeper.product_name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {keeper.console} | {keeper.condition}
+                      {keeper.barcode ? ` | UPC ${keeper.barcode}` : ''}
+                    </div>
+                  </div>
+                  <div className="divide-y divide-border/35">
+                    {group.map((item, index) => {
+                      const checked = duplicateRemovalIds.has(item.id);
+                      return (
+                        <label
+                          key={item.id}
+                          className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-card/50 transition-colors"
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 flex-shrink-0 accent-primary"
+                            checked={checked}
+                            onChange={() => toggleDuplicateRemoval(item.id)}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium truncate">{item.product_name}</span>
+                              {index === 0 && (
+                                <Badge variant="outline" className="h-5 px-2 py-0 text-[11px] border-green-500/35 text-green-300">
+                                  oldest
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              Added {formatDuplicateDate(item.created_at)} | Qty {item.quantity} | Cost ${Number(item.purchase_price || 0).toFixed(2)}
+                            </div>
+                          </div>
+                          <span className={`text-xs flex-shrink-0 ${checked ? 'text-destructive' : 'text-muted-foreground'}`}>
+                            {checked ? 'Remove' : 'Keep'}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setDuplicateRemovalIds(new Set());
+                setDuplicateDialogOpen(false);
+              }}
+            >
+              Keep All
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setDuplicateRemovalIds(new Set(duplicateGroups.flatMap((group) => group.slice(1).map((item) => item.id))))}
+            >
+              Select Later Copies
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleRemoveDuplicates}
+              disabled={duplicateRemovalCount === 0}
+            >
+              Remove {duplicateRemovalCount} Duplicate{duplicateRemovalCount === 1 ? '' : 's'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {isSelectionMode && (
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 sticky top-2 z-10 backdrop-blur-sm">
           <div
