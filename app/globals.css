@@ -32,30 +32,30 @@
   }
 
   html.light {
-    --background: 220 24% 97%;
-    --foreground: 222 28% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 28% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 28% 11%;
-    --primary: 148 100% 50%;
-    --primary-foreground: 0 0% 0%;
-    --secondary: 220 22% 94%;
-    --secondary-foreground: 222 28% 12%;
-    --muted: 220 20% 94%;
-    --muted-foreground: 220 12% 34%;
-    --accent: 148 34% 91%;
-    --accent-foreground: 148 48% 18%;
-    --destructive: 0 74% 50%;
+    --background: 216 22% 94%;
+    --foreground: 222 22% 17%;
+    --card: 210 24% 97%;
+    --card-foreground: 222 22% 17%;
+    --popover: 210 24% 97%;
+    --popover-foreground: 222 22% 17%;
+    --primary: 151 64% 42%;
+    --primary-foreground: 150 28% 96%;
+    --secondary: 214 20% 90%;
+    --secondary-foreground: 222 20% 20%;
+    --muted: 214 18% 91%;
+    --muted-foreground: 219 11% 40%;
+    --accent: 151 26% 88%;
+    --accent-foreground: 151 38% 20%;
+    --destructive: 0 66% 48%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 18% 84%;
-    --input: 220 20% 89%;
-    --ring: 148 100% 50%;
-    --chart-1: 148 100% 50%;
-    --chart-2: 188 70% 38%;
-    --chart-3: 0 74% 50%;
-    --chart-4: 45 94% 47%;
-    --chart-5: 214 80% 48%;
+    --border: 214 15% 80%;
+    --input: 214 16% 84%;
+    --ring: 151 64% 42%;
+    --chart-1: 151 64% 42%;
+    --chart-2: 190 58% 36%;
+    --chart-3: 0 66% 48%;
+    --chart-4: 43 78% 43%;
+    --chart-5: 214 66% 45%;
   }
 }
 
@@ -82,8 +82,8 @@
 
   html.light body {
     background:
-      radial-gradient(circle at 12% -10%, hsl(var(--primary) / 0.09), transparent 30rem),
-      linear-gradient(180deg, hsl(220 28% 98%), hsl(var(--background)));
+      radial-gradient(circle at 12% -10%, hsl(var(--primary) / 0.045), transparent 34rem),
+      linear-gradient(180deg, hsl(214 25% 96%), hsl(var(--background)));
     color: hsl(var(--foreground));
   }
 
@@ -121,8 +121,8 @@
   }
 
   html.light .glass {
-    background: hsl(var(--card) / 0.82);
-    border-color: hsl(var(--border) / 0.9);
+    background: hsl(var(--card) / 0.9);
+    border-color: hsl(var(--border) / 0.78);
   }
 
   html.light .label-caps {
@@ -131,12 +131,12 @@
 
   html.light .neon-glow,
   html.light .gold-glow {
-    box-shadow: 0 18px 42px -32px hsl(var(--primary) / 0.48);
+    box-shadow: 0 18px 42px -34px hsl(var(--primary) / 0.34);
   }
 
   html.light .neon-glow-sm,
   html.light .gold-glow-sm {
-    box-shadow: 0 12px 28px -24px hsl(var(--primary) / 0.5);
+    box-shadow: 0 12px 28px -25px hsl(var(--primary) / 0.32);
   }
 }
 
@@ -151,7 +151,7 @@
   }
 
   html.light [class~="bg-black/80"] {
-    background-color: hsl(220 20% 92%) !important;
+    background-color: hsl(214 18% 89%) !important;
   }
 
   html.light [class~="bg-black/82"],
@@ -180,14 +180,14 @@
   html.light [class~="hover:bg-white/[0.035]"]:hover,
   html.light [class~="hover:bg-white/[0.05]"]:hover,
   html.light [class~="hover:bg-white/10"]:hover {
-    background-color: hsl(220 22% 95%) !important;
+    background-color: hsl(214 20% 92%) !important;
   }
 
   html.light [class~="bg-primary/[0.12]"],
   html.light [class~="bg-primary/10"],
   html.light [class~="bg-primary/15"],
   html.light [class~="bg-primary/5"] {
-    background-color: hsl(var(--primary) / 0.12) !important;
+    background-color: hsl(var(--primary) / 0.1) !important;
   }
 
   html.light [class~="text-white"],
@@ -255,19 +255,19 @@
   html.light textarea,
   html.light button[role="combobox"] {
     color: hsl(var(--foreground));
-    background-color: hsl(220 24% 98%) !important;
+    background-color: hsl(210 24% 96%) !important;
     border-color: hsl(var(--input)) !important;
   }
 
   html.light input:focus,
   html.light textarea:focus,
   html.light button[role="combobox"]:focus {
-    border-color: hsl(var(--primary) / 0.7) !important;
-    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.16);
+    border-color: hsl(var(--primary) / 0.58) !important;
+    box-shadow: 0 0 0 3px hsl(var(--primary) / 0.12);
   }
 
   html.light [class~="shadow-sm"] {
-    box-shadow: 0 12px 34px -30px hsl(222 26% 24% / 0.55), 0 1px 0 hsl(0 0% 100% / 0.8) inset !important;
+    box-shadow: 0 12px 32px -30px hsl(222 22% 26% / 0.38), 0 1px 0 hsl(0 0% 100% / 0.6) inset !important;
   }
 }
 
