@@ -292,6 +292,166 @@ export const INCOME_CATEGORIES = [
   'Other Income',
 ];
 
+export type LedgerAutomationRule = {
+  id: string;
+  label: string;
+  match: string;
+  category: string;
+  type: Transaction['type'];
+  confidence: 'high' | 'medium' | 'review';
+  reason: string;
+};
+
+export type LedgerReviewItem = {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: Transaction['type'];
+  category: string;
+  source: Transaction['source'];
+  is_reconciled: boolean;
+  suggestedCategory: string;
+  suggestedType: Transaction['type'];
+  confidence: LedgerAutomationRule['confidence'];
+  reason: string;
+};
+
+export type LedgerAutomationSummary = {
+  connectedInstitutions: number;
+  connectedBankAccounts: number;
+  lastSyncedAt: string | null;
+  transactionsYtd: number;
+  unreconciledCount: number;
+  uncategorizedCount: number;
+  needsReviewCount: number;
+  draftExpenseCount: number;
+  lotReviewCount: number;
+  readyForExportScore: number;
+  reviewItems: LedgerReviewItem[];
+  rules: LedgerAutomationRule[];
+};
+
+export type LedgerSourceSyncResult = {
+  bank: { added: number; modified: number; removed: number; error?: string | null };
+  ebay: { imported: number; skipped: number; total?: number; error?: string | null };
+  whatnot: { imported: number; skipped: number; error?: string | null };
+  ledgerOrders: { imported: number; skipped: number; error?: string | null };
+};
+
+export type LedgerAutoReconcileResult = {
+  categorized: number;
+  reconciled: number;
+  payoutMatches: number;
+  reviewed: number;
+};
+
+export type LedgerReviewAction = {
+  transactionId: string;
+  category: string;
+  type: Transaction['type'];
+  reason?: string;
+  markReconciled?: boolean;
+};
+
+export const LEDGER_AUTOMATION_RULES: LedgerAutomationRule[] = [
+  {
+    id: 'shipping-labels',
+    label: 'Shipping labels',
+    match: 'USPS, Pirate Ship, ShipStation, UPS, FedEx',
+    category: 'Shipping',
+    type: 'expense',
+    confidence: 'high',
+    reason: 'Label and carrier charges should usually land in Shipping.',
+  },
+  {
+    id: 'marketplace-fees',
+    label: 'Marketplace fees',
+    match: 'eBay fees, Whatnot fees, Amazon seller fees',
+    category: 'Platform Fees',
+    type: 'expense',
+    confidence: 'high',
+    reason: 'Marketplace fee lines reduce net profit but are not COGS.',
+  },
+  {
+    id: 'packaging-supplies',
+    label: 'Packaging supplies',
+    match: 'Uline, Staples, Walmart boxes, tape, mailers',
+    category: 'Packaging',
+    type: 'expense',
+    confidence: 'medium',
+    reason: 'Common supply vendors often need a quick human check.',
+  },
+  {
+    id: 'software',
+    label: 'Software subscriptions',
+    match: 'Netlify, Google, OpenAI, pricing tools, bookkeeping apps',
+    category: 'Software & Subscriptions',
+    type: 'expense',
+    confidence: 'medium',
+    reason: 'Recurring app charges belong in operating expenses.',
+  },
+  {
+    id: 'inventory-buys',
+    label: 'Inventory buys',
+    match: 'GameStop, estate sales, marketplace buys, cash withdrawals',
+    category: 'Inventory Purchase',
+    type: 'expense',
+    confidence: 'review',
+    reason: 'Inventory purchases should tie back to a lot so COGS is right when items sell.',
+  },
+  {
+    id: 'platform-payouts',
+    label: 'Platform payouts',
+    match: 'eBay, Whatnot, Amazon, Square, Stripe deposits',
+    category: 'Transfer',
+    type: 'transfer',
+    confidence: 'review',
+    reason: 'Deposits should be matched to platform sales/fees rather than counted twice as new income.',
+  },
+];
+
+function inferLedgerRule(tx: Pick<Transaction, 'description' | 'merchant_name' | 'amount' | 'type' | 'category' | 'source'>): LedgerAutomationRule {
+  const haystack = `${tx.description || ''} ${tx.merchant_name || ''}`.toLowerCase();
+  const amount = Number(tx.amount) || 0;
+
+  if (/usps|pirate\s*ship|shipstation|ups|fedex|postage|shipping label/.test(haystack)) {
+    return LEDGER_AUTOMATION_RULES[0];
+  }
+  if (/ebay.*fee|whatnot.*fee|amazon.*fee|seller fee|final value|payment processing|commission/.test(haystack)) {
+    return LEDGER_AUTOMATION_RULES[1];
+  }
+  if (/uline|staples|box|boxes|mailer|mailers|tape|bubble|label printer|thermal label/.test(haystack)) {
+    return LEDGER_AUTOMATION_RULES[2];
+  }
+  if (/netlify|google|openai|quickbooks|seller ledger|reseller genie|pricecharting|barcode|subscription|software/.test(haystack)) {
+    return LEDGER_AUTOMATION_RULES[3];
+  }
+  if (/gamestop|goodwill|estate|yard sale|facebook marketplace|mercari purchase|cash withdrawal|atm withdrawal/.test(haystack)) {
+    return LEDGER_AUTOMATION_RULES[4];
+  }
+  if (amount > 0 && /ebay|whatnot|amazon|square|stripe|paypal|payout|deposit|transfer/.test(haystack)) {
+    return LEDGER_AUTOMATION_RULES[5];
+  }
+
+  return {
+    id: 'human-review',
+    label: 'Human review',
+    match: 'No confident rule match',
+    category: tx.category === 'Uncategorized' ? 'Uncategorized' : tx.category,
+    type: tx.type,
+    confidence: 'review',
+    reason: 'No strong reseller rule matched this transaction yet.',
+  };
+}
+
+async function invokeLedgerFunction<T>(fn: string, body: Record<string, unknown> = {}): Promise<T> {
+  const { data, error } = await supabase.functions.invoke(fn, { body });
+  if (error) throw new Error(error.message);
+  if (data?.error) throw new Error(data.error);
+  return data as T;
+}
+
 export async function getTransactions(filters?: {
   startDate?: string;
   endDate?: string;
@@ -318,6 +478,330 @@ export async function getTransactions(filters?: {
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return data || [];
+}
+
+export async function getLedgerAutomationSummary(): Promise<LedgerAutomationSummary> {
+  const now = new Date();
+  const startDate = `${now.getFullYear()}-01-01`;
+  const [transactions, connections, expenses, lots] = await Promise.all([
+    getTransactions({ startDate, limit: 500 }),
+    getBankConnections(),
+    getBusinessExpenses({ startDate }),
+    getLotCostSummaries(),
+  ]);
+
+  const unreconciled = transactions.filter((tx) => !tx.is_reconciled);
+  const uncategorized = transactions.filter((tx) => tx.category === 'Uncategorized');
+  const draftExpenses = expenses.filter((expense) => expense.status === 'draft' || expense.status === 'ready');
+  const lotsNeedingReview = lots.filter((lot) => (
+    lot.itemCount > 0 &&
+    (lot.totalCost <= 0 || lot.allocation_status !== 'allocated' || lot.allocatedCost <= 0)
+  ));
+  const reviewCandidates = transactions
+    .filter((tx) => !tx.is_reconciled || tx.category === 'Uncategorized')
+    .slice(0, 12)
+    .map((tx) => {
+      const rule = inferLedgerRule(tx);
+      return {
+        id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        amount: Number(tx.amount) || 0,
+        type: tx.type,
+        category: tx.category,
+        source: tx.source,
+        is_reconciled: tx.is_reconciled,
+        suggestedCategory: rule.category,
+        suggestedType: rule.type,
+        confidence: rule.confidence,
+        reason: rule.reason,
+      };
+    });
+
+  const connectedBankAccounts = connections.reduce((sum, connection) => (
+    sum + Math.max(1, connection.account_ids?.length || connection.account_names?.length || 0)
+  ), 0);
+  const lastSyncedAt = connections
+    .map((connection) => connection.last_synced_at)
+    .filter(Boolean)
+    .sort()
+    .at(-1) || null;
+  const needsReviewCount = unreconciled.length + uncategorized.length + draftExpenses.length + lotsNeedingReview.length;
+  const score = Math.max(0, Math.min(100, 100
+    - Math.min(35, unreconciled.length * 2)
+    - Math.min(25, uncategorized.length * 4)
+    - Math.min(20, draftExpenses.length * 3)
+    - Math.min(20, lotsNeedingReview.length * 5)
+    - (connections.length === 0 ? 15 : 0)));
+
+  return {
+    connectedInstitutions: connections.length,
+    connectedBankAccounts,
+    lastSyncedAt,
+    transactionsYtd: transactions.length,
+    unreconciledCount: unreconciled.length,
+    uncategorizedCount: uncategorized.length,
+    needsReviewCount,
+    draftExpenseCount: draftExpenses.length,
+    lotReviewCount: lotsNeedingReview.length,
+    readyForExportScore: Math.round(score),
+    reviewItems: reviewCandidates,
+    rules: LEDGER_AUTOMATION_RULES,
+  };
+}
+
+export async function importPlatformOrdersToLedger(): Promise<{ imported: number; skipped: number }> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+
+  const { data: orders, error } = await supabase
+    .from('platform_orders')
+    .select('id, platform, platform_order_id, item_title, quantity, sale_price, shipping_cost, order_created_at, buyer_username, item_sku')
+    .order('order_created_at', { ascending: false })
+    .limit(500);
+  if (error) throw new Error(error.message);
+
+  let imported = 0;
+  let skipped = 0;
+
+  for (const order of (orders || [])) {
+    const platform = String(order.platform || 'other').toLowerCase();
+    const orderId = String(order.platform_order_id || order.id);
+    const referenceId = `platform_order_${platform}_${orderId}`;
+    const amount = Number(order.sale_price) || 0;
+    if (amount <= 0) {
+      skipped++;
+      continue;
+    }
+
+    const { data: existing, error: existingError } = await supabase
+      .from('financial_transactions')
+      .select('id')
+      .eq('user_id', accountId)
+      .eq('reference_id', referenceId)
+      .maybeSingle();
+    if (existingError) throw new Error(existingError.message);
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    const category = platform === 'ebay' ? 'Sales - eBay'
+      : platform === 'amazon' ? 'Sales - Amazon'
+      : platform === 'whatnot' ? 'Sales - Whatnot'
+      : 'Sales - Other';
+    const source: Transaction['source'] =
+      platform === 'ebay' || platform === 'amazon' || platform === 'whatnot' ? platform : 'import';
+
+    const { error: insertError } = await supabase.from('financial_transactions').insert({
+      user_id: accountId,
+      date: (order.order_created_at || new Date().toISOString()).slice(0, 10),
+      description: `${platform.toUpperCase()} order: ${order.item_title || orderId}`,
+      amount,
+      type: 'income',
+      category,
+      source,
+      platform,
+      reference_id: referenceId,
+      merchant_name: order.buyer_username || platform,
+      notes: [
+        `Platform order ${orderId}`,
+        order.item_sku ? `SKU ${order.item_sku}` : null,
+        `Quantity ${Number(order.quantity) || 1}`,
+        order.shipping_cost != null ? `Shipping ${Number(order.shipping_cost).toFixed(2)}` : null,
+      ].filter(Boolean).join(' | '),
+      is_reconciled: false,
+      updated_at: new Date().toISOString(),
+    });
+    if (insertError) throw new Error(insertError.message);
+    imported++;
+  }
+
+  return { imported, skipped };
+}
+
+export async function syncLedgerSources(): Promise<LedgerSourceSyncResult> {
+  const result: LedgerSourceSyncResult = {
+    bank: { added: 0, modified: 0, removed: 0, error: null },
+    ebay: { imported: 0, skipped: 0, total: 0, error: null },
+    whatnot: { imported: 0, skipped: 0, error: null },
+    ledgerOrders: { imported: 0, skipped: 0, error: null },
+  };
+
+  try {
+    const bank = await syncBankTransactions();
+    result.bank = { ...bank, error: null };
+  } catch (error) {
+    result.bank.error = error instanceof Error ? error.message : 'Bank sync failed';
+  }
+
+  try {
+    const ebay = await invokeLedgerFunction<{ imported?: number; skipped?: number; total?: number }>('ebay-sync-orders');
+    result.ebay = {
+      imported: Number(ebay.imported || 0),
+      skipped: Number(ebay.skipped || 0),
+      total: Number(ebay.total || 0),
+      error: null,
+    };
+  } catch (error) {
+    result.ebay.error = error instanceof Error ? error.message : 'eBay sync failed';
+  }
+
+  try {
+    const whatnot = await invokeLedgerFunction<{ imported?: number; skipped?: number }>('whatnot-sync-orders');
+    result.whatnot = {
+      imported: Number(whatnot.imported || 0),
+      skipped: Number(whatnot.skipped || 0),
+      error: null,
+    };
+  } catch (error) {
+    result.whatnot.error = error instanceof Error ? error.message : 'Whatnot sync failed';
+  }
+
+  try {
+    result.ledgerOrders = { ...(await importPlatformOrdersToLedger()), error: null };
+  } catch (error) {
+    result.ledgerOrders.error = error instanceof Error ? error.message : 'Ledger order import failed';
+  }
+
+  return result;
+}
+
+export async function autoReconcileLedger(): Promise<LedgerAutoReconcileResult> {
+  const transactions = await getTransactions({ limit: 500 });
+  let categorized = 0;
+  let reconciled = 0;
+  let payoutMatches = 0;
+  let reviewed = 0;
+
+  const platformIncome = transactions
+    .filter((tx) => (
+      !tx.is_reconciled &&
+      tx.type === 'income' &&
+      Boolean(tx.platform) &&
+      ['ebay', 'amazon', 'whatnot'].includes(String(tx.platform).toLowerCase())
+    ))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const bankDeposits = transactions.filter((tx) => (
+    !tx.is_reconciled &&
+    tx.source === 'plaid' &&
+    Number(tx.amount) > 0 &&
+    /ebay|whatnot|amazon|paypal|square|stripe|payout|deposit/i.test(`${tx.description} ${tx.merchant_name || ''}`)
+  ));
+
+  const matchedIds = new Set<string>();
+
+  for (const deposit of bankDeposits) {
+    const haystack = `${deposit.description} ${deposit.merchant_name || ''}`.toLowerCase();
+    const platform = haystack.includes('whatnot') ? 'whatnot'
+      : haystack.includes('amazon') ? 'amazon'
+      : haystack.includes('ebay') ? 'ebay'
+      : '';
+    if (!platform) continue;
+
+    const depositDate = new Date(deposit.date).getTime();
+    const candidates = platformIncome.filter((tx) => {
+      if (matchedIds.has(tx.id)) return false;
+      if (String(tx.platform || '').toLowerCase() !== platform) return false;
+      const txDate = new Date(tx.date).getTime();
+      const daysApart = Math.abs(depositDate - txDate) / 86_400_000;
+      return daysApart <= 14;
+    });
+
+    const exactSingle = candidates.find((tx) => Math.abs(Math.abs(Number(tx.amount)) - Math.abs(Number(deposit.amount))) < 0.01);
+    if (!exactSingle) continue;
+
+    const matchNote = `Auto matched ${platform} payout deposit ${deposit.id} to sale ${exactSingle.reference_id || exactSingle.id}.`;
+    await updateTransaction(deposit.id, {
+      type: 'transfer',
+      category: 'Transfer',
+      is_reconciled: true,
+      notes: [deposit.notes, matchNote].filter(Boolean).join('\n'),
+    });
+    await updateTransaction(exactSingle.id, {
+      is_reconciled: true,
+      notes: [exactSingle.notes, matchNote].filter(Boolean).join('\n'),
+    });
+    matchedIds.add(deposit.id);
+    matchedIds.add(exactSingle.id);
+    payoutMatches++;
+  }
+
+  for (const tx of transactions) {
+    if (matchedIds.has(tx.id)) continue;
+    if (tx.is_reconciled && tx.category !== 'Uncategorized') continue;
+
+    const rule = inferLedgerRule(tx);
+    const updates: Partial<Transaction> = {};
+    const shouldApplyCategory =
+      tx.category === 'Uncategorized' &&
+      rule.category !== 'Uncategorized' &&
+      rule.confidence !== 'review';
+    const canAutoReconcile =
+      rule.confidence === 'high' &&
+      rule.type === tx.type &&
+      tx.source !== 'manual' &&
+      rule.category !== 'Transfer';
+
+    if (shouldApplyCategory) {
+      updates.category = rule.category;
+      categorized++;
+    }
+    if (!tx.is_reconciled && canAutoReconcile) {
+      updates.is_reconciled = true;
+      reconciled++;
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await updateTransaction(tx.id, updates);
+    } else if (!tx.is_reconciled || tx.category === 'Uncategorized') {
+      reviewed++;
+    }
+  }
+
+  return { categorized, reconciled, payoutMatches, reviewed };
+}
+
+async function getTransactionNotes(id: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('financial_transactions')
+    .select('notes')
+    .eq('id', id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.notes || null;
+}
+
+function appendLedgerNote(notes: string | null | undefined, note: string): string {
+  return [notes, note].filter(Boolean).join('\n');
+}
+
+export async function applyLedgerReviewAction(action: LedgerReviewAction): Promise<void> {
+  const notes = await getTransactionNotes(action.transactionId);
+  const reviewNote = [
+    `Ledger review: applied ${action.category} (${action.type}).`,
+    action.reason,
+    action.markReconciled ? 'Marked reconciled.' : null,
+  ].filter(Boolean).join(' ');
+  const updates: Partial<Transaction> = {
+    category: action.category,
+    type: action.type,
+    notes: appendLedgerNote(notes, reviewNote),
+  };
+
+  if (action.markReconciled) updates.is_reconciled = true;
+
+  await updateTransaction(action.transactionId, updates);
+}
+
+export async function markLedgerTransactionReconciled(id: string): Promise<void> {
+  const notes = await getTransactionNotes(id);
+  await updateTransaction(id, {
+    is_reconciled: true,
+    notes: appendLedgerNote(notes, 'Ledger review: marked reconciled by user.'),
+  });
 }
 
 export async function createTransaction(tx: Omit<Transaction, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<Transaction> {
