@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Key, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Plus, Trash2, Eye, EyeOff, ShieldCheck, Image, Plug, Bell, Save, KeyRound, QrCode, Smartphone, Calculator } from 'lucide-react';
+import { Key, CircleCheck as CheckCircle, CircleAlert as AlertCircle, Plus, Trash2, Eye, EyeOff, ShieldCheck, Image, Plug, Bell, Save, KeyRound, QrCode, Smartphone, Calculator, Palette } from 'lucide-react';
 import { EbayConnectCard } from '@/components/ebay-connect-card';
 import { AmazonConnectCard } from '@/components/amazon-connect-card';
 import { WhatnotConnectCard } from '@/components/whatnot-connect-card';
@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds } from '@/lib/inventory-aging';
 import { getAccountSecuritySettings, getAssuranceLevel, upsertAccountSecuritySettings, type AccountSecuritySettings } from '@/lib/security-services';
 import { getPosTaxSettings, upsertPosTaxSettings, type PosTaxSettings } from '@/lib/pos-services';
+import { ThemeSwitcher } from '@/components/theme-toggle';
 
 type ApiKey = {
   id: string;
@@ -441,6 +442,21 @@ export default function SettingsPage() {
           <div className="label-caps mb-1">Account</div>
           <h1 className="heading-lg text-[22px]">Settings</h1>
         </div>
+
+        {isAdmin && <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
+          <div className="px-6 py-4 border-b border-border/40">
+            <div className="flex items-center gap-2">
+              <Palette className="w-4 h-4 text-primary" />
+              <h3 className="font-semibold text-[15px]">Appearance</h3>
+            </div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Choose the operating theme for this device. Studio rebuilds the app into a cleaner Apple-style workspace, including the POS.
+            </p>
+          </div>
+          <div className="p-5">
+            <ThemeSwitcher />
+          </div>
+        </div>}
 
         {isAdmin && <div className="rounded-2xl border border-primary/25 bg-card overflow-hidden">
           <div className="px-6 py-4 border-b border-border/40">

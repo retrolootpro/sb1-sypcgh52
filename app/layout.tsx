@@ -36,7 +36,7 @@ export default function RootLayout({
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var mode=localStorage.getItem('retroloot-theme');if(mode==='light'){document.documentElement.classList.add('light');document.documentElement.style.colorScheme='light';}else{document.documentElement.classList.remove('light');document.documentElement.style.colorScheme='dark';}}catch(e){}})();`,
+            __html: `(function(){try{var mode=localStorage.getItem('retroloot-theme');var isLight=mode==='light';var isApple=mode==='apple';document.documentElement.classList.toggle('light',isLight);document.documentElement.classList.toggle('apple',isApple);document.documentElement.style.colorScheme=(isLight||isApple)?'light':'dark';}catch(e){}})();`,
           }}
         />
       </head>

@@ -32,6 +32,7 @@ import {
   Printer,
   Search,
   Sparkles,
+  Palette,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -80,6 +81,7 @@ const navGroups = [
     label: 'Admin',
     adminOnly: true,
     items: [
+      { href: '/settings?appearance=1', label: 'Appearance', icon: Palette },
       { href: '/employees', label: 'Team', icon: Users },
     ],
   },
