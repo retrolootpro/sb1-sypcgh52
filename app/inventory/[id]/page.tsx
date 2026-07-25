@@ -130,6 +130,10 @@ type CloverDiagnosticState = {
   merchantId?: string;
   tokenLength?: number;
   failedProbe?: string;
+  upc?: string | null;
+  cloverCode?: string | null;
+  upcSynced?: boolean;
+  imageMessage?: string | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -484,9 +488,25 @@ export default function ItemDetailPage() {
         }
         const second = await syncToCloverRequest(conflictAction);
         if (!second?.response.ok || !second.result.success) throw new Error(second?.result.message || 'Clover sync failed');
+        setCloverDiagnostic({
+          success: true,
+          message: conflictAction === 'skip' ? 'Skipped Clover sync' : 'Synced to Clover',
+          upc: second.result.upc,
+          cloverCode: second.result.cloverCode,
+          upcSynced: second.result.upcSynced,
+          imageMessage: second.result.imageMessage,
+        });
         toast.success(conflictAction === 'skip' ? 'Skipped Clover sync' : 'Synced to Clover');
       } else {
         if (!first?.response.ok || !first.result.success) throw new Error(first?.result.message || 'Clover sync failed');
+        setCloverDiagnostic({
+          success: true,
+          message: 'Synced to Clover',
+          upc: first.result.upc,
+          cloverCode: first.result.cloverCode,
+          upcSynced: first.result.upcSynced,
+          imageMessage: first.result.imageMessage,
+        });
         toast.success('Synced to Clover');
       }
       await loadItem();
@@ -1172,6 +1192,14 @@ export default function ItemDetailPage() {
                             cloverDiagnostic.tokenLength ? `token chars=${cloverDiagnostic.tokenLength}` : null,
                           ].filter(Boolean).join(' / ')}
                         </div>
+                      )}
+                      {(cloverDiagnostic.upc || cloverDiagnostic.cloverCode) && (
+                        <div className={cloverDiagnostic.upcSynced ? 'text-emerald-400' : 'text-amber-400'}>
+                          UPC {cloverDiagnostic.upcSynced ? 'synced' : 'needs review'}: RetroLoot {cloverDiagnostic.upc || 'none'} / Clover code {cloverDiagnostic.cloverCode || 'none'}
+                        </div>
+                      )}
+                      {cloverDiagnostic.imageMessage && (
+                        <div className="text-muted-foreground">{cloverDiagnostic.imageMessage}</div>
                       )}
                     </div>
                   )}

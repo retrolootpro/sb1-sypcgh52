@@ -2,6 +2,7 @@ import {
   adjustCloverInventoryCount,
   createCloverItem,
   findCloverItemBySkuOrBarcode,
+  getCloverItem,
   updateCloverItem,
   type CloverItemPayload,
 } from '@/lib/server/clover-client';
@@ -24,6 +25,8 @@ type InventoryItem = {
   price_graded?: number | null;
   condition?: string | null;
   clover_item_id?: string | null;
+  image_url?: string | null;
+  thumbnail_url?: string | null;
 };
 
 export type CloverConflictAction = 'create_additional' | 'update_existing' | 'skip';
@@ -42,8 +45,17 @@ function fallbackSku(item: InventoryItem) {
   return item.barcode?.trim() || item.sku?.trim() || `RLP-${item.id.slice(0, 8).toUpperCase()}`;
 }
 
+function upcForItem(item: InventoryItem) {
+  return item.barcode?.trim() || null;
+}
+
+function imageForItem(item: InventoryItem) {
+  return item.image_url?.trim() || item.thumbnail_url?.trim() || null;
+}
+
 export function mapInventoryItemToClover(item: InventoryItem): CloverItemPayload {
   const price = priceForItem(item);
+  const upc = upcForItem(item);
   if (!item.product_name?.trim()) throw new Error('Item title is required before syncing to Clover.');
   if (price <= 0) throw new Error('Sell price or market value is required before syncing to Clover.');
 
@@ -51,7 +63,7 @@ export function mapInventoryItemToClover(item: InventoryItem): CloverItemPayload
     name: item.product_name.trim().slice(0, 127),
     price: Math.round(price * 100),
     sku: fallbackSku(item),
-    code: item.barcode?.trim() || fallbackSku(item),
+    code: upc || fallbackSku(item),
     hidden: false,
     available: !['sold', 'archived', 'deleted'].includes(String(item.status || 'available').toLowerCase()),
   };
@@ -106,6 +118,15 @@ export async function syncInventoryItemToClover(admin: any, item: InventoryItem,
     const cloverItemId = item.clover_item_id || (options.conflictAction === 'update_existing' ? existing?.id : null);
     const result = cloverItemId ? await updateCloverItem(cloverItemId, payload) : await createCloverItem(payload);
     const finalCloverItemId = cloverItemId || result.id;
+    const verifiedItem = await getCloverItem(finalCloverItemId);
+    const expectedUpc = upcForItem(item);
+    const cloverCode = String(verifiedItem.code || '').trim();
+    const upcSynced = expectedUpc ? cloverCode === expectedUpc : false;
+    const imageUrl = imageForItem(item);
+    const imageSyncStatus = imageUrl ? 'unsupported' : 'not_provided';
+    const imageMessage = imageUrl
+      ? 'Clover standard Inventory API does not expose item image sync; the image remains in RetroLootPro.'
+      : 'No RetroLootPro image is available to sync.';
 
     if (finalCloverItemId && Number(item.quantity) >= 0) {
       try {
@@ -133,11 +154,25 @@ export async function syncInventoryItemToClover(admin: any, item: InventoryItem,
       cloverItemId: finalCloverItemId,
       action,
       status: 'synced',
-      requestSummary: { name: payload.name, price: payload.price, sku: payload.sku, code: payload.code },
-      responseSummary: { id: finalCloverItemId },
+      requestSummary: { name: payload.name, price: payload.price, sku: payload.sku, code: payload.code, imageUrl },
+      responseSummary: {
+        id: finalCloverItemId,
+        code: cloverCode,
+        upcSynced,
+        imageSyncStatus,
+        imageMessage,
+      },
     });
 
-    return { cloverItemId: finalCloverItemId, action };
+    return {
+      cloverItemId: finalCloverItemId,
+      action,
+      upc: expectedUpc,
+      cloverCode,
+      upcSynced,
+      imageSyncStatus,
+      imageMessage,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Clover sync failed';
     await admin
