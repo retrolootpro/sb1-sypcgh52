@@ -18,11 +18,15 @@ function requiredEnv(name: string) {
   return value;
 }
 
+function normalizeAccessToken(token: string) {
+  return token.trim().replace(/^Bearer\s+/i, '');
+}
+
 function cloverConfig() {
   return {
     baseUrl: (process.env.CLOVER_BASE_URL || 'https://api.clover.com').replace(/\/$/, ''),
     merchantId: requiredEnv('CLOVER_MERCHANT_ID'),
-    accessToken: requiredEnv('CLOVER_ACCESS_TOKEN'),
+    accessToken: normalizeAccessToken(requiredEnv('CLOVER_ACCESS_TOKEN')),
   };
 }
 
@@ -61,7 +65,10 @@ export async function cloverRequest<T>(path: string, options: CloverRequestOptio
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    throw new CloverApiError(`Clover API ${response.status}`, response.status, safeSummary(data));
+    const message = response.status === 401
+      ? 'Clover API 401: check that CLOVER_ACCESS_TOKEN is the raw token only, belongs to CLOVER_MERCHANT_ID, uses the same Clover environment as CLOVER_BASE_URL, and has inventory item permissions.'
+      : `Clover API ${response.status}`;
+    throw new CloverApiError(message, response.status, safeSummary(data));
   }
   return data as T;
 }
