@@ -134,6 +134,12 @@ type CloverDiagnosticState = {
   cloverCode?: string | null;
   upcSynced?: boolean;
   imageMessage?: string | null;
+  stockSync?: {
+    mode?: 'set' | 'add';
+    previousQuantity?: number;
+    addedQuantity?: number;
+    finalQuantity?: number;
+  } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -495,6 +501,7 @@ export default function ItemDetailPage() {
           cloverCode: second.result.cloverCode,
           upcSynced: second.result.upcSynced,
           imageMessage: second.result.imageMessage,
+          stockSync: second.result.stockSync,
         });
         toast.success(conflictAction === 'skip' ? 'Skipped Clover sync' : 'Synced to Clover');
       } else {
@@ -506,6 +513,7 @@ export default function ItemDetailPage() {
           cloverCode: first.result.cloverCode,
           upcSynced: first.result.upcSynced,
           imageMessage: first.result.imageMessage,
+          stockSync: first.result.stockSync,
         });
         toast.success('Synced to Clover');
       }
@@ -1200,6 +1208,14 @@ export default function ItemDetailPage() {
                       )}
                       {cloverDiagnostic.imageMessage && (
                         <div className="text-muted-foreground">{cloverDiagnostic.imageMessage}</div>
+                      )}
+                      {cloverDiagnostic.stockSync && (
+                        <div className="text-muted-foreground">
+                          Clover quantity {cloverDiagnostic.stockSync.mode === 'add' ? 'added' : 'set'}:
+                          {' '}{cloverDiagnostic.stockSync.mode === 'add'
+                            ? `${cloverDiagnostic.stockSync.previousQuantity ?? 0} + ${cloverDiagnostic.stockSync.addedQuantity ?? 0} = ${cloverDiagnostic.stockSync.finalQuantity ?? 0}`
+                            : `${cloverDiagnostic.stockSync.finalQuantity ?? 0}`}
+                        </div>
                       )}
                     </div>
                   )}

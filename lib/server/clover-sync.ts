@@ -1,4 +1,5 @@
 import {
+  addCloverInventoryCount,
   adjustCloverInventoryCount,
   createCloverItem,
   findCloverItemBySkuOrBarcode,
@@ -120,6 +121,7 @@ export async function syncInventoryItemToClover(admin: any, item: InventoryItem,
     }
     const cloverItemId = item.clover_item_id || (options.conflictAction === 'update_existing' ? existing?.id : null);
     if (!item.clover_item_id && cloverItemId) action = 'update_existing_match';
+    const shouldAddQuantityToExistingMatch = action === 'update_existing_match';
     const result = cloverItemId ? await updateCloverItem(cloverItemId, payload) : await createCloverItem(payload);
     const finalCloverItemId = cloverItemId || result.id;
     const verifiedItem = await getCloverItem(finalCloverItemId);
@@ -131,10 +133,18 @@ export async function syncInventoryItemToClover(admin: any, item: InventoryItem,
     const imageMessage = imageUrl
       ? 'Clover standard Inventory API does not expose item image sync; the image remains in RetroLootPro.'
       : 'No RetroLootPro image is available to sync.';
+    let stockSync: { mode: 'set' | 'add'; previousQuantity?: number; addedQuantity: number; finalQuantity: number } | null = null;
 
     if (finalCloverItemId && Number(item.quantity) >= 0) {
       try {
-        await adjustCloverInventoryCount(finalCloverItemId, Number(item.quantity) || 0);
+        const quantity = Number(item.quantity) || 0;
+        if (shouldAddQuantityToExistingMatch) {
+          const result = await addCloverInventoryCount(finalCloverItemId, quantity);
+          stockSync = { mode: 'add', ...result };
+        } else {
+          await adjustCloverInventoryCount(finalCloverItemId, quantity);
+          stockSync = { mode: 'set', addedQuantity: quantity, finalQuantity: quantity };
+        }
       } catch {
         // Clover stock endpoints vary by merchant/app permission; item sync still succeeds.
       }
@@ -165,6 +175,7 @@ export async function syncInventoryItemToClover(admin: any, item: InventoryItem,
         upcSynced,
         imageSyncStatus,
         imageMessage,
+        stockSync,
       },
     });
 
@@ -176,6 +187,7 @@ export async function syncInventoryItemToClover(admin: any, item: InventoryItem,
       upcSynced,
       imageSyncStatus,
       imageMessage,
+      stockSync,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Clover sync failed';

@@ -65,6 +65,7 @@ export async function cloverRequest<T>(path: string, options: CloverRequestOptio
       Authorization: `Bearer ${config.accessToken}`,
       Accept: 'application/json',
       'Content-Type': 'application/json',
+      'User-Agent': 'RetroLootPro/1.0 (Clover inventory sync)',
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
     cache: 'no-store',
@@ -148,8 +149,55 @@ export async function findCloverItemBySkuOrBarcode(sku?: string | null, barcode?
 }
 
 export async function adjustCloverInventoryCount(itemId: string, quantity: number) {
+  return setCloverInventoryCount(itemId, quantity);
+}
+
+export async function getCloverInventoryStock(itemId: string) {
+  return cloverRequest<{ quantity?: number; stockCount?: number }>(`/item_stocks/${encodeURIComponent(itemId)}`);
+}
+
+export async function setCloverInventoryCount(itemId: string, quantity: number) {
+  const safeQuantity = Math.max(0, Number(quantity) || 0);
+  try {
+    return await cloverRequest<Record<string, unknown>>(`/item_stocks/${encodeURIComponent(itemId)}`, {
+      method: 'PUT',
+      body: { quantity: safeQuantity },
+    });
+  } catch (error) {
+    if (error instanceof CloverApiError && error.status === 404) {
+      return createCloverInventoryCount(itemId, safeQuantity);
+    }
+    throw error;
+  }
+}
+
+export async function createCloverInventoryCount(itemId: string, quantity: number) {
+  const safeQuantity = Math.max(0, Number(quantity) || 0);
   return cloverRequest<Record<string, unknown>>(`/item_stocks/${encodeURIComponent(itemId)}`, {
     method: 'POST',
-    body: { quantity },
+    body: { quantity: safeQuantity },
   });
+}
+
+export async function addCloverInventoryCount(itemId: string, quantity: number) {
+  const addedQuantity = Math.max(0, Number(quantity) || 0);
+  let currentQuantity = 0;
+
+  try {
+    const stock = await getCloverInventoryStock(itemId);
+    currentQuantity = Number(stock.quantity ?? stock.stockCount ?? 0) || 0;
+    await setCloverInventoryCount(itemId, currentQuantity + addedQuantity);
+  } catch (error) {
+    if (error instanceof CloverApiError && error.status === 404) {
+      await createCloverInventoryCount(itemId, addedQuantity);
+    } else {
+      throw error;
+    }
+  }
+
+  return {
+    previousQuantity: currentQuantity,
+    addedQuantity,
+    finalQuantity: currentQuantity + addedQuantity,
+  };
 }
