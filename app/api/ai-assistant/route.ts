@@ -20,6 +20,11 @@ type AssistantRequest = {
   theme?: string;
   targetItemCount?: number;
   minMarginPercent?: number;
+  clarificationContext?: {
+    originalMessage?: string;
+    question?: string;
+    choices?: AssistantClarification['choices'];
+  } | null;
 };
 
 type GameStopLookup = {
@@ -79,6 +84,15 @@ type ExternalLookup = GameStopLookup | EbaySoldLookup | PriceChartingLookup;
 type InventoryMatchSummary = {
   rows: AssistantInventoryItem[];
   query: string;
+};
+type AssistantClarification = {
+  originalMessage: string;
+  question: string;
+  choices: Array<{
+    label: string;
+    detail: string;
+    source: 'inventory' | 'pricecharting';
+  }>;
 };
 
 const PC_API_BASE = 'https://www.pricecharting.com/api';
@@ -250,6 +264,19 @@ async function getAccountPriceChartingKey(supabase: SupabaseClient<any>, account
 
   if (error) throw error;
   return keyRow?.api_key as string | undefined;
+}
+
+async function searchPriceChartingProducts(query: string, supabase: SupabaseClient<any>, accountId: string) {
+  const apiKey = await getAccountPriceChartingKey(supabase, accountId);
+  if (!apiKey) return [];
+  const results = await fetchPriceCharting('/products', { t: apiKey, q: query });
+  return ((results.products || []) as any[])
+    .map((product) => ({
+      id: String(product.id || ''),
+      productName: String(product['product-name'] || ''),
+      consoleName: String(product['console-name'] || ''),
+    }))
+    .filter((product) => product.productName);
 }
 
 function compactPriceChartingProduct(product: any, fallbackId = ''): NonNullable<PriceChartingLookup['product']> {
@@ -768,6 +795,70 @@ function findInventoryMatchesForLookup(
   return { rows, query };
 }
 
+function uniqueVariantKey(name: string, platform: string) {
+  return `${name.trim().toLowerCase()}|${platform.trim().toLowerCase()}`;
+}
+
+function shouldClarifyPriceQuestion(message: string) {
+  if (!shouldLookupPriceCharting(message)) return false;
+  if (detectPlatform(message)) return false;
+
+  const query = cleanPriceChartingQuery(message);
+  const words = normalizeLookupWords(query);
+  const hasSpecificNumber = /\b\d+\b/.test(query);
+  if (hasSpecificNumber) return false;
+
+  return words.length > 0 && words.length <= 3;
+}
+
+async function buildPriceLookupClarification(
+  message: string,
+  inventory: AssistantInventoryItem[],
+  supabase: SupabaseClient<any>,
+  accountId: string
+): Promise<AssistantClarification | null> {
+  if (!shouldClarifyPriceQuestion(message)) return null;
+
+  const query = cleanPriceChartingQuery(message);
+  const inventoryMatches = findInventoryMatchesForLookup(message, inventory, null).rows;
+  const choices = new Map<string, AssistantClarification['choices'][number]>();
+
+  for (const item of inventoryMatches.slice(0, 6)) {
+    const label = [item.product_name, item.console].filter(Boolean).join(' - ');
+    choices.set(uniqueVariantKey(item.product_name, item.console || ''), {
+      label,
+      detail: `In inventory: ${item.condition || 'Condition?'}${Number(item.quantity || 1) > 1 ? ` x${item.quantity}` : ''}`,
+      source: 'inventory',
+    });
+  }
+
+  try {
+    const products = await searchPriceChartingProducts(query, supabase, accountId);
+    for (const product of products.slice(0, 12)) {
+      const key = uniqueVariantKey(product.productName, product.consoleName);
+      if (!choices.has(key)) {
+        choices.set(key, {
+          label: [product.productName, product.consoleName].filter(Boolean).join(' - '),
+          detail: 'PriceCharting match',
+          source: 'pricecharting',
+        });
+      }
+    }
+  } catch {
+    // If PriceCharting cannot provide candidates, inventory matches can still clarify.
+  }
+
+  const finalChoices = Array.from(choices.values()).slice(0, 10);
+  if (finalChoices.length <= 1) return null;
+
+  const rows = finalChoices.map((choice, index) => `${index + 1}. ${choice.label} (${choice.detail})`).join('\n');
+  return {
+    originalMessage: message,
+    question: `I found multiple matches for "${query}". Which one should I price?\n\n${rows}\n\nReply with the number, title, or platform.`,
+    choices: finalChoices,
+  };
+}
+
 function formatMoney(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -800,6 +891,25 @@ function buildInventoryLookupLead(match: InventoryMatchSummary) {
     .join('\n');
 
   return `Your inventory\nYou have ${totalQuantity} available cop${totalQuantity === 1 ? 'y' : 'ies'} matching "${match.query}":\n${rows}`;
+}
+
+function resolveClarifiedMessage(
+  originalMessage: string | undefined,
+  clarificationReply: string,
+  choices?: AssistantClarification['choices']
+) {
+  const original = originalMessage?.trim();
+  if (!original) return clarificationReply;
+
+  const reply = clarificationReply.trim();
+  const numericChoice = reply.match(/^\s*(\d{1,2})\s*$/);
+  if (numericChoice && choices?.length) {
+    const index = Number(numericChoice[1]) - 1;
+    const choice = choices[index];
+    if (choice) return `${original} ${choice.label}`;
+  }
+
+  return `${original} ${reply}`;
 }
 
 function buildInventorySearchAnswer(message: string, inventory: AssistantInventoryItem[], app: AssistantAppContext) {
@@ -934,7 +1044,11 @@ export async function POST(req: NextRequest) {
     const { accountId } = await getServerAccountContext(supabase, user);
 
     const body = (await req.json()) as AssistantRequest;
-    const message = body.message?.trim() || 'Give me the best business opportunities in my inventory.';
+    const rawMessage = body.message?.trim() || 'Give me the best business opportunities in my inventory.';
+    const clarificationOriginal = body.clarificationContext?.originalMessage?.trim();
+    const message = clarificationOriginal
+      ? resolveClarifiedMessage(clarificationOriginal, rawMessage, body.clarificationContext?.choices)
+      : rawMessage;
 
     const inventoryRes = await supabase
       .from('inventory_items')
@@ -943,6 +1057,20 @@ export async function POST(req: NextRequest) {
       .order('created_at', { ascending: false })
       .limit(1500);
     if (inventoryRes.error) throw inventoryRes.error;
+
+    const inventory = (inventoryRes.data || []) as AssistantInventoryItem[];
+    const clarification = clarificationOriginal
+      ? null
+      : await buildPriceLookupClarification(message, inventory, supabase, accountId);
+    const externalLookupPromise = clarification
+      ? Promise.resolve(null)
+      : shouldLookupGamestop(message)
+        ? lookupGamestop(message)
+        : shouldLookupEbaySold(message)
+          ? lookupEbaySold(message)
+          : shouldLookupPriceCharting(message)
+            ? lookupPriceCharting(message, supabase, accountId)
+            : Promise.resolve(null);
 
     const [txRes, showsRes, lotsRes, shipmentsRes, externalLookup] = await Promise.all([
       supabase
@@ -969,16 +1097,9 @@ export async function POST(req: NextRequest) {
         .eq('user_id', accountId)
         .order('created_at', { ascending: false })
         .limit(100),
-      shouldLookupGamestop(message)
-        ? lookupGamestop(message)
-        : shouldLookupEbaySold(message)
-          ? lookupEbaySold(message)
-          : shouldLookupPriceCharting(message)
-            ? lookupPriceCharting(message, supabase, accountId)
-            : Promise.resolve(null),
+      externalLookupPromise,
     ]);
 
-    const inventory = (inventoryRes.data || []) as AssistantInventoryItem[];
     const analysis = analyzeInventory(inventory, {
       theme: body.theme || message,
       targetItemCount: body.targetItemCount,
@@ -995,6 +1116,22 @@ export async function POST(req: NextRequest) {
     if (showsRes.error) appContext.suggestedActions.push(`Show list data was unavailable to the assistant: ${showsRes.error.message}`);
     if (lotsRes.error) appContext.suggestedActions.push(`Lot data was unavailable to the assistant: ${lotsRes.error.message}`);
     if (shipmentsRes.error) appContext.suggestedActions.push(`Shipment data was unavailable to the assistant: ${shipmentsRes.error.message}`);
+
+    if (clarification) {
+      return json({
+        success: true,
+        answer: clarification.question,
+        clarification,
+        usedAI: false,
+        openAIConfigured: Boolean(process.env.OPENAI_API_KEY),
+        aiError: null,
+        aiModel: assistantModel(),
+        fallbackAnswer: clarification.question,
+        externalLookup: null,
+        analysis,
+        appContext,
+      });
+    }
 
     const intakeQuestion = /\b(lot|lots|shipment|shipments|cogs|cost basis|allocation|allocated)\b/i.test(message);
     const deterministicAnswer = buildAppDeterministicAnswer(message, analysis, appContext);

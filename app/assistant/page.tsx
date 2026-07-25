@@ -18,6 +18,25 @@ type ChatMessage = {
   content: string;
 };
 
+type AssistantClarification = {
+  originalMessage: string;
+  question: string;
+  choices: Array<{
+    label: string;
+    detail: string;
+    source: 'inventory' | 'pricecharting';
+  }>;
+};
+
+function looksLikeClarificationReply(value: string) {
+  const text = value.trim();
+  if (!text) return false;
+  if (/^\d{1,2}$/.test(text)) return true;
+  if (/[?]/.test(text)) return false;
+  if (/^(how|what|when|where|why|can|could|do|does|is|are|show|find|search|build)\b/i.test(text)) return false;
+  return text.length <= 80;
+}
+
 function Stat({ label, value, icon: Icon }: { label: string; value: string; icon: React.ElementType }) {
   return (
     <div className="rounded-xl border border-border/40 bg-card p-4">
@@ -89,6 +108,7 @@ export default function AssistantPage() {
   const [openAIConfigured, setOpenAIConfigured] = useState(false);
   const [aiModel, setAiModel] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [pendingClarification, setPendingClarification] = useState<AssistantClarification | null>(null);
 
   useEffect(() => {
     fetch('/api/ai-assistant')
@@ -106,9 +126,13 @@ export default function AssistantPage() {
   const askAssistant = async (prompt?: string) => {
     const content = (prompt || message).trim();
     if (!content) return;
+    const clarificationContext = pendingClarification && looksLikeClarificationReply(content)
+      ? pendingClarification
+      : null;
 
     setLoading(true);
     setMessages((prev) => [...prev, { role: 'user', content }]);
+    if (!prompt) setMessage('');
 
     try {
       const {
@@ -125,6 +149,7 @@ export default function AssistantPage() {
         },
         body: JSON.stringify({
           message: content,
+          clarificationContext,
           theme: theme || content,
           targetItemCount: parseInt(targetItemCount, 10) || 30,
           minMarginPercent: parseFloat(minMarginPercent) || 0,
@@ -140,6 +165,7 @@ export default function AssistantPage() {
       setOpenAIConfigured(Boolean(result.openAIConfigured));
       setAiModel(result.aiModel || null);
       setAiError(result.aiError || null);
+      setPendingClarification(result.clarification || null);
       const statusPrefix = result.usedAI
         ? ''
         : result.aiError
