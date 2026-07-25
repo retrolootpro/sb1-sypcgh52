@@ -11,6 +11,7 @@ import {
   type AssistantLot,
   type AssistantShipment,
 } from '@/lib/ai-inventory-analysis';
+import { buildItemBusinessPlan } from '@/lib/business-rules';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,6 +76,10 @@ type PriceChartingLookup = {
 };
 
 type ExternalLookup = GameStopLookup | EbaySoldLookup | PriceChartingLookup;
+type InventoryMatchSummary = {
+  rows: AssistantInventoryItem[];
+  query: string;
+};
 
 const PC_API_BASE = 'https://www.pricecharting.com/api';
 const DEFAULT_ASSISTANT_MODEL = 'gpt-5.1';
@@ -613,11 +618,13 @@ function openAIErrorMessage(status: number, errorText: string) {
   }
 }
 
-function buildExternalLookupAnswer(lookup: ExternalLookup) {
+function buildExternalLookupAnswer(lookup: ExternalLookup, inventoryMatch?: InventoryMatchSummary | null) {
+  const inventoryLead = inventoryMatch ? `${buildInventoryLookupLead(inventoryMatch)}\n\nExternal market info\n` : '';
+
   if (lookup.provider === 'pricecharting') {
     if (!lookup.product) {
       const warning = lookup.warnings.length ? `\n\nWhat happened: ${lookup.warnings.join(' ')}` : '';
-      return `I tried to check PriceCharting for "${lookup.query}", but I could not find a matching product with readable prices.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
+      return `${inventoryLead}I tried to check PriceCharting for "${lookup.query}", but I could not find a matching product with readable prices.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
     }
 
     const prices = lookup.product.prices;
@@ -634,22 +641,22 @@ function buildExternalLookupAnswer(lookup: ExternalLookup) {
       .join('\n');
 
     const warning = lookup.warnings.length ? `\n\nLookup notes: ${lookup.warnings.join(' ')}` : '';
-    return `PriceCharting has "${lookup.product.productName}" for ${lookup.product.consoleName || 'Unknown platform'} at:\n\n${rows || 'No condition prices were returned.'}\n\nSource: ${lookup.sourceUrl}${warning}`;
+    return `${inventoryLead}PriceCharting has "${lookup.product.productName}" for ${lookup.product.consoleName || 'Unknown platform'} at:\n\n${rows || 'No condition prices were returned.'}\n\nSource: ${lookup.sourceUrl}${warning}`;
   }
 
   if (lookup.provider === 'ebay_sold') {
     if (lookup.sampleSize === 0) {
       const warning = lookup.warnings.length ? `\n\nWhat happened: ${lookup.warnings.join(' ')}` : '';
-      return `I tried to calculate recent eBay sold comps for "${lookup.query}", but I could not read sold prices from eBay's result HTML.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
+      return `${inventoryLead}I tried to calculate recent eBay sold comps for "${lookup.query}", but I could not read sold prices from eBay's result HTML.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
     }
 
     const warning = lookup.warnings.length ? `\n\nParsing notes: ${lookup.warnings.join(' ')}` : '';
-    return `I checked visible eBay completed/sold results for "${lookup.query}" and calculated this from ${lookup.sampleSize} readable sold price(s):\n\nAverage: $${lookup.averagePrice.toFixed(2)}\nMedian: $${lookup.medianPrice.toFixed(2)}\nRange: $${lookup.lowPrice.toFixed(2)} - $${lookup.highPrice.toFixed(2)}\n\nSource: ${lookup.sourceUrl}${warning}`;
+    return `${inventoryLead}I checked visible eBay completed/sold results for "${lookup.query}" and calculated this from ${lookup.sampleSize} readable sold price(s):\n\nAverage: $${lookup.averagePrice.toFixed(2)}\nMedian: $${lookup.medianPrice.toFixed(2)}\nRange: $${lookup.lowPrice.toFixed(2)} - $${lookup.highPrice.toFixed(2)}\n\nSource: ${lookup.sourceUrl}${warning}`;
   }
 
   if (lookup.results.length === 0) {
     const warning = lookup.warnings.length ? `\n\nWhat happened: ${lookup.warnings.join(' ')}` : '';
-    return `I tried to check GameStop for "${lookup.query}", but I could not find a readable product price in the page HTML.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
+    return `${inventoryLead}I tried to check GameStop for "${lookup.query}", but I could not find a readable product price in the page HTML.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
   }
 
   const rows = lookup.results
@@ -662,7 +669,7 @@ function buildExternalLookupAnswer(lookup: ExternalLookup) {
     .join('\n\n');
 
   const warning = lookup.warnings.length ? `\n\nParsing notes: ${lookup.warnings.join(' ')}` : '';
-  return `I checked GameStop for "${lookup.query}" and found:\n\n${rows}${warning}`;
+  return `${inventoryLead}I checked GameStop for "${lookup.query}" and found:\n\n${rows}${warning}`;
 }
 
 const QUERY_STOP_WORDS = new Set([
@@ -711,6 +718,88 @@ function itemMatchesWords(item: AssistantInventoryItem, words: string[]) {
 
 function fallbackMarketValue(item: AssistantInventoryItem) {
   return Number(item.selected_market_value || item.price_cib || item.price_loose || item.price_new || item.price_graded || 0);
+}
+
+function normalizeLookupWords(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length > 1 && !QUERY_STOP_WORDS.has(word));
+}
+
+function inventoryLookupQuery(message: string, lookup?: ExternalLookup | null) {
+  if (lookup?.provider === 'pricecharting' && lookup.product?.productName) {
+    return [lookup.product.productName, lookup.product.consoleName].filter(Boolean).join(' ');
+  }
+  return cleanPriceChartingQuery(message) || cleanExternalGameQuery(message) || cleanEbaySoldQuery(message) || message;
+}
+
+function findInventoryMatchesForLookup(
+  message: string,
+  inventory: AssistantInventoryItem[],
+  lookup?: ExternalLookup | null
+): InventoryMatchSummary {
+  const query = inventoryLookupQuery(message, lookup);
+  const platform = detectPlatform(query) || (lookup?.provider === 'pricecharting' ? lookup.product?.consoleName || '' : '');
+  const titleWords = normalizeLookupWords(
+    platform
+      ? query.replace(new RegExp(platform.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'ig'), ' ')
+      : query
+  );
+  const searchWords = titleWords.length ? titleWords : normalizeLookupWords(query);
+
+  const rows = inventory
+    .filter((item) => (item.status || 'available') !== 'sold')
+    .map((item) => {
+      const haystack = [item.product_name, item.console, item.condition].filter(Boolean).join(' ').toLowerCase();
+      const wordMatches = searchWords.filter((word) => haystack.includes(word)).length;
+      const platformMatch = platform ? String(item.console || '').toLowerCase().includes(platform.toLowerCase()) : true;
+      const score = wordMatches + (platformMatch ? 1 : 0);
+      return { item, score, wordMatches, platformMatch };
+    })
+    .filter((row) => row.wordMatches >= Math.max(1, Math.min(searchWords.length, 2)) && (!platform || row.platformMatch || row.wordMatches >= searchWords.length))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8)
+    .map((row) => row.item);
+
+  return { rows, query };
+}
+
+function formatMoney(value: number) {
+  return `$${Number(value || 0).toFixed(2)}`;
+}
+
+function inventoryAskPrice(item: AssistantInventoryItem) {
+  const explicit = Number(item.sell_price) || 0;
+  if (explicit > 0) return explicit;
+  try {
+    return buildItemBusinessPlan(item).pricePlan.recommendedAskingPrice || fallbackMarketValue(item);
+  } catch {
+    return fallbackMarketValue(item);
+  }
+}
+
+function buildInventoryLookupLead(match: InventoryMatchSummary) {
+  if (match.rows.length === 0) {
+    return `Your inventory\nI did not find an available copy in your inventory for "${match.query}".`;
+  }
+
+  const totalQuantity = match.rows.reduce((sum, item) => sum + Math.max(1, Number(item.quantity || 1)), 0);
+  const rows = match.rows
+    .map((item) => {
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const market = fallbackMarketValue(item);
+      const ask = inventoryAskPrice(item);
+      const cost = Number(item.purchase_price || 0);
+      const profit = ask > 0 ? ask - cost : market - cost;
+      return `- ${item.product_name} (${item.console || 'Unknown'}, ${item.condition || 'Condition?'})${quantity > 1 ? ` x${quantity}` : ''}\n  Your ask: ${ask > 0 ? formatMoney(ask) : 'not set'}${market > 0 ? ` / app market: ${formatMoney(market)}` : ''}${cost > 0 ? ` / cost: ${formatMoney(cost)}` : ''}${Number.isFinite(profit) && (ask > 0 || market > 0) ? ` / est. profit: ${formatMoney(profit)}` : ''}`;
+    })
+    .join('\n');
+
+  return `Your inventory\nYou have ${totalQuantity} available cop${totalQuantity === 1 ? 'y' : 'ies'} matching "${match.query}":\n${rows}`;
 }
 
 function buildInventorySearchAnswer(message: string, inventory: AssistantInventoryItem[], app: AssistantAppContext) {
@@ -910,8 +999,9 @@ export async function POST(req: NextRequest) {
     const intakeQuestion = /\b(lot|lots|shipment|shipments|cogs|cost basis|allocation|allocated)\b/i.test(message);
     const deterministicAnswer = buildAppDeterministicAnswer(message, analysis, appContext);
     const inventorySearchAnswer = buildInventorySearchAnswer(message, inventory, appContext);
+    const externalInventoryMatch = externalLookup ? findInventoryMatchesForLookup(message, inventory, externalLookup) : null;
     const fallbackAnswer = externalLookup
-      ? buildExternalLookupAnswer(externalLookup)
+      ? buildExternalLookupAnswer(externalLookup, externalInventoryMatch)
       : intakeQuestion
         ? deterministicAnswer
         : inventorySearchAnswer || deterministicAnswer;
