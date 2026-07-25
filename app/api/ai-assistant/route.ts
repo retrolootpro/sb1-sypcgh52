@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { getServerAccountContext } from '@/lib/server-account';
 import {
   analyzeInventory,
@@ -50,7 +50,33 @@ type EbaySoldLookup = {
   warnings: string[];
 };
 
-type ExternalLookup = GameStopLookup | EbaySoldLookup;
+type PriceChartingLookup = {
+  provider: 'pricecharting';
+  query: string;
+  searchedAt: string;
+  sourceUrl: string;
+  product: {
+    id: string;
+    productName: string;
+    consoleName: string;
+    prices: {
+      loose: number;
+      cib: number;
+      new: number;
+      graded: number;
+      gamestop: number;
+      gamestopTrade: number;
+      retailLooseBuy: number;
+      retailCibBuy: number;
+      retailNewBuy: number;
+    };
+  } | null;
+  warnings: string[];
+};
+
+type ExternalLookup = GameStopLookup | EbaySoldLookup | PriceChartingLookup;
+
+const PC_API_BASE = 'https://www.pricecharting.com/api';
 
 const BROWSER_HEADERS = {
   'User-Agent':
@@ -136,6 +162,36 @@ function cleanExternalGameQuery(message: string) {
     .trim();
 }
 
+const PLATFORM_ALIASES: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /\bxbox\s*360\b/i, label: 'Xbox 360' },
+  { pattern: /\bxbox\s*one\b/i, label: 'Xbox One' },
+  { pattern: /\bxbox\s*series\s*x\b/i, label: 'Xbox Series X' },
+  { pattern: /\bps5|playstation\s*5\b/i, label: 'PlayStation 5' },
+  { pattern: /\bps4|playstation\s*4\b/i, label: 'PlayStation 4' },
+  { pattern: /\bps3|playstation\s*3\b/i, label: 'PlayStation 3' },
+  { pattern: /\bps2|playstation\s*2\b/i, label: 'PlayStation 2' },
+  { pattern: /\bnintendo\s*switch|switch\b/i, label: 'Nintendo Switch' },
+  { pattern: /\bwii\s*u\b/i, label: 'Wii U' },
+  { pattern: /\bwii\b/i, label: 'Wii' },
+  { pattern: /\bgamecube\b/i, label: 'GameCube' },
+  { pattern: /\bnintendo\s*64|n64\b/i, label: 'Nintendo 64' },
+  { pattern: /\bsnes|super\s*nintendo\b/i, label: 'Super Nintendo' },
+  { pattern: /\bnes\b/i, label: 'NES' },
+];
+
+function detectPlatform(message: string) {
+  return PLATFORM_ALIASES.find((platform) => platform.pattern.test(message))?.label || '';
+}
+
+function cleanPriceChartingQuery(message: string) {
+  return message
+    .replace(/\b(can you|could you|please|tell me|show me|look up|lookup|search|find|what('| i)?s|what is|what|is|are|how much|worth|value|priced?|pricecharting|price charting|market|current|going for|for|on|the|a|an|game)\b/gi, ' ')
+    .replace(/\b(loose|cib|complete|new|sealed|graded)\b/gi, ' ')
+    .replace(/[?]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function shouldLookupGamestop(message: string) {
   return /\bgamestop|game stop\b/i.test(message) && /\b(price|cost|current|sell|available|stock|pre-owned|new)\b/i.test(message);
 }
@@ -144,10 +200,132 @@ function shouldLookupEbaySold(message: string) {
   return /\bebay\b/i.test(message) && /\b(avg|average|sold|selling price|sale price|comps?|last 90|90 days|ninety)\b/i.test(message);
 }
 
+function shouldLookupPriceCharting(message: string) {
+  if (/\b(do i have|what do i have|in my inventory|my inventory|on hand|available)\b/i.test(message)) return false;
+  return /\b(pricecharting|price charting|worth|value|market value|current price|what('| i)?s .* worth|how much .* worth)\b/i.test(message);
+}
+
 async function fetchText(url: string) {
   const response = await fetch(url, { headers: BROWSER_HEADERS, cache: 'no-store' });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.text();
+}
+
+function pcCents(raw: unknown) {
+  if (raw === null || raw === undefined || raw === '') return 0;
+  const value = typeof raw === 'string' ? parseInt(raw, 10) : Math.round(Number(raw));
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  return Math.round(value) / 100;
+}
+
+async function fetchPriceCharting(path: string, params: Record<string, string>) {
+  const url = new URL(`${PC_API_BASE}${path}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) url.searchParams.set(key, value);
+  });
+
+  const response = await fetch(url, { cache: 'no-store' });
+  const data = await response.json().catch(() => null);
+  if (!response.ok || data?.status === 'error') {
+    throw new Error(data?.['error-message'] || data?.message || `PriceCharting returned ${response.status}`);
+  }
+  return data;
+}
+
+async function getAccountPriceChartingKey(supabase: SupabaseClient<any>, accountId: string) {
+  const { data: keyRow, error } = await supabase
+    .from('user_api_keys')
+    .select('api_key')
+    .eq('user_id', accountId)
+    .eq('provider', 'pricecharting')
+    .eq('status', 'active')
+    .maybeSingle();
+
+  if (error) throw error;
+  return keyRow?.api_key as string | undefined;
+}
+
+function compactPriceChartingProduct(product: any, fallbackId = ''): NonNullable<PriceChartingLookup['product']> {
+  return {
+    id: String(product.id || fallbackId),
+    productName: String(product['product-name'] || ''),
+    consoleName: String(product['console-name'] || ''),
+    prices: {
+      loose: pcCents(product['loose-price']),
+      cib: pcCents(product['cib-price']),
+      new: pcCents(product['new-price']),
+      graded: pcCents(product['graded-price']),
+      gamestop: pcCents(product['gamestop-price']),
+      gamestopTrade: pcCents(product['gamestop-trade-price']),
+      retailLooseBuy: pcCents(product['retail-loose-buy']),
+      retailCibBuy: pcCents(product['retail-cib-buy']),
+      retailNewBuy: pcCents(product['retail-new-buy']),
+    },
+  };
+}
+
+async function lookupPriceCharting(
+  message: string,
+  supabase: SupabaseClient<any>,
+  accountId: string
+): Promise<ExternalLookup> {
+  const warnings: string[] = [];
+  const platform = detectPlatform(message);
+  const cleaned = cleanPriceChartingQuery(message);
+  const query = [cleaned, platform].filter(Boolean).join(' ').trim() || message;
+  const sourceUrl = `https://www.pricecharting.com/search-products?q=${encodeURIComponent(query)}&type=videogames`;
+
+  try {
+    const apiKey = await getAccountPriceChartingKey(supabase, accountId);
+    if (!apiKey) {
+      return {
+        provider: 'pricecharting',
+        query,
+        searchedAt: new Date().toISOString(),
+        sourceUrl,
+        product: null,
+        warnings: ['PriceCharting API key is not configured in Settings.'],
+      };
+    }
+
+    let product: any = null;
+    try {
+      product = await fetchPriceCharting('/product', { t: apiKey, q: query });
+    } catch (error) {
+      warnings.push(`Direct PriceCharting product lookup missed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    if (!product?.id) {
+      const results = await fetchPriceCharting('/products', { t: apiKey, q: query });
+      const products = (results.products || []) as any[];
+      const best = products.find((item) => platform && String(item['console-name'] || '').toLowerCase() === platform.toLowerCase()) || products[0];
+      if (best?.id) {
+        product = await fetchPriceCharting('/product', { t: apiKey, id: String(best.id) });
+      }
+    }
+
+    if (!product?.id && !product?.['product-name']) {
+      warnings.push('No matching PriceCharting product was found.');
+    }
+
+    return {
+      provider: 'pricecharting',
+      query,
+      searchedAt: new Date().toISOString(),
+      sourceUrl,
+      product: product?.id || product?.['product-name'] ? compactPriceChartingProduct(product) : null,
+      warnings,
+    };
+  } catch (error) {
+    return {
+      provider: 'pricecharting',
+      query,
+      searchedAt: new Date().toISOString(),
+      sourceUrl,
+      product: null,
+      warnings: [`PriceCharting lookup failed: ${error instanceof Error ? error.message : 'Unknown error'}`],
+    };
+  }
 }
 
 async function lookupGamestop(message: string): Promise<ExternalLookup> {
@@ -425,6 +603,29 @@ function openAIErrorMessage(status: number, errorText: string) {
 }
 
 function buildExternalLookupAnswer(lookup: ExternalLookup) {
+  if (lookup.provider === 'pricecharting') {
+    if (!lookup.product) {
+      const warning = lookup.warnings.length ? `\n\nWhat happened: ${lookup.warnings.join(' ')}` : '';
+      return `I tried to check PriceCharting for "${lookup.query}", but I could not find a matching product with readable prices.${warning}\n\nSearch used: ${lookup.sourceUrl}`;
+    }
+
+    const prices = lookup.product.prices;
+    const rows = [
+      ['Loose', prices.loose],
+      ['CIB / Complete', prices.cib],
+      ['New / Sealed', prices.new],
+      ['Graded', prices.graded],
+      ['GameStop', prices.gamestop],
+      ['GameStop trade', prices.gamestopTrade],
+    ]
+      .filter(([, value]) => Number(value) > 0)
+      .map(([label, value]) => `- ${label}: $${Number(value).toFixed(2)}`)
+      .join('\n');
+
+    const warning = lookup.warnings.length ? `\n\nLookup notes: ${lookup.warnings.join(' ')}` : '';
+    return `PriceCharting has "${lookup.product.productName}" for ${lookup.product.consoleName || 'Unknown platform'} at:\n\n${rows || 'No condition prices were returned.'}\n\nSource: ${lookup.sourceUrl}${warning}`;
+  }
+
   if (lookup.provider === 'ebay_sold') {
     if (lookup.sampleSize === 0) {
       const warning = lookup.warnings.length ? `\n\nWhat happened: ${lookup.warnings.join(' ')}` : '';
@@ -577,7 +778,7 @@ async function askOpenAI(
         max_output_tokens: 2200,
         text: { verbosity: 'medium' },
         instructions:
-          'You are RetroLoot Pro Analyst, a natural-language business copilot for a video game resale inventory app. Think through the user request, choose the relevant app data or external lookup data, perform any needed math, and answer plainly. You can answer questions about inventory, prep, finance, profit, stale inventory, metadata, shipments, lots, COGS allocation, show curation, specific titles, and external pricing. For app data, use only the provided inventory, prep, finance, intake, shows, and suggestions. Intake rule: every item starts as a shipment; received shipments create lots with total paid; scanned lot items get market values; COGS is allocated by lot total paid divided by total lot market value, applied to each item market value; item profit is market value minus allocated COGS. For external GameStop and eBay sold-comps questions, use the provided externalLookup results and cite that the data was parsed from the external page at request time. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing and suggest the next best action. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
+          'You are RetroLoot Pro Analyst, a natural-language business copilot for a video game resale inventory app. Think through the user request, choose the relevant app data or external lookup data, perform any needed math, and answer plainly. You can answer questions about inventory, prep, finance, profit, stale inventory, metadata, shipments, lots, COGS allocation, show curation, specific titles, and external pricing. For app data, use only the provided inventory, prep, finance, intake, shows, and suggestions. Intake rule: every item starts as a shipment; received shipments create lots with total paid; scanned lot items get market values; COGS is allocated by lot total paid divided by total lot market value, applied to each item market value; item profit is market value minus allocated COGS. For external PriceCharting, GameStop, and eBay sold-comps questions, use the provided externalLookup results and cite the source included there. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing and suggest the next best action. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
         input: [
           {
             role: 'user',
@@ -671,7 +872,9 @@ export async function POST(req: NextRequest) {
         ? lookupGamestop(message)
         : shouldLookupEbaySold(message)
           ? lookupEbaySold(message)
-          : Promise.resolve(null),
+          : shouldLookupPriceCharting(message)
+            ? lookupPriceCharting(message, supabase, accountId)
+            : Promise.resolve(null),
     ]);
 
     const inventory = (inventoryRes.data || []) as AssistantInventoryItem[];
@@ -694,22 +897,26 @@ export async function POST(req: NextRequest) {
 
     const intakeQuestion = /\b(lot|lots|shipment|shipments|cogs|cost basis|allocation|allocated)\b/i.test(message);
     const deterministicAnswer = buildAppDeterministicAnswer(message, analysis, appContext);
+    const inventorySearchAnswer = buildInventorySearchAnswer(message, inventory, appContext);
     const fallbackAnswer = externalLookup
       ? buildExternalLookupAnswer(externalLookup)
       : intakeQuestion
         ? deterministicAnswer
-        : buildInventorySearchAnswer(message, inventory, appContext) || deterministicAnswer;
+        : inventorySearchAnswer || deterministicAnswer;
     let answer = fallbackAnswer;
     let usedAI = false;
     let aiError: string | null = null;
     let aiModel: string | null = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
 
-    const aiResult = await askOpenAI(message, analysis, appContext, inventory, externalLookup);
-    aiError = aiResult.error;
-    aiModel = aiResult.model || aiModel;
-    if (aiResult.answer) {
-      answer = aiResult.answer;
-      usedAI = true;
+    const shouldUseOpenAI = !externalLookup && !inventorySearchAnswer;
+    if (shouldUseOpenAI) {
+      const aiResult = await askOpenAI(message, analysis, appContext, inventory, externalLookup);
+      aiError = aiResult.error;
+      aiModel = aiResult.model || aiModel;
+      if (aiResult.answer) {
+        answer = aiResult.answer;
+        usedAI = true;
+      }
     }
 
     return json({

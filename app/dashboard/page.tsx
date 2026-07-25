@@ -176,6 +176,11 @@ export default function DashboardPage() {
 
   const profitPositive = stats.totalProfit >= 0;
   const roi = stats.totalSpent > 0 ? ((stats.totalProfit / stats.totalSpent) * 100) : 0;
+  const availableItems = items.filter((item) => (item.status || 'available') !== 'sold');
+  const unlistedItems = availableItems.filter((item) => !item.listed_ebay_at && !item.listed_amazon_at && !item.listed_whatnot_at);
+  const missingPriceItems = availableItems.filter((item) => getDashboardMarketValue(item) <= 0);
+  const readyToSellItems = availableItems.filter((item) => getDashboardMarketValue(item) > 0 && Number(item.purchase_price) > 0);
+  const urgentWorkCount = agingAlerts.count + missingPriceItems.length;
 
   if (loading) {
     return (
@@ -189,96 +194,110 @@ export default function DashboardPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 p-4 sm:p-6 lg:p-8">
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,.55fr)]">
-          <div className="overflow-hidden rounded-[28px] border border-border bg-card p-5 shadow-[0_24px_70px_-54px_hsl(148_100%_50%/0.45)] dark:bg-[linear-gradient(135deg,hsl(0_0%_100%/0.06),hsl(0_0%_100%/0.025))] sm:p-7">
-            <div className="flex items-center gap-2">
-              <div className="label-caps">Daily Command</div>
-              <ContextHelp href="/help#daily-workflow" label="Open daily workflow help">
-                Start here each day: review cash, tasks, aging inventory, priority listing work, and sales.
-              </ContextHelp>
-            </div>
-            <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+      <div className="space-y-5 p-4 sm:p-6 lg:p-7">
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="rounded-[24px] border border-border/50 bg-card/90 p-5 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
-                <h1 className="max-w-2xl text-[34px] font-semibold leading-tight tracking-tight text-foreground sm:text-[44px]">
-                  Today&apos;s business command center
-                </h1>
-                <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground sm:text-base">
-                  Inventory value, aging pressure, listing work, and buying confidence in one place.
+                <div className="flex items-center gap-2">
+                  <div className="label-caps">Today</div>
+                  <ContextHelp href="/help#daily-workflow" label="Open daily workflow help">
+                    Start with the few items that change your day: price gaps, aging inventory, ready-to-list items, and cash position.
+                  </ContextHelp>
+                </div>
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">What needs attention</h1>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+                  A quieter daily view focused on the work that helps you list, price, sell, and buy with confidence.
                 </p>
               </div>
-              <div className="rounded-2xl border border-primary/20 bg-primary/[0.08] p-4 lg:min-w-[260px]">
-                <div className="text-xs font-semibold uppercase tracking-[0.12em] text-primary/70">Portfolio value</div>
-                <div className="mt-2 text-[34px] font-bold leading-none text-primary sm:text-[40px]">
-                  ${stats.totalValue.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                </div>
-                <div className={`mt-2 flex items-center gap-1 text-sm font-semibold ${profitPositive ? 'text-emerald-300' : 'text-red-300'}`}>
-                  {profitPositive ? <ArrowUpRight className="h-4 w-4" /> : <ArrowDownRight className="h-4 w-4" />}
-                  {roi.toFixed(1)}% ROI
-                </div>
-              </div>
+              <Button asChild className="h-11 shrink-0">
+                <Link href="/scan"><ScanBarcode className="mr-2 h-4 w-4" />Scan item</Link>
+              </Button>
             </div>
 
-            <div className="mt-6 grid gap-3 md:grid-cols-4">
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
               {[
-                { label: 'Items', value: stats.itemCount.toLocaleString(), detail: 'Active catalog', icon: Package, href: '/inventory' },
-                { label: 'Invested', value: `$${stats.totalSpent.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, detail: 'Cost basis', icon: DollarSign, href: '/finance' },
-                { label: 'Profit', value: `${profitPositive ? '+' : ''}$${stats.totalProfit.toLocaleString('en-US', { maximumFractionDigits: 0 })}`, detail: 'Unrealized', icon: TrendingUp, href: '/finance', tone: profitPositive ? 'text-emerald-300' : 'text-red-300' },
-                { label: 'Deal Score', value: String(stats.avgDealScore), detail: 'Average', icon: ListChecks, href: '/insights' },
-              ].map((metric) => {
-                const Icon = metric.icon;
+                {
+                  href: urgentWorkCount > 0 ? '/review' : '/inventory',
+                  label: 'Needs review',
+                  value: urgentWorkCount,
+                  detail: `${agingAlerts.count} aging / ${missingPriceItems.length} missing price`,
+                  icon: Bell,
+                  urgent: urgentWorkCount > 0,
+                },
+                {
+                  href: '/inventory',
+                  label: 'Ready to sell',
+                  value: readyToSellItems.length,
+                  detail: `${unlistedItems.length} not listed yet`,
+                  icon: Package,
+                },
+                {
+                  href: '/finance',
+                  label: 'Money read',
+                  value: `${profitPositive ? '+' : ''}$${stats.totalProfit.toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
+                  detail: `${roi.toFixed(1)}% ROI / $${stats.totalSpent.toLocaleString('en-US', { maximumFractionDigits: 0 })} invested`,
+                  icon: DollarSign,
+                  tone: profitPositive ? 'text-emerald-400' : 'text-red-400',
+                },
+              ].map((item) => {
+                const Icon = item.icon;
                 return (
-                  <Link key={metric.label} href={metric.href} className="group rounded-2xl border border-border bg-secondary/45 p-4 transition hover:border-primary/25 hover:bg-primary/[0.055]">
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    className={`group rounded-2xl border p-4 transition hover:-translate-y-0.5 ${
+                      item.urgent
+                        ? 'border-red-500/30 bg-red-500/10 hover:bg-red-500/15'
+                        : 'border-border bg-secondary/35 hover:border-primary/25 hover:bg-primary/[0.055]'
+                    }`}
+                  >
                     <div className="flex items-center justify-between gap-3">
-                      <Icon className="h-4 w-4 text-primary" />
+                      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${item.urgent ? 'bg-red-500/10' : 'bg-primary/10'}`}>
+                        <Icon className={`h-5 w-5 ${item.urgent ? 'text-red-300' : 'text-primary'}`} />
+                      </div>
                       <ChevronRight className="h-4 w-4 text-muted-foreground/45 transition group-hover:translate-x-0.5 group-hover:text-primary" />
                     </div>
-                    <div className={`mt-4 text-2xl font-bold ${metric.tone || 'text-foreground'}`}>{metric.value}</div>
-                    <div className="mt-1 text-xs text-muted-foreground">{metric.label} · {metric.detail}</div>
+                    <div className={`mt-4 text-2xl font-bold ${item.tone || 'text-foreground'}`}>{item.value}</div>
+                    <div className="mt-1 text-sm font-medium text-foreground">{item.label}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{item.detail}</div>
                   </Link>
                 );
               })}
             </div>
           </div>
 
-          <div className="grid gap-3">
-            {[
-              { href: '/scan', icon: ScanBarcode, label: 'Scan intake', sub: 'Add purchases fast' },
-              { href: '/inventory?age=stale', icon: Bell, label: 'Review aging', sub: `${agingAlerts.count} need action`, alert: agingAlerts.count > 0 },
-              { href: '/shows', icon: ListChecks, label: 'Build a show', sub: `${topDeals.length} strong candidates` },
-              { href: '/finance', icon: DollarSign, label: 'Buying check', sub: profitPositive ? 'Review cash position' : 'Hold and review' },
-            ].map((action) => {
-              const Icon = action.icon;
-              return (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  className={`group flex items-center gap-3 rounded-2xl border p-4 transition ${
-                    action.alert
-                      ? 'border-red-500/30 bg-red-500/10 hover:bg-red-500/15'
-                      : 'border-border bg-card hover:border-primary/25 hover:bg-primary/[0.055]'
-                  }`}
-                >
-                  <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${action.alert ? 'bg-red-500/10' : 'bg-primary/10'}`}>
-                    <Icon className={`h-5 w-5 ${action.alert ? 'text-red-300' : 'text-primary'}`} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-foreground">{action.label}</div>
-                    <div className="mt-0.5 truncate text-xs text-muted-foreground">{action.sub}</div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground/45 transition group-hover:translate-x-0.5 group-hover:text-primary" />
-                </Link>
-              );
-            })}
+          <div className="rounded-[24px] border border-border/50 bg-card/90 p-5 shadow-sm">
+            <div className="label-caps">Quick actions</div>
+            <div className="mt-4 space-y-2">
+              {[
+                { href: '/inventory?age=stale', icon: Clock, label: 'Review aging inventory', sub: agingAlerts.count ? `${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${agingThresholds.reviewDays} days` : 'Nothing stale right now' },
+                { href: '/review/data-issues', icon: ListChecks, label: 'Fix missing data', sub: `${missingPriceItems.length} missing market value` },
+                { href: '/shows', icon: TrendingUp, label: 'Build from best items', sub: `${topDeals.length} strong candidates` },
+                { href: '/assistant', icon: Bell, label: 'Ask the assistant', sub: 'Inventory and pricing questions' },
+              ].map((action) => {
+                const Icon = action.icon;
+                return (
+                  <Link key={action.href} href={action.href} className="group flex items-center gap-3 rounded-xl border border-border bg-secondary/30 px-3 py-3 transition hover:border-primary/25 hover:bg-primary/[0.055]">
+                    <Icon className="h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold text-foreground">{action.label}</div>
+                      <div className="truncate text-xs text-muted-foreground">{action.sub}</div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground/40 transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                  </Link>
+                );
+              })}
+            </div>
           </div>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
-          <div className="overflow-hidden rounded-[24px] border border-border/40 bg-card/80">
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="overflow-hidden rounded-[24px] border border-border/50 bg-card/90 shadow-sm">
             <div className="flex items-center justify-between gap-3 border-b border-border/35 px-5 py-4">
               <div>
-                <div className="text-base font-semibold tracking-tight">Best resale opportunities</div>
-                <div className="mt-0.5 text-xs text-muted-foreground">Highest score inventory with current market values.</div>
+                <div className="text-base font-semibold tracking-tight">Opportunity queue</div>
+                <div className="mt-0.5 text-xs text-muted-foreground">A short list of items most worth acting on today.</div>
               </div>
               <Button asChild variant="ghost" size="sm">
                 <Link href="/inventory">Inventory <ChevronRight className="ml-1 h-4 w-4" /></Link>
@@ -331,7 +350,7 @@ export default function DashboardPage() {
           </div>
 
           <div className="space-y-4">
-            <div className={`rounded-[24px] border p-5 ${agingAlerts.count > 0 ? 'border-red-500/30 bg-red-500/10' : 'border-border/40 bg-card/80'}`}>
+            <div className={`rounded-[24px] border p-5 shadow-sm ${agingAlerts.count > 0 ? 'border-red-500/30 bg-red-500/10' : 'border-border/50 bg-card/90'}`}>
               <div className="flex items-start gap-3">
                 <div className={`rounded-xl p-2.5 ${agingAlerts.count > 0 ? 'bg-red-500/10' : 'bg-secondary/50'}`}>
                   <Bell className={`h-5 w-5 ${agingAlerts.count > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
@@ -388,12 +407,13 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-border/40 bg-card/80 p-5">
-              <div className="label-caps mb-3">Next actions</div>
+            <div className="rounded-[24px] border border-border/50 bg-card/90 p-5 shadow-sm">
+              <div className="label-caps mb-3">Business snapshot</div>
               <div className="space-y-2">
                 {[
-                  `${items.filter((item) => !item.listed_ebay_at && !item.listed_amazon_at && !item.listed_whatnot_at && (item.status || 'available') !== 'sold').length} unlisted items`,
-                  `${topDeals.length} items with strong resale scores`,
+                  `${stats.itemCount.toLocaleString()} total inventory rows`,
+                  `$${stats.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} estimated market value`,
+                  `${unlistedItems.length} available items not listed`,
                   profitPositive ? 'Cash outlook ready for review' : 'Profit below cost basis; review finance',
                 ].map((line) => (
                   <div key={line} className="rounded-xl border border-border bg-secondary/45 px-3 py-2 text-sm text-muted-foreground">
