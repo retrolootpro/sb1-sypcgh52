@@ -123,6 +123,15 @@ type MetadataForm = {
   manual_market_value: string;
 };
 
+type CloverDiagnosticState = {
+  success: boolean;
+  message: string;
+  baseUrl?: string;
+  merchantId?: string;
+  tokenLength?: number;
+  failedProbe?: string;
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getConditionStyle(condition: string) {
@@ -197,7 +206,7 @@ export default function ItemDetailPage() {
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [syncingClover, setSyncingClover] = useState(false);
   const [testingClover, setTestingClover] = useState(false);
-  const [cloverDiagnostic, setCloverDiagnostic] = useState<{ success: boolean; message: string } | null>(null);
+  const [cloverDiagnostic, setCloverDiagnostic] = useState<CloverDiagnosticState | null>(null);
   const [editingMetadata, setEditingMetadata] = useState(false);
   const [showDiag, setShowDiag]     = useState(false);
   const [autoRefreshAttempted, setAutoRefreshAttempted] = useState(false);
@@ -499,9 +508,16 @@ export default function ItemDetailPage() {
       });
       const result = await response.json();
       const probes = result?.diagnostics?.probes || [];
-      const failed = probes.find((probe: { ok?: boolean }) => !probe.ok);
+      const failed = probes.find((probe: { ok?: boolean; name?: string; message?: string }) => !probe.ok);
       const message = failed?.message || result?.message || (result?.success ? 'Clover connection looks good' : 'Clover connection failed');
-      setCloverDiagnostic({ success: Boolean(result?.success), message });
+      setCloverDiagnostic({
+        success: Boolean(result?.success),
+        message,
+        baseUrl: result?.diagnostics?.baseUrl,
+        merchantId: result?.diagnostics?.merchantId,
+        tokenLength: result?.diagnostics?.tokenLength,
+        failedProbe: failed?.name,
+      });
       if (result?.success) toast.success('Clover connection looks good');
       else toast.error(message);
     } catch (error) {
@@ -1143,8 +1159,20 @@ export default function ItemDetailPage() {
                     <div className="mt-1 text-xs text-red-400">{item.clover_sync_error}</div>
                   )}
                   {cloverDiagnostic && (
-                    <div className={`mt-1 text-xs ${cloverDiagnostic.success ? 'text-emerald-400' : 'text-red-400'}`}>
-                      {cloverDiagnostic.message}
+                    <div className="mt-1 space-y-1 text-xs">
+                      <div className={cloverDiagnostic.success ? 'text-emerald-400' : 'text-red-400'}>
+                        {cloverDiagnostic.message}
+                      </div>
+                      {(cloverDiagnostic.baseUrl || cloverDiagnostic.merchantId || cloverDiagnostic.tokenLength || cloverDiagnostic.failedProbe) && (
+                        <div className="font-mono text-[11px] text-muted-foreground">
+                          {[
+                            cloverDiagnostic.failedProbe ? `probe=${cloverDiagnostic.failedProbe}` : null,
+                            cloverDiagnostic.baseUrl ? `url=${cloverDiagnostic.baseUrl}` : null,
+                            cloverDiagnostic.merchantId ? `merchant=${cloverDiagnostic.merchantId}` : null,
+                            cloverDiagnostic.tokenLength ? `token chars=${cloverDiagnostic.tokenLength}` : null,
+                          ].filter(Boolean).join(' / ')}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
