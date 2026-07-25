@@ -30,8 +30,8 @@ const themeOptions: Array<{
   },
   {
     value: 'apple',
-    label: 'Studio',
-    description: 'Apple-inspired system UI',
+    label: 'Liquid Studio',
+    description: 'Native-feeling workspace',
     icon: Sparkles,
   },
 ];
@@ -95,7 +95,7 @@ export function ThemeToggle({ compact = false }: { compact?: boolean }) {
       aria-label={`Switch to ${nextMode} theme`}
     >
       <Icon className="h-4 w-4" />
-      {!compact && <span>{nextMode === 'light' ? 'Light Theme' : nextMode === 'apple' ? 'Studio Theme' : 'Dark Theme'}</span>}
+      {!compact && <span>{nextMode === 'light' ? 'Light Theme' : nextMode === 'apple' ? 'Liquid Studio' : 'Dark Theme'}</span>}
     </Button>
   );
 }

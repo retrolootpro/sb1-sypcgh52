@@ -219,22 +219,22 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
   };
 
   return (
-    <div className="flex h-full flex-col bg-black/90">
-      <div className="border-b border-white/[0.06] px-5 pb-5 pt-6">
+    <div className="app-sidebar-content flex h-full flex-col bg-black/90">
+      <div className="app-brand border-b border-white/[0.06] px-5 pb-5 pt-6">
         <Link href="/dashboard" className="flex items-center gap-2.5" onClick={onNavClick}>
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 shadow-[0_12px_30px_-22px_hsl(148_100%_50%)]">
+          <div className="app-brand-mark flex h-9 w-9 items-center justify-center rounded-xl border border-primary/30 bg-primary/10 shadow-[0_12px_30px_-22px_hsl(148_100%_50%)]">
             <Terminal className="h-4 w-4 text-primary" />
           </div>
           <div className="min-w-0">
-            <div className="font-bold text-[15px] tracking-tight text-white/90">
+            <div className="app-brand-name font-bold text-[15px] tracking-tight text-white/90">
               retro<span className="text-primary">loot</span><span className="ml-1 text-[10px] font-semibold uppercase tracking-widest text-primary/70">pro</span>
             </div>
-            <div className="mt-0.5 text-[10px] font-medium text-white/28">Inventory command center</div>
+            <div className="app-brand-tagline mt-0.5 text-[10px] font-medium text-white/28">Inventory command center</div>
           </div>
         </Link>
       </div>
 
-      <nav className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
+      <nav className="app-nav flex-1 space-y-2 overflow-y-auto px-3 py-4">
         {visibleNavGroups.map((group, groupIndex) => (
           <div key={groupIndex} className="rounded-lg">
             {group.label && group.items.length > 0 && (
@@ -275,7 +275,7 @@ function SidebarContent({ pathname, searchParams, user, signOut, isAdmin, accoun
         ))}
       </nav>
 
-      <div className="mt-auto space-y-2 border-t border-white/[0.06] px-3 pb-5 pt-3">
+      <div className="app-sidebar-footer mt-auto space-y-2 border-t border-white/[0.06] px-3 pb-5 pt-3">
         <ThemeToggle />
 
         {isAdmin && (
@@ -391,12 +391,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="min-h-screen flex bg-background text-foreground dark:bg-[radial-gradient(circle_at_45%_-18%,hsl(148_100%_50%/0.08),transparent_26rem),linear-gradient(180deg,hsl(0_0%_1%),hsl(0_0%_0%))]">
-      <aside className="hidden w-64 flex-shrink-0 flex-col border-r border-border bg-card/90 backdrop-blur-xl lg:flex">
+    <div className="app-shell min-h-screen flex bg-background text-foreground dark:bg-[radial-gradient(circle_at_45%_-18%,hsl(148_100%_50%/0.08),transparent_26rem),linear-gradient(180deg,hsl(0_0%_1%),hsl(0_0%_0%))]">
+      <aside className="app-sidebar hidden w-64 flex-shrink-0 flex-col border-r border-border bg-card/90 backdrop-blur-xl lg:flex">
         <SidebarContent pathname={pathname} searchParams={searchParams} user={user} signOut={signOut} isAdmin={isAdmin} accountRole={accountRole} />
       </aside>
 
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b border-border bg-card/95 backdrop-blur-sm flex items-center justify-between px-4">
+      <div className="app-mobile-bar lg:hidden fixed top-0 left-0 right-0 z-50 h-12 border-b border-border bg-card/95 backdrop-blur-sm flex items-center justify-between px-4">
         <Link href="/dashboard" className="flex items-center gap-2">
           <Terminal className="w-4 h-4 text-primary" />
           <span className="font-bold text-sm tracking-tight text-foreground">retro<span className="text-primary">loot</span><span className="ml-1 text-[9px] font-semibold tracking-widest text-primary/70 uppercase">pro</span></span>
@@ -418,8 +418,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         </>
       )}
 
-      <main className="flex-1 min-w-0 overflow-auto lg:pt-0 pt-12">
-        <div className="sticky top-0 z-30 hidden border-b border-border bg-card/72 px-5 py-3 backdrop-blur-xl lg:block">
+      <main className="app-main flex-1 min-w-0 overflow-auto lg:pt-0 pt-12">
+        <div className="app-command-bar sticky top-0 z-30 hidden border-b border-border bg-card/72 px-5 py-3 backdrop-blur-xl lg:block">
           <div className="mx-auto flex max-w-[1560px] items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border bg-secondary/70">
@@ -450,14 +450,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </div>
-        <div className="mx-auto max-w-[1560px]">
+        <div className="app-content mx-auto max-w-[1560px]">
           {children}
         </div>
       </main>
 
       <Link
         href="/pos"
-        className="fixed bottom-20 right-5 z-40 flex h-14 items-center gap-2 rounded-full border border-primary/35 bg-primary px-5 text-sm font-bold text-black shadow-[0_12px_34px_-18px_hsl(148_100%_50%)] transition hover:scale-[1.02]"
+        className="app-pos-launch fixed bottom-20 right-5 z-40 flex h-14 items-center gap-2 rounded-full border border-primary/35 bg-primary px-5 text-sm font-bold text-black shadow-[0_12px_34px_-18px_hsl(148_100%_50%)] transition hover:scale-[1.02]"
       >
         <MonitorUp className="h-4 w-4" />
         POS
