@@ -57,6 +57,9 @@ type InventoryItem = {
   sold_at?: string | null;
   archived_at?: string | null;
   archived_reason?: string | null;
+  merged_into_item_id?: string | null;
+  merged_at?: string | null;
+  merge_quantity?: number | null;
   created_at: string;
   image_url?: string | null;
   thumbnail_url?: string | null;
@@ -142,7 +145,14 @@ function normalizeDuplicateValue(value?: string | null) {
 
 function getDuplicateKey(item: InventoryItem) {
   const barcode = normalizeDuplicateValue(item.barcode);
-  if (barcode) return `barcode:${barcode}`;
+  if (barcode) {
+    return [
+      `barcode:${barcode}`,
+      normalizeDuplicateValue(item.console),
+      normalizeDuplicateValue(item.condition),
+      normalizeDuplicateValue(item.region),
+    ].join('|');
+  }
 
   return [
     normalizeDuplicateValue(item.product_name),
@@ -171,7 +181,7 @@ export function InventoryTable({
   const { user, accountId } = useAuth();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
-  const [duplicateRemovalIds, setDuplicateRemovalIds] = useState<Set<string>>(new Set());
+  const [duplicateMergeIds, setDuplicateMergeIds] = useState<Set<string>>(new Set());
   const isSelectionMode = selectedIds.size > 0;
   const allSelected = items.length > 0 && selectedIds.size === items.length;
   const someSelected = selectedIds.size > 0 && selectedIds.size < items.length;
@@ -187,7 +197,7 @@ export function InventoryTable({
   )
     .map((group) => [...group].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()))
     .filter((group) => group.length > 1);
-  const duplicateRemovalCount = duplicateRemovalIds.size;
+  const duplicateMergeCount = duplicateMergeIds.size;
   const duplicateGroupCount = duplicateGroups.length;
   const duplicateExtraCount = duplicateGroups.reduce((sum, group) => sum + Math.max(0, group.length - 1), 0);
 
@@ -294,12 +304,12 @@ export function InventoryTable({
   };
 
   const openDuplicateDialog = () => {
-    setDuplicateRemovalIds(new Set(duplicateGroups.flatMap((group) => group.slice(1).map((item) => item.id))));
+    setDuplicateMergeIds(new Set(duplicateGroups.flatMap((group) => group.slice(1).map((item) => item.id))));
     setDuplicateDialogOpen(true);
   };
 
-  const toggleDuplicateRemoval = (id: string) => {
-    setDuplicateRemovalIds((prev) => {
+  const toggleDuplicateMerge = (id: string) => {
+    setDuplicateMergeIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -307,22 +317,73 @@ export function InventoryTable({
     });
   };
 
-  const handleRemoveDuplicates = async () => {
-    if (!user || duplicateRemovalIds.size === 0) return;
-    const ids = Array.from(duplicateRemovalIds);
+  const handleMergeDuplicates = async () => {
+    if (!user || duplicateMergeIds.size === 0) return;
     try {
-      const { error } = await supabase
-        .from('inventory_items')
-        .delete()
-        .in('id', ids)
-        .eq('user_id', accountId || user.id);
-      if (error) throw error;
-      toast.success(`Removed ${ids.length} duplicate item${ids.length === 1 ? '' : 's'}`);
+      let mergedRows = 0;
+      const mergedAt = new Date().toISOString();
+      for (const group of duplicateGroups) {
+        const selectedInGroup = group.filter((item) => duplicateMergeIds.has(item.id));
+        if (selectedInGroup.length === 0) continue;
+        const keeper = group.find((item) => !duplicateMergeIds.has(item.id)) || group[0];
+        const mergeRows = selectedInGroup.filter((item) => item.id !== keeper.id);
+        if (mergeRows.length === 0) continue;
+
+        const quantityRows = [keeper, ...mergeRows];
+        const totalQuantity = quantityRows.reduce((sum, item) => sum + Math.max(0, Number(item.quantity) || 0), 0);
+        const totalCost = quantityRows.reduce((sum, item) => {
+          const quantity = Math.max(0, Number(item.quantity) || 0);
+          return sum + quantity * (Number(item.purchase_price) || 0);
+        }, 0);
+        const nextQuantity = Math.max(1, totalQuantity);
+        const weightedCost = totalCost > 0 ? Number((totalCost / nextQuantity).toFixed(2)) : Number(keeper.purchase_price) || 0;
+
+        const { error: keeperError } = await supabase
+          .from('inventory_items')
+          .update({
+            quantity: nextQuantity,
+            purchase_price: weightedCost,
+            clover_sync_status: 'pending',
+            updated_at: mergedAt,
+          })
+          .eq('id', keeper.id)
+          .eq('user_id', accountId || user.id);
+        if (keeperError) throw keeperError;
+
+        const mergeIds = mergeRows.map((item) => item.id);
+        const { error: mergedError } = await supabase
+          .from('inventory_items')
+          .update({
+            status: 'deleted',
+            quantity: 0,
+            archived_at: mergedAt,
+            archived_reason: 'duplicate_merged',
+            merged_into_item_id: keeper.id,
+            merged_at: mergedAt,
+            updated_at: mergedAt,
+          })
+          .in('id', mergeIds)
+          .eq('user_id', accountId || user.id);
+        if (mergedError) throw mergedError;
+
+        for (const row of mergeRows) {
+          const { error: rowError } = await supabase
+            .from('inventory_items')
+            .update({ merge_quantity: Math.max(0, Number(row.quantity) || 0) })
+            .eq('id', row.id)
+            .eq('user_id', accountId || user.id);
+          if (rowError) throw rowError;
+        }
+
+        mergedRows += mergeRows.length;
+      }
+
+      toast.success(`Merged ${mergedRows} duplicate row${mergedRows === 1 ? '' : 's'} into keeper quantities`);
       setDuplicateDialogOpen(false);
-      setDuplicateRemovalIds(new Set());
+      setDuplicateMergeIds(new Set());
       onRefresh();
     } catch (error: any) {
-      toast.error(error.message || 'Failed to remove duplicates');
+      toast.error(error.message || 'Failed to merge duplicates');
     }
   };
 
@@ -370,7 +431,7 @@ export function InventoryTable({
               {duplicateGroupCount} possible duplicate group{duplicateGroupCount === 1 ? '' : 's'} found
             </p>
             <p className="text-xs text-muted-foreground">
-              Review {duplicateExtraCount} extra item{duplicateExtraCount === 1 ? '' : 's'} before removing anything.
+              Review {duplicateExtraCount} extra item{duplicateExtraCount === 1 ? '' : 's'} before merging quantities into the oldest keeper row.
             </p>
           </div>
           <Button
@@ -379,8 +440,8 @@ export function InventoryTable({
             className="h-9 text-sm gap-1.5 border-amber-500/40 text-amber-200 hover:bg-amber-500/15"
             onClick={openDuplicateDialog}
           >
-            <Trash2 className="w-4 h-4" />
-            Remove Duplicates
+            <Archive className="w-4 h-4" />
+            Merge Duplicates
           </Button>
         </div>
       )}
@@ -390,7 +451,7 @@ export function InventoryTable({
           <DialogHeader>
             <DialogTitle>Review Possible Duplicates</DialogTitle>
             <DialogDescription>
-              Later copies are selected by default. Uncheck anything you want to keep as a real separate copy.
+              Later copies are selected by default. Selected rows will be merged into the oldest kept item by adding quantity and preserving the keeper metadata.
             </DialogDescription>
           </DialogHeader>
 
@@ -408,7 +469,7 @@ export function InventoryTable({
                   </div>
                   <div className="divide-y divide-border/35">
                     {group.map((item, index) => {
-                      const checked = duplicateRemovalIds.has(item.id);
+                      const checked = duplicateMergeIds.has(item.id);
                       return (
                         <label
                           key={item.id}
@@ -418,7 +479,7 @@ export function InventoryTable({
                             type="checkbox"
                             className="h-4 w-4 flex-shrink-0 accent-primary"
                             checked={checked}
-                            onChange={() => toggleDuplicateRemoval(item.id)}
+                            onChange={() => toggleDuplicateMerge(item.id)}
                           />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
@@ -434,7 +495,7 @@ export function InventoryTable({
                             </div>
                           </div>
                           <span className={`text-xs flex-shrink-0 ${checked ? 'text-destructive' : 'text-muted-foreground'}`}>
-                            {checked ? 'Remove' : 'Keep'}
+                            {checked ? 'Merge' : 'Keep'}
                           </span>
                         </label>
                       );
@@ -449,7 +510,7 @@ export function InventoryTable({
             <Button
               variant="ghost"
               onClick={() => {
-                setDuplicateRemovalIds(new Set());
+                setDuplicateMergeIds(new Set());
                 setDuplicateDialogOpen(false);
               }}
             >
@@ -457,16 +518,15 @@ export function InventoryTable({
             </Button>
             <Button
               variant="outline"
-              onClick={() => setDuplicateRemovalIds(new Set(duplicateGroups.flatMap((group) => group.slice(1).map((item) => item.id))))}
+              onClick={() => setDuplicateMergeIds(new Set(duplicateGroups.flatMap((group) => group.slice(1).map((item) => item.id))))}
             >
               Select Later Copies
             </Button>
             <Button
-              variant="destructive"
-              onClick={handleRemoveDuplicates}
-              disabled={duplicateRemovalCount === 0}
+              onClick={handleMergeDuplicates}
+              disabled={duplicateMergeCount === 0}
             >
-              Remove {duplicateRemovalCount} Duplicate{duplicateRemovalCount === 1 ? '' : 's'}
+              Merge {duplicateMergeCount} Duplicate{duplicateMergeCount === 1 ? '' : 's'}
             </Button>
           </DialogFooter>
         </DialogContent>
