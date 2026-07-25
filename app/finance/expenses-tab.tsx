@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CircleDollarSign, FileText, Plus, Receipt, Search, Trash2, Users } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CalendarDays, Camera, CircleDollarSign, ExternalLink, FileImage, FileText, Plus, Receipt, Search, Trash2, Upload, Users, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -15,9 +15,11 @@ import {
   deleteBusinessExpense,
   formatCurrency,
   getBusinessExpenses,
+  getExpenseReceiptUrl,
   getExpensePeople,
   IRS_WRITE_OFF_CATEGORIES,
   updateBusinessExpense,
+  uploadExpenseReceipt,
   type BusinessExpense,
   type ExpensePerson,
 } from '@/lib/finance-services';
@@ -79,9 +81,15 @@ export function ExpensesTab() {
   const [people, setPeople] = useState<ExpensePerson[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingReceipt, setUploadingReceipt] = useState(false);
+  const [openingReceiptId, setOpeningReceiptId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [filters, setFilters] = useState({ category: 'all', person: 'all', status: 'all', search: '' });
   const [form, setForm] = useState(emptyForm);
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
+  const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +113,12 @@ export function ExpensesTab() {
   }, [filters]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    return () => {
+      if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
+    };
+  }, [receiptPreviewUrl]);
 
   const totals = useMemo(() => {
     const claimable = expenses.filter((expense) => expense.status !== 'disallowed');
@@ -133,6 +147,17 @@ export function ExpensesTab() {
     }));
   };
 
+  const handleReceiptFile = (file?: File | null) => {
+    if (receiptPreviewUrl) URL.revokeObjectURL(receiptPreviewUrl);
+    const selected = file || null;
+    setReceiptFile(selected);
+    setReceiptPreviewUrl(selected?.type.startsWith('image/') ? URL.createObjectURL(selected) : null);
+    if (!selected) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
+    }
+  };
+
   const handleCreate = async () => {
     if (!form.description.trim()) {
       toast.error('Add a description for the expense.');
@@ -144,7 +169,9 @@ export function ExpensesTab() {
     }
 
     setSaving(true);
+    setUploadingReceipt(Boolean(receiptFile));
     try {
+      const uploadedReceipt = receiptFile ? await uploadExpenseReceipt(receiptFile) : null;
       await createBusinessExpense({
         expense_date: form.expense_date,
         merchant: form.merchant.trim() || null,
@@ -153,7 +180,10 @@ export function ExpensesTab() {
         irs_category: form.irs_category,
         business_purpose: form.business_purpose.trim() || null,
         payment_method: form.payment_method.trim() || null,
-        receipt_url: form.receipt_url.trim() || null,
+        receipt_url: uploadedReceipt?.receiptUrl || form.receipt_url.trim() || null,
+        receipt_storage_path: uploadedReceipt?.storagePath || null,
+        receipt_file_name: uploadedReceipt?.fileName || null,
+        receipt_mime_type: uploadedReceipt?.mimeType || null,
         source_transaction_id: null,
         incurred_by_email: form.incurred_by_email || people[0]?.email || null,
         incurred_by_name: form.incurred_by_name || form.incurred_by_email || null,
@@ -162,11 +192,13 @@ export function ExpensesTab() {
       });
       toast.success('Expense saved');
       setForm({ ...emptyForm, incurred_by_email: people[0]?.email || '', incurred_by_name: people[0]?.name || '' });
+      handleReceiptFile(null);
       setShowForm(false);
       load();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to save expense');
     } finally {
+      setUploadingReceipt(false);
       setSaving(false);
     }
   };
@@ -188,6 +220,22 @@ export function ExpensesTab() {
       toast.success('Expense deleted');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to delete expense');
+    }
+  };
+
+  const handleOpenReceipt = async (expense: BusinessExpense) => {
+    setOpeningReceiptId(expense.id);
+    try {
+      const url = await getExpenseReceiptUrl(expense);
+      if (!url) {
+        toast.error('No receipt is attached to this expense.');
+        return;
+      }
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to open receipt');
+    } finally {
+      setOpeningReceiptId(null);
     }
   };
 
@@ -258,14 +306,10 @@ export function ExpensesTab() {
               </div>
             </div>
 
-            <div className="grid sm:grid-cols-3 gap-3">
+            <div className="grid sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-[11px] text-white/50">Payment Method</Label>
                 <Input value={form.payment_method} onChange={(e) => setForm((f) => ({ ...f, payment_method: e.target.value }))} placeholder="Card, cash, bank..." className="h-9 text-xs bg-secondary/40" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-[11px] text-white/50">Receipt URL</Label>
-                <Input value={form.receipt_url} onChange={(e) => setForm((f) => ({ ...f, receipt_url: e.target.value }))} placeholder="Optional link to receipt" className="h-9 text-xs bg-secondary/40" />
               </div>
               <div className="space-y-1">
                 <Label className="text-[11px] text-white/50">Status</Label>
@@ -275,6 +319,64 @@ export function ExpensesTab() {
                     {STATUS_OPTIONS.map((status) => <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>)}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border/40 bg-secondary/20 p-3 space-y-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <Label className="text-[11px] text-white/50">Receipt</Label>
+                  <div className="text-xs text-muted-foreground mt-1">Attach a photo, upload a file, or paste an existing receipt link.</div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*,.pdf,application/pdf"
+                    className="hidden"
+                    onChange={(event) => handleReceiptFile(event.target.files?.[0])}
+                  />
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(event) => handleReceiptFile(event.target.files?.[0])}
+                  />
+                  <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="w-3.5 h-3.5 mr-1.5" />
+                    Upload receipt
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => cameraInputRef.current?.click()}>
+                    <Camera className="w-3.5 h-3.5 mr-1.5" />
+                    Take photo
+                  </Button>
+                </div>
+              </div>
+
+              {receiptFile && (
+                <div className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/50 p-2">
+                  {receiptPreviewUrl ? (
+                    <img src={receiptPreviewUrl} alt="Receipt preview" className="h-14 w-14 rounded-md object-cover border border-border/40" />
+                  ) : (
+                    <div className="h-14 w-14 rounded-md border border-border/40 bg-secondary/50 flex items-center justify-center">
+                      <FileImage className="w-5 h-5 text-muted-foreground" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-xs font-semibold text-white/80">{receiptFile.name}</div>
+                    <div className="text-[11px] text-muted-foreground">{(receiptFile.size / 1024 / 1024).toFixed(2)} MB</div>
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleReceiptFile(null)}>
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <Label className="text-[11px] text-white/50">Receipt URL fallback</Label>
+                <Input value={form.receipt_url} onChange={(e) => setForm((f) => ({ ...f, receipt_url: e.target.value }))} placeholder="Optional link if the receipt is already online" className="h-9 text-xs bg-secondary/40" />
               </div>
             </div>
 
@@ -291,7 +393,9 @@ export function ExpensesTab() {
 
             <div className="flex items-center justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setShowForm(false)}>Cancel</Button>
-              <Button size="sm" onClick={handleCreate} disabled={saving}>{saving ? 'Saving...' : 'Save Expense'}</Button>
+              <Button size="sm" onClick={handleCreate} disabled={saving}>
+                {uploadingReceipt ? 'Uploading receipt...' : saving ? 'Saving...' : 'Save Expense'}
+              </Button>
             </div>
           </div>
         )}
@@ -349,6 +453,7 @@ export function ExpensesTab() {
           <div className="divide-y divide-border/30">
             {expenses.map((expense) => {
               const category = IRS_WRITE_OFF_CATEGORIES.find((entry) => entry.value === expense.irs_category);
+              const hasReceipt = Boolean(expense.receipt_storage_path || expense.receipt_url);
               return (
                 <div key={expense.id} className="p-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between hover:bg-secondary/15">
                   <div className="min-w-0 space-y-1">
@@ -363,6 +468,12 @@ export function ExpensesTab() {
                       <span>{category?.label || expense.irs_category}</span>
                       {expense.merchant && <span>{expense.merchant}</span>}
                       {expense.incurred_by_email && <span>{expense.incurred_by_email}</span>}
+                      {hasReceipt && (
+                        <span className="inline-flex items-center gap-1 text-emerald-300/80">
+                          <Receipt className="w-3 h-3" />
+                          Receipt attached
+                        </span>
+                      )}
                     </div>
                     {expense.business_purpose && (
                       <div className="text-[11px] text-white/45 line-clamp-2 max-w-2xl">{expense.business_purpose}</div>
@@ -379,6 +490,18 @@ export function ExpensesTab() {
                         {STATUS_OPTIONS.map((status) => <SelectItem key={status.value} value={status.value}>{status.label}</SelectItem>)}
                       </SelectContent>
                     </Select>
+                    {hasReceipt && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-[11px]"
+                        onClick={() => handleOpenReceipt(expense)}
+                        disabled={openingReceiptId === expense.id}
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                        {openingReceiptId === expense.id ? 'Opening...' : 'Receipt'}
+                      </Button>
+                    )}
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-white/35 hover:text-red-300" onClick={() => handleDelete(expense)}>
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>

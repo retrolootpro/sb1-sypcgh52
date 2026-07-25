@@ -96,6 +96,9 @@ export type BusinessExpense = {
   business_purpose: string | null;
   payment_method: string | null;
   receipt_url: string | null;
+  receipt_storage_path: string | null;
+  receipt_file_name: string | null;
+  receipt_mime_type: string | null;
   source_transaction_id: string | null;
   status: 'draft' | 'ready' | 'reviewed' | 'disallowed';
   notes: string | null;
@@ -893,6 +896,73 @@ export async function createBusinessExpense(input: Omit<BusinessExpense, 'id' | 
   return data as BusinessExpense;
 }
 
+const EXPENSE_RECEIPTS_BUCKET = 'expense-receipts';
+const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
+const ALLOWED_RECEIPT_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'application/pdf',
+]);
+
+function safeReceiptName(name: string) {
+  const fallback = 'receipt';
+  const cleaned = (name || fallback)
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 90);
+  return cleaned || fallback;
+}
+
+export async function uploadExpenseReceipt(file: File): Promise<{
+  receiptUrl: string;
+  storagePath: string;
+  fileName: string;
+  mimeType: string | null;
+}> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  if (file.size > MAX_RECEIPT_BYTES) throw new Error('Receipt files must be 10 MB or smaller.');
+  if (file.type && !ALLOWED_RECEIPT_TYPES.has(file.type)) {
+    throw new Error('Receipt must be a JPG, PNG, WebP, HEIC, or PDF file.');
+  }
+
+  const accountId = await getActiveAccountId(user);
+  const fileName = safeReceiptName(file.name);
+  const storagePath = `${accountId}/expenses/${Date.now()}-${crypto.randomUUID()}-${fileName}`;
+  const mimeType = file.type || null;
+  const { error: uploadError } = await supabase.storage
+    .from(EXPENSE_RECEIPTS_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || 'application/octet-stream',
+      upsert: false,
+    });
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { data: signed, error: signedError } = await supabase.storage
+    .from(EXPENSE_RECEIPTS_BUCKET)
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
+  if (signedError || !signed?.signedUrl) throw new Error(signedError?.message || 'Failed to create receipt link');
+
+  return {
+    receiptUrl: signed.signedUrl,
+    storagePath,
+    fileName,
+    mimeType,
+  };
+}
+
+export async function getExpenseReceiptUrl(expense: BusinessExpense): Promise<string | null> {
+  if (!expense.receipt_storage_path) return expense.receipt_url;
+  const { data, error } = await supabase.storage
+    .from(EXPENSE_RECEIPTS_BUCKET)
+    .createSignedUrl(expense.receipt_storage_path, 60 * 60 * 24 * 7);
+  if (error) throw new Error(error.message);
+  return data?.signedUrl || expense.receipt_url;
+}
+
 export async function updateBusinessExpense(id: string, updates: Partial<BusinessExpense>): Promise<void> {
   const payload = {
     ...updates,
@@ -907,8 +977,22 @@ export async function updateBusinessExpense(id: string, updates: Partial<Busines
 }
 
 export async function deleteBusinessExpense(id: string): Promise<void> {
+  const { data: existing } = await supabase
+    .from('business_expenses')
+    .select('receipt_storage_path')
+    .eq('id', id)
+    .maybeSingle();
+
   const { error } = await supabase.from('business_expenses').delete().eq('id', id);
   if (error) throw new Error(error.message);
+
+  const receiptPath = (existing as Pick<BusinessExpense, 'receipt_storage_path'> | null)?.receipt_storage_path;
+  if (receiptPath) {
+    const { error: storageError } = await supabase.storage
+      .from(EXPENSE_RECEIPTS_BUCKET)
+      .remove([receiptPath]);
+    if (storageError) console.warn('Failed to remove expense receipt', storageError.message);
+  }
 }
 
 export async function getExpenseTotalsByPerson(year?: number): Promise<ExpensePersonTotal[]> {
