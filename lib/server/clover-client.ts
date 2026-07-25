@@ -22,9 +22,16 @@ function normalizeAccessToken(token: string) {
   return token.trim().replace(/^Bearer\s+/i, '');
 }
 
+function normalizeBaseUrl(value: string) {
+  const trimmed = value.trim();
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const url = new URL(withProtocol);
+  return `${url.protocol}//${url.host}`;
+}
+
 function cloverConfig() {
   return {
-    baseUrl: (process.env.CLOVER_BASE_URL || 'https://api.clover.com').replace(/\/$/, ''),
+    baseUrl: normalizeBaseUrl(process.env.CLOVER_BASE_URL || 'https://api.clover.com'),
     merchantId: requiredEnv('CLOVER_MERCHANT_ID'),
     accessToken: normalizeAccessToken(requiredEnv('CLOVER_ACCESS_TOKEN')),
   };
@@ -51,7 +58,8 @@ export class CloverApiError extends Error {
 
 export async function cloverRequest<T>(path: string, options: CloverRequestOptions = {}): Promise<T> {
   const config = cloverConfig();
-  const response = await fetch(`${config.baseUrl}/v3/merchants/${config.merchantId}${path}`, {
+  const normalizedPath = path.startsWith('/') || path === '' ? path : `/${path}`;
+  const response = await fetch(`${config.baseUrl}/v3/merchants/${config.merchantId}${normalizedPath}`, {
     method: options.method || 'GET',
     headers: {
       Authorization: `Bearer ${config.accessToken}`,
@@ -71,6 +79,47 @@ export async function cloverRequest<T>(path: string, options: CloverRequestOptio
     throw new CloverApiError(message, response.status, safeSummary(data));
   }
   return data as T;
+}
+
+function merchantHint(merchantId: string) {
+  if (merchantId.length <= 8) return merchantId;
+  return `${merchantId.slice(0, 4)}...${merchantId.slice(-4)}`;
+}
+
+export async function testCloverConnection() {
+  const config = cloverConfig();
+  const diagnostics = {
+    baseUrl: config.baseUrl,
+    merchantId: merchantHint(config.merchantId),
+    tokenLength: config.accessToken.length,
+    probes: [] as Array<{ name: string; ok: boolean; message: string }>,
+  };
+
+  try {
+    await cloverRequest<Record<string, unknown>>('');
+    diagnostics.probes.push({ name: 'merchant', ok: true, message: 'Merchant access confirmed' });
+  } catch (error) {
+    diagnostics.probes.push({
+      name: 'merchant',
+      ok: false,
+      message: error instanceof Error ? error.message : 'Merchant access failed',
+    });
+    return { success: false, diagnostics };
+  }
+
+  try {
+    await cloverRequest<{ elements?: unknown[] }>('/items?limit=1');
+    diagnostics.probes.push({ name: 'items_read', ok: true, message: 'Item read permission confirmed' });
+  } catch (error) {
+    diagnostics.probes.push({
+      name: 'items_read',
+      ok: false,
+      message: error instanceof Error ? error.message : 'Item read permission failed',
+    });
+    return { success: false, diagnostics };
+  }
+
+  return { success: true, diagnostics };
 }
 
 export async function createCloverItem(payload: CloverItemPayload) {

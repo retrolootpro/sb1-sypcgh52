@@ -196,6 +196,8 @@ export default function ItemDetailPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [savingMetadata, setSavingMetadata] = useState(false);
   const [syncingClover, setSyncingClover] = useState(false);
+  const [testingClover, setTestingClover] = useState(false);
+  const [cloverDiagnostic, setCloverDiagnostic] = useState<{ success: boolean; message: string } | null>(null);
   const [editingMetadata, setEditingMetadata] = useState(false);
   const [showDiag, setShowDiag]     = useState(false);
   const [autoRefreshAttempted, setAutoRefreshAttempted] = useState(false);
@@ -484,6 +486,30 @@ export default function ItemDetailPage() {
       await loadItem();
     } finally {
       setSyncingClover(false);
+    }
+  };
+
+  const handleTestCloverConnection = async () => {
+    setTestingClover(true);
+    setCloverDiagnostic(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch('/api/clover/diagnostics', {
+        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
+      });
+      const result = await response.json();
+      const probes = result?.diagnostics?.probes || [];
+      const failed = probes.find((probe: { ok?: boolean }) => !probe.ok);
+      const message = failed?.message || result?.message || (result?.success ? 'Clover connection looks good' : 'Clover connection failed');
+      setCloverDiagnostic({ success: Boolean(result?.success), message });
+      if (result?.success) toast.success('Clover connection looks good');
+      else toast.error(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Clover diagnostic failed';
+      setCloverDiagnostic({ success: false, message });
+      toast.error(message);
+    } finally {
+      setTestingClover(false);
     }
   };
 
@@ -1116,11 +1142,31 @@ export default function ItemDetailPage() {
                   {item.clover_sync_error && (
                     <div className="mt-1 text-xs text-red-400">{item.clover_sync_error}</div>
                   )}
+                  {cloverDiagnostic && (
+                    <div className={`mt-1 text-xs ${cloverDiagnostic.success ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {cloverDiagnostic.message}
+                    </div>
+                  )}
                 </div>
-                <Button size="sm" onClick={handleSyncToClover} disabled={syncingClover || ['sold', 'archived', 'deleted'].includes(String(item.status || ''))}>
-                  <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncingClover ? 'animate-spin' : ''}`} />
-                  {syncingClover ? 'Syncing...' : 'Sync to Clover'}
-                </Button>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleTestCloverConnection}
+                    disabled={testingClover || syncingClover}
+                  >
+                    <CheckCircle2 className={`mr-1.5 h-3.5 w-3.5 ${testingClover ? 'animate-pulse' : ''}`} />
+                    {testingClover ? 'Testing...' : 'Test connection'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleSyncToClover}
+                    disabled={syncingClover || testingClover || ['sold', 'archived', 'deleted'].includes(String(item.status || ''))}
+                  >
+                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncingClover ? 'animate-spin' : ''}`} />
+                    {syncingClover ? 'Syncing...' : 'Sync to Clover'}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
 
