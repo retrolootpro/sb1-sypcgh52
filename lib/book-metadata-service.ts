@@ -32,6 +32,7 @@ export type BookMetadataResult = {
   isbn13: string;
   coverImageUrl: string;
   thumbnailUrl: string;
+  format: string;
   retailPrice: number | null;
   retailPriceCurrency: string;
   retailPriceSource: string;
@@ -132,7 +133,10 @@ export function normalizeBookIdentifier(input: string): NormalizedBookIdentifier
 
 function cleanImageUrl(url: string) {
   if (!url) return '';
-  return url.replace(/^http:\/\//i, 'https://');
+  return url
+    .replace(/^http:\/\//i, 'https://')
+    .replace('&edge=curl', '')
+    .replace(/\bzoom=\d\b/, 'zoom=2');
 }
 
 function publishedYear(date: string) {
@@ -148,6 +152,28 @@ function bookCategory(platform: string, categories: string[]) {
   const categoryText = categories.filter(Boolean).join(', ');
   if (categoryText) return `${platform === 'Manga' ? 'Manga' : 'Books'}, ${categoryText}`;
   return 'Books & Media';
+}
+
+function inferBookFormat(...values: Array<unknown>) {
+  const text = values
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .map((value) => cleanText(value))
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (/\b(mass market paperback|mass-market)\b/.test(text)) return 'Mass Market Paperback';
+  if (/\b(paperback|softcover|soft cover)\b/.test(text)) return 'Paperback';
+  if (/\b(hardcover|hardback|hard cover)\b/.test(text)) return 'Hardcover';
+  if (/\b(board book)\b/.test(text)) return 'Board Book';
+  if (/\b(spiral|spiral-bound|spiral bound)\b/.test(text)) return 'Spiral-bound';
+  if (/\b(library binding)\b/.test(text)) return 'Library Binding';
+  if (/\b(comic|single issue)\b/.test(text)) return 'Comic';
+  if (/\b(graphic novel)\b/.test(text)) return 'Graphic Novel';
+  if (/\b(manga)\b/.test(text)) return 'Manga';
+  if (/\b(audiobook|audio book)\b/.test(text)) return 'Audiobook';
+  if (/\b(ebook|e-book|digital)\b/.test(text)) return 'eBook';
+  return '';
 }
 
 function identifiersFromGoogle(volume: any) {
@@ -212,10 +238,11 @@ function fromGoogleItem(item: any, fallback: NormalizedBookIdentifier): BookMeta
   const categories = Array.isArray(volume?.categories) ? volume.categories.map(cleanText).filter(Boolean) : [];
   const imageLinks = volume?.imageLinks || {};
   const thumbnailUrl = cleanImageUrl(imageLinks.thumbnail || imageLinks.smallThumbnail || '');
-  const imageUrl = cleanImageUrl(imageLinks.extraLarge || imageLinks.large || imageLinks.medium || thumbnailUrl);
+  const imageUrl = cleanImageUrl(imageLinks.extraLarge || imageLinks.large || imageLinks.medium || imageLinks.thumbnail || thumbnailUrl);
   const ids = identifiersFromGoogle(volume);
   const platform = bookPlatform(categories);
   const retail = googleRetailPrice(saleInfo);
+  const format = inferBookFormat(volume?.printType, volume?.title, volume?.subtitle, categories, volume?.description);
 
   return {
     title,
@@ -232,6 +259,7 @@ function fromGoogleItem(item: any, fallback: NormalizedBookIdentifier): BookMeta
     isbn13: cleanText(ids.isbn13 || fallback.isbn13),
     coverImageUrl: imageUrl,
     thumbnailUrl,
+    format,
     retailPrice: retail.amount,
     retailPriceCurrency: retail.currency,
     retailPriceSource: retail.amount ? 'google_books_sale_info' : '',
@@ -279,6 +307,7 @@ function fromOpenLibraryRecord(data: any, identifier: NormalizedBookIdentifier, 
   const thumbnailUrl = coverId ? `https://covers.openlibrary.org/b/id/${coverId}-M.jpg` : '';
   const publishedDateValue = cleanText(data?.publish_date || searchDoc?.first_publish_year || '');
   const platform = bookPlatform(categories);
+  const format = inferBookFormat(data?.physical_format, searchDoc?.type, data?.title, categories);
 
   return {
     title,
@@ -295,6 +324,7 @@ function fromOpenLibraryRecord(data: any, identifier: NormalizedBookIdentifier, 
     isbn13: cleanText(data?.isbn_13?.[0] || searchDoc?.isbn?.find((id: string) => /^(978|979)\d{10}$/.test(id)) || identifier.isbn13),
     coverImageUrl: imageUrl,
     thumbnailUrl,
+    format,
     retailPrice: null,
     retailPriceCurrency: '',
     retailPriceSource: '',
@@ -353,6 +383,7 @@ function mergeBookMetadata(primary: BookMetadataResult, fallback: BookMetadataRe
     isbn13: primary.isbn13 || fallback.isbn13,
     coverImageUrl: primary.coverImageUrl || fallback.coverImageUrl,
     thumbnailUrl: primary.thumbnailUrl || fallback.thumbnailUrl,
+    format: primary.format || fallback.format,
     retailPrice: primary.retailPrice ?? fallback.retailPrice,
     retailPriceCurrency: primary.retailPriceCurrency || fallback.retailPriceCurrency,
     retailPriceSource: primary.retailPriceSource || fallback.retailPriceSource,

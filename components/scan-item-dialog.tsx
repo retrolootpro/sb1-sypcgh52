@@ -52,6 +52,7 @@ interface ScanItemDialogProps {
     isbn10?: string;
     isbn13?: string;
     coverImageUrl?: string;
+    format?: string;
     source?: string;
     sourcesTried?: string[];
   } | null;
@@ -115,6 +116,7 @@ export function ScanItemDialog({
   const [isbn10, setIsbn10] = useState('');
   const [isbn13, setIsbn13] = useState('');
   const [coverImageUrl, setCoverImageUrl] = useState('');
+  const [bookFormat, setBookFormat] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState<string>(suggestedPrice?.toString() || '');
   const [askingPrice, setAskingPrice] = useState('');
@@ -141,6 +143,7 @@ export function ScanItemDialog({
       setIsbn10(meta.isbn10 || '');
       setIsbn13(meta.isbn13 || '');
       setCoverImageUrl(meta.coverImageUrl || '');
+      setBookFormat(meta.format || '');
       setDescription(meta.description || '');
       setConsoleValue(detectedConsole || '');
       setRegion('US');
@@ -213,6 +216,7 @@ export function ScanItemDialog({
       isbn10: isbn10.trim(),
       isbn13: isbn13.trim(),
       coverImageUrl: coverImageUrl.trim(),
+      format: bookFormat.trim(),
       source: bookMetadata?.source || 'manual_book_metadata',
       sourcesTried: bookMetadata?.sourcesTried || [],
     } : undefined;
@@ -291,6 +295,7 @@ export function ScanItemDialog({
                 <Field label="Published" value={publishedDate} onChange={setPublishedDate} placeholder="Year or date" />
                 <Field label="Pages" value={pageCount} onChange={setPageCount} placeholder="Page count" inputMode="numeric" />
                 <Field label="Language" value={language} onChange={setLanguage} placeholder="en" />
+                <Field label="Format / Binding" value={bookFormat} onChange={setBookFormat} placeholder="Paperback, Hardcover..." />
                 <Field label="ISBN-10" value={isbn10} onChange={setIsbn10} placeholder="ISBN-10" />
                 <Field label="ISBN-13" value={isbn13} onChange={setIsbn13} placeholder="ISBN-13" />
               </div>

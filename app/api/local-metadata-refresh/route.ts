@@ -27,6 +27,17 @@ type InventoryRow = {
   pricing_matched_title?: string | null;
   pricing_matched_platform?: string | null;
   pc_source_product_id?: string | null;
+  book_format?: string | null;
+  book_authors?: string[] | null;
+  book_publisher?: string | null;
+  book_published_date?: string | null;
+  book_published_year?: string | null;
+  book_page_count?: number | null;
+  book_language?: string | null;
+  book_isbn10?: string | null;
+  book_isbn13?: string | null;
+  book_cover_url?: string | null;
+  book_metadata_source?: string | null;
 };
 
 type MetadataResult = {
@@ -40,6 +51,19 @@ type MetadataResult = {
   category?: string;
   pcProductId?: string;
   source: string;
+  book?: {
+    format?: string;
+    authors?: string[];
+    publisher?: string;
+    publishedDate?: string;
+    publishedYear?: string;
+    pageCount?: number | null;
+    language?: string;
+    isbn10?: string;
+    isbn13?: string;
+    coverImageUrl?: string;
+    source?: string;
+  } | null;
 };
 
 const PC_API_BASE = 'https://www.pricecharting.com/api';
@@ -283,7 +307,9 @@ function chooseImage(...candidates: Array<string | undefined>) {
 async function enrichItem(item: InventoryRow, keys: Map<string, string>): Promise<MetadataResult> {
   if (isBookLikeItem(item)) {
     const book = item.barcode
-      ? await lookupBookMetadataByBarcode(item.barcode)
+      ? await lookupBookMetadataByBarcode(item.barcode, {
+          googleBooksApiKey: keys.get('google_books') || keys.get('google_books_api_key') || undefined,
+        })
       : null;
     return {
       title: book?.title || item.product_name,
@@ -291,11 +317,24 @@ async function enrichItem(item: InventoryRow, keys: Map<string, string>): Promis
       imageUrl: chooseImage(book?.imageUrl, item.image_url || ''),
       thumbnailUrl: chooseImage(book?.thumbnailUrl, book?.imageUrl, item.thumbnail_url || ''),
       description: book?.description || item.description || '',
-      genre: item.genre || '',
+      genre: '',
       brand: book?.brand || item.brand || '',
       category: book?.category || item.category || 'Books & Media',
       pcProductId: '',
       source: book?.source || 'book_metadata',
+      book: book ? {
+        format: book.format,
+        authors: book.authors,
+        publisher: book.publisher,
+        publishedDate: book.publishedDate,
+        publishedYear: book.publishedYear,
+        pageCount: book.pageCount,
+        language: book.language,
+        isbn10: book.isbn10,
+        isbn13: book.isbn13,
+        coverImageUrl: book.coverImageUrl,
+        source: book.source,
+      } : null,
     };
   }
 
@@ -384,8 +423,9 @@ export async function POST(req: NextRequest) {
 
     const { data: items, error } = await supabase
       .from('inventory_items')
-      .select('id, product_name, console, barcode, image_url, thumbnail_url, description, brand, category, genre, region, pricing_matched_title, pricing_matched_platform, pc_source_product_id')
+      .select('id, product_name, console, barcode, image_url, thumbnail_url, description, brand, category, genre, region, pricing_matched_title, pricing_matched_platform, pc_source_product_id, book_format, book_authors, book_publisher, book_published_date, book_published_year, book_page_count, book_language, book_isbn10, book_isbn13, book_cover_url, book_metadata_source')
       .eq('user_id', accountId)
+      .not('status', 'in', '(sold,archived,deleted)')
       .order('created_at', { ascending: false })
       .limit(limit);
 
@@ -396,8 +436,8 @@ export async function POST(req: NextRequest) {
       !item.image_url ||
       !item.thumbnail_url ||
       !item.description ||
-      !item.genre ||
-      !item.pricing_matched_title ||
+      (!isBookLikeItem(item) && (!item.genre || !item.pricing_matched_title)) ||
+      (isBookLikeItem(item) && (!item.book_format || !item.book_cover_url || !item.book_publisher || !item.book_isbn13)) ||
       item.product_name !== cleanTitle(item.product_name)
     );
 
@@ -415,12 +455,35 @@ export async function POST(req: NextRequest) {
         if (meta.imageUrl && (force || !item.image_url || item.image_url !== meta.imageUrl)) updates.image_url = meta.imageUrl;
         if (meta.thumbnailUrl && (force || !item.thumbnail_url || item.thumbnail_url !== meta.thumbnailUrl)) updates.thumbnail_url = meta.thumbnailUrl;
         if (meta.description && (force || !item.description)) updates.description = meta.description;
-        if (meta.genre && (force || !item.genre)) updates.genre = meta.genre;
+        if (isBookLikeItem(item)) {
+          if (force || item.genre) updates.genre = '';
+          updates.pricing_matched_title = null;
+          updates.pricing_matched_platform = null;
+          updates.pc_source_product_id = null;
+          updates.pricing_source = 'Manual / book metadata';
+          updates.pricing_status = 'manual';
+        } else if (meta.genre && (force || !item.genre)) {
+          updates.genre = meta.genre;
+        }
         if (meta.brand && (force || !item.brand)) updates.brand = meta.brand;
         if (meta.category && (force || !item.category)) updates.category = meta.category;
         if (!isBookLikeItem(item) && meta.title) updates.pricing_matched_title = meta.title;
         if (!isBookLikeItem(item) && meta.platform) updates.pricing_matched_platform = meta.platform;
         if (meta.pcProductId) updates.pc_source_product_id = meta.pcProductId;
+        if (isBookLikeItem(item) && meta.book) {
+          if (meta.book.format && (force || !item.book_format)) updates.book_format = meta.book.format;
+          if (meta.book.authors?.length && (force || !item.book_authors?.length)) updates.book_authors = meta.book.authors;
+          if (meta.book.publisher && (force || !item.book_publisher)) updates.book_publisher = meta.book.publisher;
+          if (meta.book.publishedDate && (force || !item.book_published_date)) updates.book_published_date = meta.book.publishedDate;
+          if (meta.book.publishedYear && (force || !item.book_published_year)) updates.book_published_year = meta.book.publishedYear;
+          if (meta.book.pageCount != null && (force || !item.book_page_count)) updates.book_page_count = meta.book.pageCount;
+          if (meta.book.language && (force || !item.book_language)) updates.book_language = meta.book.language;
+          if (meta.book.isbn10 && (force || !item.book_isbn10)) updates.book_isbn10 = meta.book.isbn10;
+          if (meta.book.isbn13 && (force || !item.book_isbn13)) updates.book_isbn13 = meta.book.isbn13;
+          if (meta.book.coverImageUrl && (force || !item.book_cover_url)) updates.book_cover_url = meta.book.coverImageUrl;
+          if (meta.book.source && (force || !item.book_metadata_source)) updates.book_metadata_source = meta.book.source;
+          updates.book_metadata_updated_at = new Date().toISOString();
+        }
         const detectedRegion = getItemRegionDetails({
           ...item,
           product_name: meta.title || item.product_name,

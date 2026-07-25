@@ -68,6 +68,9 @@ type InventoryItem = {
   category?: string | null;
   item_type?: string | null;
   genre?: string | null;
+  book_format?: string | null;
+  book_authors?: string[] | null;
+  book_publisher?: string | null;
   source_metadata_provider?: string | null;
   source_upc_provider?: string | null;
   pricing_matched_title?: string | null;
@@ -829,10 +832,19 @@ export function InventoryTable({
                     {region.shortLabel}
                   </Badge>
                 )}
+                {bookLike && item.book_format && (
+                  <Badge variant="outline" className="text-[11px] px-2 py-0 h-5 border-sky-500/30 text-sky-300">
+                    {item.book_format}
+                  </Badge>
+                )}
                 {(item.genre || item.category) && (
                   <>
                     <span className="text-muted-foreground/30 text-sm hidden md:inline">|</span>
-                    <span className="text-xs text-muted-foreground/60 hidden md:inline">{item.genre || item.category}</span>
+                    <span className="text-xs text-muted-foreground/60 hidden md:inline">
+                      {bookLike
+                        ? (item.book_authors?.slice(0, 2).join(', ') || item.book_publisher || item.category)
+                        : (item.genre || item.category)}
+                    </span>
                   </>
                 )}
                 {item.quantity > 1 && (

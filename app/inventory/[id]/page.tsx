@@ -63,6 +63,18 @@ type InventoryItem = {
   genre?: string;
   category?: string;
   item_type?: string | null;
+  book_format?: string | null;
+  book_authors?: string[] | null;
+  book_publisher?: string | null;
+  book_published_date?: string | null;
+  book_published_year?: string | null;
+  book_page_count?: number | null;
+  book_language?: string | null;
+  book_isbn10?: string | null;
+  book_isbn13?: string | null;
+  book_cover_url?: string | null;
+  book_metadata_source?: string | null;
+  book_metadata_updated_at?: string | null;
   source_metadata_provider?: string | null;
   source_upc_provider?: string | null;
   confidence_score?: number;
@@ -108,6 +120,14 @@ type MetadataForm = {
   brand: string;
   category: string;
   genre: string;
+  book_format: string;
+  book_authors: string;
+  book_publisher: string;
+  book_published_date: string;
+  book_page_count: string;
+  book_language: string;
+  book_isbn10: string;
+  book_isbn13: string;
   barcode: string;
   image_url: string;
   thumbnail_url: string;
@@ -231,6 +251,14 @@ export default function ItemDetailPage() {
     brand: '',
     category: '',
     genre: '',
+    book_format: '',
+    book_authors: '',
+    book_publisher: '',
+    book_published_date: '',
+    book_page_count: '',
+    book_language: '',
+    book_isbn10: '',
+    book_isbn13: '',
     barcode: '',
     image_url: '',
     thumbnail_url: '',
@@ -284,6 +312,14 @@ export default function ItemDetailPage() {
       brand: item.brand || '',
       category: item.category || '',
       genre: item.genre || '',
+      book_format: item.book_format || '',
+      book_authors: Array.isArray(item.book_authors) ? item.book_authors.join(', ') : '',
+      book_publisher: item.book_publisher || '',
+      book_published_date: item.book_published_date || item.book_published_year || '',
+      book_page_count: item.book_page_count ? String(item.book_page_count) : '',
+      book_language: item.book_language || '',
+      book_isbn10: item.book_isbn10 || '',
+      book_isbn13: item.book_isbn13 || '',
       barcode: item.barcode || '',
       image_url: item.image_url || '',
       thumbnail_url: item.thumbnail_url || '',
@@ -589,6 +625,7 @@ export default function ItemDetailPage() {
       const priceCib = metadataForm.price_cib.trim() === '' ? null : Number(metadataForm.price_cib);
       const priceNew = metadataForm.price_new.trim() === '' ? null : Number(metadataForm.price_new);
       const priceGraded = metadataForm.price_graded.trim() === '' ? null : Number(metadataForm.price_graded);
+      const bookPageCount = metadataForm.book_page_count.trim() === '' ? null : Number(metadataForm.book_page_count);
       const numericChecks = [
         { label: 'Purchase price', value: purchasePrice, min: 0 },
         { label: 'Quantity', value: quantity, min: savingArchivedItem ? 0 : 1 },
@@ -597,6 +634,7 @@ export default function ItemDetailPage() {
         ...(priceCib == null ? [] : [{ label: 'CIB price', value: priceCib, min: 0 }]),
         ...(priceNew == null ? [] : [{ label: 'New price', value: priceNew, min: 0 }]),
         ...(priceGraded == null ? [] : [{ label: 'Graded price', value: priceGraded, min: 0 }]),
+        ...(bookPageCount == null ? [] : [{ label: 'Page count', value: bookPageCount, min: 0 }]),
       ];
       const invalidNumber = numericChecks.find((check) => !Number.isFinite(check.value) || check.value < check.min);
       if (invalidNumber) {
@@ -628,7 +666,18 @@ export default function ItemDetailPage() {
           clover_sync_status: metadataForm.sync_to_clover && item.clover_sync_status !== 'synced' ? 'pending' : item.clover_sync_status || 'pending',
           brand: metadataForm.brand.trim() || null,
           category: metadataForm.category.trim() || null,
-          genre: metadataForm.genre.trim() || null,
+          genre: manualPricedItem ? null : metadataForm.genre.trim() || null,
+          book_format: manualPricedItem ? metadataForm.book_format.trim() || null : null,
+          book_authors: manualPricedItem ? metadataForm.book_authors.split(',').map((author) => author.trim()).filter(Boolean) : null,
+          book_publisher: manualPricedItem ? metadataForm.book_publisher.trim() || metadataForm.brand.trim() || null : null,
+          book_published_date: manualPricedItem ? metadataForm.book_published_date.trim() || null : null,
+          book_published_year: manualPricedItem ? metadataForm.book_published_date.match(/\d{4}/)?.[0] || item.book_published_year || null : null,
+          book_page_count: manualPricedItem ? bookPageCount : null,
+          book_language: manualPricedItem ? metadataForm.book_language.trim() || null : null,
+          book_isbn10: manualPricedItem ? metadataForm.book_isbn10.trim() || null : null,
+          book_isbn13: manualPricedItem ? metadataForm.book_isbn13.trim() || normalizedBarcode || null : null,
+          book_cover_url: manualPricedItem ? imageUrl || item.book_cover_url || null : null,
+          book_metadata_updated_at: manualPricedItem ? new Date().toISOString() : item.book_metadata_updated_at || null,
           barcode: normalizedBarcode,
           image_url: imageUrl || null,
           thumbnail_url: thumbnailUrl || null,
@@ -946,6 +995,16 @@ export default function ItemDetailPage() {
                 <Badge variant="outline" className={`text-xs ${getConditionStyle(item.condition)}`}>
                   {item.condition}
                 </Badge>
+                {bookLike && item.book_format && (
+                  <Badge variant="outline" className="border-sky-500/35 text-sky-300 text-xs">
+                    {item.book_format}
+                  </Badge>
+                )}
+                {bookLike && item.book_authors?.length ? (
+                  <Badge variant="outline" className="border-border/50 text-xs text-muted-foreground">
+                    {item.book_authors.slice(0, 2).join(', ')}
+                  </Badge>
+                ) : null}
                 {item.genre && (
                   <Badge variant="outline" className="border-border/50 text-xs text-muted-foreground">
                     {item.genre}
@@ -1154,6 +1213,51 @@ export default function ItemDetailPage() {
                       />
                     </div>
 
+                    {bookLike && (
+                      <div className="space-y-3 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 sm:col-span-2">
+                        <div>
+                          <div className="text-xs font-semibold text-sky-200">Book Metadata</div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">Bibliographic fields used for books, manga, comics, and guides.</div>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Format / Binding</Label>
+                            <Input value={metadataForm.book_format} onChange={(event) => updateMetadataForm('book_format', event.target.value)} className="h-9" placeholder="Paperback, Hardcover..." />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Authors</Label>
+                            <Input value={metadataForm.book_authors} onChange={(event) => updateMetadataForm('book_authors', event.target.value)} className="h-9" placeholder="Author 1, Author 2" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Publisher</Label>
+                            <Input value={metadataForm.book_publisher} onChange={(event) => updateMetadataForm('book_publisher', event.target.value)} className="h-9" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Published</Label>
+                            <Input value={metadataForm.book_published_date} onChange={(event) => updateMetadataForm('book_published_date', event.target.value)} className="h-9" placeholder="Year or date" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Pages</Label>
+                            <Input type="number" min="0" step="1" value={metadataForm.book_page_count} onChange={(event) => updateMetadataForm('book_page_count', event.target.value)} className="h-9" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">Language</Label>
+                            <Input value={metadataForm.book_language} onChange={(event) => updateMetadataForm('book_language', event.target.value)} className="h-9" placeholder="en" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">ISBN-10</Label>
+                            <Input value={metadataForm.book_isbn10} onChange={(event) => updateMetadataForm('book_isbn10', event.target.value)} className="h-9 font-mono" />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label className="text-xs text-muted-foreground">ISBN-13</Label>
+                            <Input value={metadataForm.book_isbn13} onChange={(event) => updateMetadataForm('book_isbn13', event.target.value)} className="h-9 font-mono" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {!bookLike && (
+                    <>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Loose Price</Label>
                       <Input
@@ -1205,6 +1309,8 @@ export default function ItemDetailPage() {
                         placeholder="0.00"
                       />
                     </div>
+                    </>
+                    )}
 
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Manual Market Value</Label>

@@ -56,6 +56,11 @@ type InventoryItem = {
   category?: string | null;
   item_type?: string | null;
   genre?: string | null;
+  book_format?: string | null;
+  book_authors?: string[] | null;
+  book_publisher?: string | null;
+  book_isbn10?: string | null;
+  book_isbn13?: string | null;
   raw_lookup_payload?: Record<string, unknown> | null;
   source_metadata_provider?: string | null;
   source_upc_provider?: string | null;
@@ -381,6 +386,11 @@ export default function InventoryPage() {
         metadata.isbn13,
         categories,
         metadata.language,
+        item.book_format,
+        Array.isArray(item.book_authors) ? item.book_authors.join(' ') : '',
+        item.book_publisher,
+        item.book_isbn10,
+        item.book_isbn13,
       ].map((value) => String(value || '')).join(' ').toLowerCase();
       const matchesSearch = !query
         || item.product_name.toLowerCase().includes(query)
