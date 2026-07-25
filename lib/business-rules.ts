@@ -69,6 +69,22 @@ function retailRound(value: number) {
   return roundCurrency(Math.max(4.99, Math.ceil(value) - 0.01));
 }
 
+export function priceChartingRetailRound(value: number) {
+  const numeric = numberValue(value);
+  if (numeric <= 0) return 0;
+
+  const whole = Math.floor(numeric);
+  const cents = numeric - whole;
+  const rounded = cents >= 0.5 ? whole + 0.99 : whole - 0.01;
+  return roundCurrency(Math.max(0.99, rounded));
+}
+
+function usesVideoGameRetailPricing(item: BusinessRuleItem) {
+  const text = `${item.console || ''} ${item.category || ''} ${item.genre || ''} ${item.description || ''}`.toLowerCase();
+  if (/\b(book|books|vinyl|dvd|blu-ray|bluray|cd|comic|manga)\b/.test(text)) return false;
+  return Boolean(item.console) || /\b(video game|game|games|console|playstation|xbox|nintendo|sega)\b/.test(text);
+}
+
 function conditionMarketValue(item: BusinessRuleItem) {
   const selected = numberValue(item.selected_market_value);
   if (selected > 0) return selected;
@@ -128,12 +144,15 @@ function buildPricePlan(item: BusinessRuleItem, marketValue: number): PricePlan 
   }
 
   const condition = (item.condition || '').toLowerCase();
+  const videoGameRetailPrice = usesVideoGameRetailPricing(item)
+    ? priceChartingRetailRound(marketValue)
+    : 0;
   const askingMultiplier = condition === 'new' || condition === 'sealed' || condition === 'graded' ? 1.08 : 1.12;
-  const recommendedAskingPrice = retailRound(marketValue * askingMultiplier);
-  const quickSalePrice = retailRound(marketValue * 0.85);
+  const recommendedAskingPrice = videoGameRetailPrice || retailRound(marketValue * askingMultiplier);
+  const quickSalePrice = videoGameRetailPrice || retailRound(marketValue * 0.85);
   const floorByMargin = costBasis > 0 ? costBasis * 1.2 : 0;
-  const floorPrice = retailRound(Math.min(recommendedAskingPrice, Math.max(marketValue * 0.7, floorByMargin)));
-  const emergencyFloorPrice = retailRound(Math.min(floorPrice || recommendedAskingPrice, Math.max(marketValue * 0.55, costBasis * 1.05)));
+  const floorPrice = videoGameRetailPrice || retailRound(Math.min(recommendedAskingPrice, Math.max(marketValue * 0.7, floorByMargin)));
+  const emergencyFloorPrice = videoGameRetailPrice || retailRound(Math.min(floorPrice || recommendedAskingPrice, Math.max(marketValue * 0.55, costBasis * 1.05)));
   const expectedProfit = roundCurrency(recommendedAskingPrice - costBasis);
   const marginPercent = recommendedAskingPrice > 0 ? roundCurrency((expectedProfit / recommendedAskingPrice) * 100) : 0;
 

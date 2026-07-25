@@ -6,6 +6,7 @@ import {
   updateCloverItem,
   type CloverItemPayload,
 } from '@/lib/server/clover-client';
+import { buildItemBusinessPlan } from '@/lib/business-rules';
 
 type InventoryItem = {
   id: string;
@@ -32,6 +33,8 @@ type InventoryItem = {
 export type CloverConflictAction = 'create_additional' | 'update_existing' | 'skip';
 
 function priceForItem(item: InventoryItem) {
+  const askPrice = buildItemBusinessPlan(item).pricePlan.recommendedAskingPrice;
+  if (askPrice > 0) return askPrice;
   const explicit = Number(item.sell_price) || Number(item.selected_market_value) || 0;
   if (explicit > 0) return explicit;
   const condition = String(item.condition || '').toLowerCase();
