@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus, Clock, BookOpen, Package, Printer, Tags } from 'lucide-react';
+import { Trash2, ChevronRight, Gamepad2, FolderInput, Check, FolderOpen, X, Minus, Clock, BookOpen, Package, Printer, Tags, Archive, RotateCcw } from 'lucide-react';
 import { PrepStageMini } from '@/components/prep-stage-bar';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
 import { getItemRegionDetails, getRegionStyle } from '@/lib/region';
@@ -54,6 +54,9 @@ type InventoryItem = {
   purchase_price: number;
   quantity: number;
   status?: string | null;
+  sold_at?: string | null;
+  archived_at?: string | null;
+  archived_reason?: string | null;
   created_at: string;
   image_url?: string | null;
   thumbnail_url?: string | null;
@@ -100,6 +103,7 @@ type InventoryTableProps = {
   collections?: Collection[];
   onMoveToCollection?: (itemId: string, collectionId: string | null) => Promise<void>;
   onBulkMoveToCollection?: (itemIds: string[], collectionId: string | null) => Promise<void>;
+  archiveMode?: boolean;
 };
 
 function getConditionStyle(condition: string) {
@@ -161,6 +165,7 @@ export function InventoryTable({
   collections = [],
   onMoveToCollection,
   onBulkMoveToCollection,
+  archiveMode = false,
 }: InventoryTableProps) {
   const router = useRouter();
   const { user, accountId } = useAuth();
@@ -236,6 +241,56 @@ export function InventoryTable({
     if (!onBulkMoveToCollection || selectedIds.size === 0) return;
     await onBulkMoveToCollection(Array.from(selectedIds), collectionId);
     clearSelection();
+  };
+
+  const markItemsSold = async (ids: string[]) => {
+    if (!user || ids.length === 0) return;
+    const soldAt = new Date().toISOString();
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({
+          status: 'sold',
+          quantity: 0,
+          sold_at: soldAt,
+          archived_at: soldAt,
+          archived_reason: 'sold',
+          clover_sync_status: 'pending',
+          updated_at: soldAt,
+        })
+        .in('id', ids)
+        .eq('user_id', accountId || user.id);
+      if (error) throw error;
+      toast.success(`Moved ${ids.length} sold item${ids.length === 1 ? '' : 's'} to archive`);
+      clearSelection();
+      onRefresh();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to mark item sold');
+    }
+  };
+
+  const restoreItems = async (ids: string[]) => {
+    if (!user || ids.length === 0) return;
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({
+          status: 'available',
+          quantity: 1,
+          archived_at: null,
+          archived_reason: null,
+          clover_sync_status: 'pending',
+          updated_at: new Date().toISOString(),
+        })
+        .in('id', ids)
+        .eq('user_id', accountId || user.id);
+      if (error) throw error;
+      toast.success(`Restocked ${ids.length} item${ids.length === 1 ? '' : 's'} from archive`);
+      clearSelection();
+      onRefresh();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to restore item');
+    }
   };
 
   const openDuplicateDialog = () => {
@@ -445,6 +500,45 @@ export function InventoryTable({
 
           <div className="flex-1" />
 
+          {archiveMode ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 text-sm gap-1.5 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10"
+              onClick={() => restoreItems(selectedIdList())}
+            >
+              <RotateCcw className="w-4 h-4" />
+              Restock Selected
+            </Button>
+          ) : (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9 text-sm gap-1.5 border-emerald-500/40 text-emerald-200 hover:bg-emerald-500/10"
+                >
+                  <Archive className="w-4 h-4" />
+                  Mark Sold
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-card border-border">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Mark Selected Sold?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This moves {selectedIds.size} selected item{selectedIds.size === 1 ? '' : 's'} out of active inventory and into the archive. Metadata, pricing, UPC, notes, and images stay saved.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => markItemsSold(selectedIdList())}>
+                    Mark Sold
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
+
           <Button
             size="sm"
             className="h-9 text-sm gap-1.5"
@@ -646,6 +740,11 @@ export function InventoryTable({
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <span className="font-semibold text-base truncate">{item.product_name}</span>
+                {archiveMode && (
+                  <Badge variant="outline" className="border-emerald-500/35 text-emerald-300 text-[11px] px-2 py-0 h-5 flex-shrink-0">
+                    Sold Archive
+                  </Badge>
+                )}
                 {item.needs_review && (
                   <Badge variant="outline" className="border-yellow-500/40 text-yellow-400 text-[11px] px-2 py-0 h-5 flex-shrink-0">
                     Review
@@ -690,6 +789,11 @@ export function InventoryTable({
                   >
                     <Clock className="mr-1 h-3 w-3" />
                     {ageDays}d
+                  </Badge>
+                )}
+                {archiveMode && (item.sold_at || item.archived_at) && (
+                  <Badge variant="outline" className="h-5 px-2 py-0 text-[11px] border-border/45 bg-secondary/30 text-muted-foreground">
+                    Sold {formatDuplicateDate(item.sold_at || item.archived_at || item.created_at)}
                   </Badge>
                 )}
               </div>
@@ -745,7 +849,55 @@ export function InventoryTable({
                 </div>
               )}
 
-              {!isSelectionMode && hasCollections && (
+              {!isSelectionMode && archiveMode && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 text-xs border-emerald-500/35 text-emerald-200 hover:bg-emerald-500/10"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    restoreItems([item.id]);
+                  }}
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  Restock
+                </Button>
+              )}
+
+              {!isSelectionMode && !archiveMode && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-9 w-9 text-muted-foreground/50 hover:text-emerald-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                    >
+                      <Archive className="w-4 h-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="bg-card border-border">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Mark Sold?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This moves &quot;{item.product_name}&quot; to the archive and keeps its metadata for future restocks.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => markItemsSold([item.id])}>
+                        Mark Sold
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+
+              {!isSelectionMode && hasCollections && !archiveMode && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button

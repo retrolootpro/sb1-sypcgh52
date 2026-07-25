@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, ScanBarcode, Tags, FileDown } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, ScanBarcode, Tags, FileDown, Archive } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { BarcodeScannerView, type ScanResult } from '@/components/barcode-scanner-view';
@@ -44,6 +44,9 @@ type InventoryItem = {
   purchase_price: number;
   quantity: number;
   status?: string | null;
+  sold_at?: string | null;
+  archived_at?: string | null;
+  archived_reason?: string | null;
   created_at: string;
   barcode?: string;
   image_url?: string;
@@ -93,6 +96,7 @@ export default function InventoryPage() {
   const [conditionFilter, setConditionFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
   const [ageFilter, setAgeFilter] = useState('all');
+  const [inventoryView, setInventoryView] = useState<'active' | 'archive' | 'all'>('active');
   const [sortBy, setSortBy] = useState('name_asc');
   const [agingThresholds, setAgingThresholds] = useState<AgingThresholds>({ watchDays: 45, reviewDays: 60 });
   const [backfilling, setBackfilling] = useState(false);
@@ -359,6 +363,11 @@ export default function InventoryPage() {
   const filteredItems = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const filtered = items.filter((item) => {
+      const status = item.status || 'available';
+      const isArchived = ['sold', 'archived', 'deleted'].includes(status);
+      const matchesInventoryView =
+        inventoryView === 'all' ||
+        (inventoryView === 'archive' ? isArchived : !isArchived);
       const metadata = item.raw_lookup_payload && typeof item.raw_lookup_payload === 'object' ? item.raw_lookup_payload : {};
       const authors = Array.isArray(metadata.authors) ? metadata.authors.join(' ') : '';
       const categories = Array.isArray(metadata.categories) ? metadata.categories.join(' ') : '';
@@ -397,7 +406,7 @@ export default function InventoryPage() {
       const matchesCollection = selectedCollectionId === null
         ? true
         : item.collection_id === selectedCollectionId;
-      return matchesSearch && matchesType && matchesConsole && matchesCondition && matchesRegion && matchesAge && matchesCollection;
+      return matchesInventoryView && matchesSearch && matchesType && matchesConsole && matchesCondition && matchesRegion && matchesAge && matchesCollection;
     });
 
     return [...filtered].sort((a, b) => {
@@ -449,7 +458,7 @@ export default function InventoryPage() {
           return nameCompare;
       }
     });
-  }, [items, searchQuery, typeFilter, consoleFilter, conditionFilter, regionFilter, ageFilter, agingThresholds, selectedCollectionId, sortBy, getItemMarketValue]);
+  }, [items, searchQuery, typeFilter, consoleFilter, conditionFilter, regionFilter, ageFilter, inventoryView, agingThresholds, selectedCollectionId, sortBy, getItemMarketValue]);
 
   const platformOptions = useMemo(() => {
     const defaults = PLATFORM_OPTIONS.map((value) => String(value));
@@ -460,14 +469,17 @@ export default function InventoryPage() {
     return [...defaults, ...extras];
   }, [items]);
 
+  const activeItems = useMemo(() => items.filter((item) => !['sold', 'archived', 'deleted'].includes(item.status || 'available')), [items]);
+  const archivedItems = useMemo(() => items.filter((item) => ['sold', 'archived', 'deleted'].includes(item.status || 'available')), [items]);
+
   const collectionItemCount = useCallback((colId: string) =>
-    items.filter((i) => i.collection_id === colId).length, [items]);
+    activeItems.filter((i) => i.collection_id === colId).length, [activeItems]);
 
   const totalItems = filteredItems.length;
   const bookMediaCount = filteredItems.filter((item) => getInventoryFamily(item) === 'books_media').length;
 
   const agingSummary = useMemo(() => {
-    const availableItems = items.filter((item) => (item.status || 'available') !== 'sold');
+    const availableItems = activeItems;
     const staleItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), agingThresholds) === 'stale');
     const watchItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), agingThresholds) === 'watch');
     const oldest = [...availableItems].sort((a, b) => getInventoryAgeDays(b.created_at) - getInventoryAgeDays(a.created_at))[0];
@@ -477,7 +489,7 @@ export default function InventoryPage() {
       oldestAge: oldest ? getInventoryAgeDays(oldest.created_at) : 0,
       oldestName: oldest?.product_name || '',
     };
-  }, [items, agingThresholds]);
+  }, [activeItems, agingThresholds]);
 
   const { totalCost, totalMarketValue } = useMemo(() => {
     const source = filteredItems;
@@ -500,7 +512,7 @@ export default function InventoryPage() {
   const handleRefreshInventoryPrices = async () => {
     if (!user) return;
 
-    const targets = filteredItems.length > 0 ? filteredItems : items;
+    const targets = filteredItems.length > 0 ? filteredItems : activeItems;
     const priceTargets = targets.filter(supportsAutomatedGamePricing);
     const skippedManual = targets.length - priceTargets.length;
     if (targets.length === 0) {
@@ -1032,7 +1044,7 @@ export default function InventoryPage() {
             <Package className="w-4 h-4" />
             All Items
             <span className={`text-[11px] ml-0.5 ${selectedCollectionId === null ? 'text-primary-foreground/70' : 'text-muted-foreground/60'}`}>
-              {items.length}
+              {activeItems.length}
             </span>
           </button>
 
@@ -1083,6 +1095,30 @@ export default function InventoryPage() {
             </div>
           </div>
           <div className="flex flex-col gap-3">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {[
+                { value: 'active', label: 'Active Inventory', count: activeItems.length, icon: Package },
+                { value: 'archive', label: 'Sold Archive', count: archivedItems.length, icon: Archive },
+                { value: 'all', label: 'All Records', count: items.length, icon: FolderOpen },
+              ].map(({ value, label, count, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setInventoryView(value as 'active' | 'archive' | 'all')}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition-colors ${
+                    inventoryView === value
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border/50 bg-card text-muted-foreground hover:border-border hover:text-foreground'
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-2 font-medium">
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </span>
+                  <span className="text-xs tabular-nums">{count}</span>
+                </button>
+              ))}
+            </div>
             <div className="flex w-full flex-col gap-2 sm:flex-row">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground/55" />
@@ -1197,6 +1233,7 @@ export default function InventoryPage() {
             collections={collections}
             onMoveToCollection={handleMoveToCollection}
             onBulkMoveToCollection={handleBulkMoveToCollection}
+            archiveMode={inventoryView === 'archive'}
           />
         )}
 

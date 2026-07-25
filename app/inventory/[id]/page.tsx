@@ -24,7 +24,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
-import { ArrowLeft, Gamepad2, TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, CircleDot, Pencil, Save, X, BookOpen, Trash2 } from 'lucide-react';
+import { ArrowLeft, Gamepad2, TrendingUp, TrendingDown, RefreshCw, ChevronDown, ChevronUp, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, CircleDot, Pencil, Save, X, BookOpen, Trash2, Archive, RotateCcw } from 'lucide-react';
 import { PrepStageBar } from '@/components/prep-stage-bar';
 import Link from 'next/link';
 import { format } from 'date-fns';
@@ -50,6 +50,9 @@ type InventoryItem = {
   purchase_price: number;
   quantity: number;
   status?: string | null;
+  sold_at?: string | null;
+  archived_at?: string | null;
+  archived_reason?: string | null;
   sell_price?: number | null;
   notes: string;
   barcode: string;
@@ -288,7 +291,7 @@ export default function ItemDetailPage() {
       notes: item.notes || '',
       status: item.status || 'available',
       purchase_price: String(Number(item.purchase_price) || 0),
-      quantity: String(Number(item.quantity) || 1),
+      quantity: String(Number(item.quantity) || (['sold', 'archived', 'deleted'].includes(item.status || '') ? 0 : 1)),
       sell_price: item.sell_price != null ? String(Number(item.sell_price) || 0) : '',
       sku: item.sku || '',
       sync_to_clover: Boolean(item.sync_to_clover),
@@ -580,6 +583,7 @@ export default function ItemDetailPage() {
       }
       const purchasePrice = Number(metadataForm.purchase_price);
       const quantity = Number(metadataForm.quantity);
+      const savingArchivedItem = ['sold', 'archived', 'deleted'].includes(metadataForm.status || '');
       const sellPrice = metadataForm.sell_price.trim() === '' ? null : Number(metadataForm.sell_price);
       const priceLoose = metadataForm.price_loose.trim() === '' ? null : Number(metadataForm.price_loose);
       const priceCib = metadataForm.price_cib.trim() === '' ? null : Number(metadataForm.price_cib);
@@ -587,7 +591,7 @@ export default function ItemDetailPage() {
       const priceGraded = metadataForm.price_graded.trim() === '' ? null : Number(metadataForm.price_graded);
       const numericChecks = [
         { label: 'Purchase price', value: purchasePrice, min: 0 },
-        { label: 'Quantity', value: quantity, min: 1 },
+        { label: 'Quantity', value: quantity, min: savingArchivedItem ? 0 : 1 },
         ...(sellPrice == null ? [] : [{ label: 'Sell price', value: sellPrice, min: 0 }]),
         ...(priceLoose == null ? [] : [{ label: 'Loose price', value: priceLoose, min: 0 }]),
         ...(priceCib == null ? [] : [{ label: 'CIB price', value: priceCib, min: 0 }]),
@@ -677,6 +681,54 @@ export default function ItemDetailPage() {
     }
   };
 
+  const handleMarkSold = async () => {
+    if (!item || !user || !accountId) return;
+    const soldAt = new Date().toISOString();
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({
+          status: 'sold',
+          quantity: 0,
+          sold_at: soldAt,
+          archived_at: soldAt,
+          archived_reason: 'sold',
+          clover_sync_status: 'pending',
+          updated_at: soldAt,
+        })
+        .eq('id', item.id)
+        .eq('user_id', accountId);
+      if (error) throw error;
+      toast.success('Item moved to sold archive');
+      await loadItem();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to mark item sold');
+    }
+  };
+
+  const handleRestockFromArchive = async () => {
+    if (!item || !user || !accountId) return;
+    try {
+      const { error } = await supabase
+        .from('inventory_items')
+        .update({
+          status: 'available',
+          quantity: 1,
+          archived_at: null,
+          archived_reason: null,
+          clover_sync_status: 'pending',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', item.id)
+        .eq('user_id', accountId);
+      if (error) throw error;
+      toast.success('Item restored to active inventory');
+      await loadItem();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to restore item');
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -690,6 +742,7 @@ export default function ItemDetailPage() {
   }
 
   if (!item) return null;
+  const isArchivedItem = ['sold', 'archived', 'deleted'].includes(item.status || 'available');
 
   // Price values — prefer live canonical result, fall back to DB values
   const loosePrice  = canonical ? (canonical.prices.loose.value  || Number(item.price_loose)  || 0) : (Number(item.price_loose)  || 0);
@@ -805,12 +858,50 @@ export default function ItemDetailPage() {
                     variant="outline"
                     size="sm"
                     onClick={handleRefreshPricing}
-                    disabled={refreshing || bookLike}
+                    disabled={refreshing || bookLike || isArchivedItem}
                     className="h-8 px-3 text-xs border-border/50"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? 'animate-spin' : ''}`} />
                     {bookLike ? 'Manual Pricing' : refreshing ? 'Refreshing...' : 'Refresh Pricing'}
                   </Button>
+                  {isArchivedItem ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRestockFromArchive}
+                      className="h-8 px-3 text-xs border-emerald-500/35 text-emerald-200 hover:bg-emerald-500/10"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                      Restock
+                    </Button>
+                  ) : (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-3 text-xs border-emerald-500/35 text-emerald-200 hover:bg-emerald-500/10"
+                        >
+                          <Archive className="w-3.5 h-3.5 mr-1.5" />
+                          Mark Sold
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="bg-card border-border">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Mark Sold?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This moves &quot;{item.product_name}&quot; out of active inventory and into the sold archive. UPC, pricing, images, notes, and metadata stay saved for future restocks.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleMarkSold}>
+                            Mark Sold
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
@@ -870,9 +961,19 @@ export default function ItemDetailPage() {
                     {dealScore.label} {dealScore.score}
                   </Badge>
                 )}
+                {isArchivedItem && (
+                  <Badge variant="outline" className="border-emerald-500/35 text-emerald-300 text-xs">
+                    Sold Archive
+                  </Badge>
+                )}
                 <span className="text-xs text-muted-foreground/60 ml-1">
                   Added {format(new Date(item.created_at), 'MMM d, yyyy')}
                 </span>
+                {isArchivedItem && (item.sold_at || item.archived_at) && (
+                  <span className="text-xs text-muted-foreground/60">
+                    Sold {format(new Date(item.sold_at || item.archived_at || item.created_at), 'MMM d, yyyy')}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -994,7 +1095,7 @@ export default function ItemDetailPage() {
                       <Label className="text-xs text-muted-foreground">Quantity</Label>
                       <Input
                         type="number"
-                        min="1"
+                        min={['sold', 'archived', 'deleted'].includes(metadataForm.status || '') ? '0' : '1'}
                         step="1"
                         value={metadataForm.quantity}
                         onChange={(event) => updateMetadataForm('quantity', event.target.value)}

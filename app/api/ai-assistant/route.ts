@@ -1054,6 +1054,7 @@ export async function POST(req: NextRequest) {
       .from('inventory_items')
       .select('*')
       .eq('user_id', accountId)
+      .not('status', 'in', '(sold,archived,deleted)')
       .order('created_at', { ascending: false })
       .limit(1500);
     if (inventoryRes.error) throw inventoryRes.error;
