@@ -77,6 +77,8 @@ type PriceChartingLookup = {
 type ExternalLookup = GameStopLookup | EbaySoldLookup | PriceChartingLookup;
 
 const PC_API_BASE = 'https://www.pricecharting.com/api';
+const DEFAULT_ASSISTANT_MODEL = 'gpt-5.1';
+const DEFAULT_ASSISTANT_REASONING_EFFORT = 'low';
 
 const BROWSER_HEADERS = {
   'User-Agent':
@@ -202,7 +204,7 @@ function shouldLookupEbaySold(message: string) {
 
 function shouldLookupPriceCharting(message: string) {
   if (/\b(do i have|what do i have|in my inventory|my inventory|on hand|available)\b/i.test(message)) return false;
-  return /\b(pricecharting|price charting|worth|value|market value|current price|what('| i)?s .* worth|how much .* worth)\b/i.test(message);
+  return /\b(pricecharting|price charting|worth|value|market value|current price|price|priced|cost|how much|what('| i)?s .* worth|how much .* worth|what .* goes? for)\b/i.test(message);
 }
 
 async function fetchText(url: string) {
@@ -588,6 +590,15 @@ function outputTextFromResponse(data: any) {
   return chunks.join('\n').trim();
 }
 
+function assistantModel() {
+  return process.env.OPENAI_MODEL || process.env.ASSISTANT_MODEL || DEFAULT_ASSISTANT_MODEL;
+}
+
+function assistantReasoningEffort() {
+  const effort = process.env.OPENAI_REASONING_EFFORT || process.env.ASSISTANT_REASONING_EFFORT || DEFAULT_ASSISTANT_REASONING_EFFORT;
+  return ['minimal', 'low', 'medium', 'high'].includes(effort) ? effort : DEFAULT_ASSISTANT_REASONING_EFFORT;
+}
+
 function openAIErrorMessage(status: number, errorText: string) {
   try {
     const parsed = JSON.parse(errorText);
@@ -764,7 +775,7 @@ async function askOpenAI(
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { answer: null, error: 'OPENAI_API_KEY is not configured', model: null };
 
-  const model = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
+  const model = assistantModel();
   try {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -776,6 +787,7 @@ async function askOpenAI(
         model,
         store: false,
         max_output_tokens: 2200,
+        reasoning: { effort: assistantReasoningEffort() },
         text: { verbosity: 'medium' },
         instructions:
           'You are RetroLoot Pro Analyst, a natural-language business copilot for a video game resale inventory app. Think through the user request, choose the relevant app data or external lookup data, perform any needed math, and answer plainly. You can answer questions about inventory, prep, finance, profit, stale inventory, metadata, shipments, lots, COGS allocation, show curation, specific titles, and external pricing. For app data, use only the provided inventory, prep, finance, intake, shows, and suggestions. Intake rule: every item starts as a shipment; received shipments create lots with total paid; scanned lot items get market values; COGS is allocated by lot total paid divided by total lot market value, applied to each item market value; item profit is market value minus allocated COGS. For external PriceCharting, GameStop, and eBay sold-comps questions, use the provided externalLookup results and cite the source included there. Do not invent prices, sales, quantities, or app capabilities. If data is missing or a source could not be parsed, say exactly what is missing and suggest the next best action. You may recommend changes, but clearly say changes require user approval before records are modified. Keep recommendations direct, helpful, and business-practical.',
@@ -809,7 +821,7 @@ export async function GET() {
     ok: true,
     message: 'AI assistant endpoint is running. Use POST from the Assistant page.',
     openAIConfigured: Boolean(process.env.OPENAI_API_KEY),
-    model: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    model: assistantModel(),
   });
 }
 
@@ -906,7 +918,7 @@ export async function POST(req: NextRequest) {
     let answer = fallbackAnswer;
     let usedAI = false;
     let aiError: string | null = null;
-    let aiModel: string | null = process.env.OPENAI_MODEL || 'gpt-5.4-mini';
+    let aiModel: string | null = assistantModel();
 
     const shouldUseOpenAI = !externalLookup && !inventorySearchAnswer;
     if (shouldUseOpenAI) {
