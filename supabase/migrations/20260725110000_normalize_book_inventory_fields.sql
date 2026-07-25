@@ -34,7 +34,7 @@ ALTER TABLE inventory_items
       'strategy_guide',
       'media'
     )
-  );
+  ) NOT VALID;
 
 UPDATE inventory_items
 SET
