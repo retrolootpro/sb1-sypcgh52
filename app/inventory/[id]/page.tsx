@@ -607,8 +607,9 @@ export default function ItemDetailPage() {
     try {
       const titleChanged = metadataForm.product_name.trim() !== item.product_name;
       const platformChanged = metadataForm.console !== item.console;
-      const conditionChanged = metadataForm.condition !== item.condition;
       const manualPricedItem = isBookLikeValue(metadataForm.console);
+      const nextCondition = manualPricedItem ? 'Loose' : metadataForm.condition;
+      const conditionChanged = nextCondition !== item.condition;
       const manualMarketValue = metadataForm.manual_market_value.trim() === ''
         ? Number(item.selected_market_value) || 0
         : Number(metadataForm.manual_market_value);
@@ -655,8 +656,8 @@ export default function ItemDetailPage() {
         .update({
           product_name: metadataForm.product_name.trim(),
           console: metadataForm.console,
-          condition: metadataForm.condition,
-          region: metadataForm.region,
+          condition: nextCondition,
+          region: manualPricedItem ? null : metadataForm.region,
           status: metadataForm.status,
           purchase_price: purchasePrice,
           quantity: Math.floor(quantity),
@@ -683,10 +684,10 @@ export default function ItemDetailPage() {
           thumbnail_url: thumbnailUrl || null,
           description: metadataForm.description.trim() || null,
           notes: metadataForm.notes.trim() || null,
-          price_loose: priceLoose,
-          price_cib: priceCib,
-          price_new: priceNew,
-          price_graded: priceGraded,
+          price_loose: manualPricedItem ? null : priceLoose,
+          price_cib: manualPricedItem ? null : priceCib,
+          price_new: manualPricedItem ? null : priceNew,
+          price_graded: manualPricedItem ? null : priceGraded,
           selected_market_value: manualMarketValue,
           estimated_profit: estimatedProfit,
           estimated_margin_percent: estimatedMarginPercent,
@@ -824,6 +825,7 @@ export default function ItemDetailPage() {
 
   const hasPricing = marketValue > 0;
   const bookLike = isBookLikeItem(item);
+  const editingBookLike = bookLike || isBookLikeValue(metadataForm.console);
   const imageUrl   = item.image_url || item.thumbnail_url;
 
   // Has the user ever refreshed? (either this session or previously saved)
@@ -880,7 +882,9 @@ export default function ItemDetailPage() {
 
             {item.barcode && (
               <div className="p-3 rounded-lg bg-secondary/20 border border-border/30">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">UPC</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">
+                  {bookLike ? 'ISBN / Barcode' : 'UPC'}
+                </div>
                 <div className="font-mono text-sm">{item.barcode}</div>
               </div>
             )}
@@ -992,9 +996,11 @@ export default function ItemDetailPage() {
                   {bookLike && <BookOpen className="mr-1 h-3 w-3" />}
                   {item.console}
                 </Badge>
-                <Badge variant="outline" className={`text-xs ${getConditionStyle(item.condition)}`}>
-                  {item.condition}
-                </Badge>
+                {!bookLike && (
+                  <Badge variant="outline" className={`text-xs ${getConditionStyle(item.condition)}`}>
+                    {item.condition}
+                  </Badge>
+                )}
                 {bookLike && item.book_format && (
                   <Badge variant="outline" className="border-sky-500/35 text-sky-300 text-xs">
                     {item.book_format}
@@ -1005,17 +1011,17 @@ export default function ItemDetailPage() {
                     {item.book_authors.slice(0, 2).join(', ')}
                   </Badge>
                 ) : null}
-                {item.genre && (
+                {!bookLike && item.genre && (
                   <Badge variant="outline" className="border-border/50 text-xs text-muted-foreground">
                     {item.genre}
                   </Badge>
                 )}
-                {item.region && (
+                {!bookLike && item.region && (
                   <Badge variant="outline" className="border-border/50 text-xs text-muted-foreground">
                     {REGIONS.find((region) => region.value === item.region)?.shortLabel || item.region}
                   </Badge>
                 )}
-                {hasPricing && dealScore.label !== 'No Data' && (
+                {!bookLike && hasPricing && dealScore.label !== 'No Data' && (
                   <Badge variant="outline" className={`text-xs font-semibold ${getDealBadgeStyle(dealScore.label)}`}>
                     {dealScore.label} {dealScore.score}
                   </Badge>
@@ -1042,7 +1048,7 @@ export default function ItemDetailPage() {
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-sm font-medium">Edit Item Metadata</CardTitle>
                     <ContextHelp href="/help#inventory-management" label="Open item metadata help">
-                      Correct title, platform, condition, region, image, and notes here. Title or platform changes reset stale pricing matches.
+                      Correct title, category, image, notes, and item details here. Title or category changes reset stale pricing matches.
                     </ContextHelp>
                   </div>
                   <Button
@@ -1068,7 +1074,7 @@ export default function ItemDetailPage() {
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Platform / Category</Label>
+                      <Label className="text-xs text-muted-foreground">{editingBookLike ? 'Book Type' : 'Platform / Category'}</Label>
                       <Select
                         value={metadataForm.console}
                         onValueChange={(value) => {
@@ -1087,19 +1093,21 @@ export default function ItemDetailPage() {
                       </Select>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Condition</Label>
-                      <Select value={metadataForm.condition} onValueChange={(value) => updateMetadataForm('condition', value)}>
-                        <SelectTrigger className="h-9">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {CONDITIONS.map((condition) => (
-                            <SelectItem key={condition} value={condition}>{condition}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {!editingBookLike && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Condition</Label>
+                        <Select value={metadataForm.condition} onValueChange={(value) => updateMetadataForm('condition', value)}>
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CONDITIONS.map((condition) => (
+                              <SelectItem key={condition} value={condition}>{condition}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
 
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Status</Label>
@@ -1115,22 +1123,24 @@ export default function ItemDetailPage() {
                       </Select>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Region</Label>
-                      <Select value={metadataForm.region} onValueChange={(value) => updateMetadataForm('region', value)}>
-                        <SelectTrigger className="h-9">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {REGIONS.map((region) => (
-                            <SelectItem key={region.value} value={region.value}>{region.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                    {!editingBookLike && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Region</Label>
+                        <Select value={metadataForm.region} onValueChange={(value) => updateMetadataForm('region', value)}>
+                          <SelectTrigger className="h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {REGIONS.map((region) => (
+                              <SelectItem key={region.value} value={region.value}>{region.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">UPC / Barcode</Label>
+                      <Label className="text-xs text-muted-foreground">{editingBookLike ? 'ISBN / Barcode' : 'UPC / Barcode'}</Label>
                       <Input
                         value={metadataForm.barcode}
                         onChange={(event) => updateMetadataForm('barcode', event.target.value)}
@@ -1196,7 +1206,7 @@ export default function ItemDetailPage() {
                     </label>
 
                     <div className="space-y-1.5">
-                      <Label className="text-xs text-muted-foreground">Publisher / Brand</Label>
+                      <Label className="text-xs text-muted-foreground">{editingBookLike ? 'Publisher' : 'Publisher / Brand'}</Label>
                       <Input
                         value={metadataForm.brand}
                         onChange={(event) => updateMetadataForm('brand', event.target.value)}
@@ -1213,7 +1223,7 @@ export default function ItemDetailPage() {
                       />
                     </div>
 
-                    {bookLike && (
+                    {editingBookLike && (
                       <div className="space-y-3 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 sm:col-span-2">
                         <div>
                           <div className="text-xs font-semibold text-sky-200">Book Metadata</div>
@@ -1256,7 +1266,7 @@ export default function ItemDetailPage() {
                       </div>
                     )}
 
-                    {!bookLike && (
+                    {!editingBookLike && (
                     <>
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">Loose Price</Label>
@@ -1500,9 +1510,11 @@ export default function ItemDetailPage() {
               <CardHeader className="pb-3 flex flex-row items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <CardTitle className="text-sm font-medium">Current Market Value</CardTitle>
+                    <CardTitle className="text-sm font-medium">{bookLike ? 'Book Value' : 'Current Market Value'}</CardTitle>
                     <ContextHelp href="/help#pricing-engine" label="Open pricing help">
-                      Refresh pricing before listing. Condition values drive market value, profit, margin, and sell plan recommendations.
+                      {bookLike
+                        ? 'Use manual book value from ISBN research, comps, or your own sales history.'
+                        : 'Refresh pricing before listing. Condition values drive market value, profit, margin, and sell plan recommendations.'}
                     </ContextHelp>
                   </div>
                   <p className="text-[10px] text-muted-foreground/50 mt-0.5">
@@ -1679,7 +1691,7 @@ export default function ItemDetailPage() {
             </Card>
 
             {/* Deal Score */}
-            {hasPricing && dealScore.breakdown && (
+            {!bookLike && hasPricing && dealScore.breakdown && (
               <Card className="border-border/40 bg-card/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium">Deal Score Breakdown</CardTitle>
@@ -1846,7 +1858,7 @@ export default function ItemDetailPage() {
             )}
 
             {/* Item details */}
-            {(item.brand || item.pricing_matched_title || item.pricing_source || item.pricing_confidence) && (
+            {(item.brand || item.category || (!bookLike && (item.pricing_matched_title || item.pricing_source || item.pricing_confidence))) && (
               <Card className="border-border/40 bg-card/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium">Item Details</CardTitle>
@@ -1854,7 +1866,7 @@ export default function ItemDetailPage() {
                 <CardContent className="space-y-2.5">
                   {item.brand && (
                     <div className="flex items-center justify-between text-sm">
-                      <span className="text-muted-foreground">Publisher / Brand</span>
+                      <span className="text-muted-foreground">{bookLike ? 'Publisher' : 'Publisher / Brand'}</span>
                       <span className="font-medium">{item.brand}</span>
                     </div>
                   )}
@@ -1864,31 +1876,31 @@ export default function ItemDetailPage() {
                       <span className="font-medium">{item.category}</span>
                     </div>
                   )}
-                  {item.pricing_matched_title && (
+                  {!bookLike && item.pricing_matched_title && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">PriceCharting Match</span>
                       <span className="font-medium text-right max-w-[60%] truncate">{item.pricing_matched_title}</span>
                     </div>
                   )}
-                  {item.pricing_matched_platform && (
+                  {!bookLike && item.pricing_matched_platform && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Matched Platform</span>
                       <span className="font-medium">{item.pricing_matched_platform}</span>
                     </div>
                   )}
-                  {item.pc_source_product_id && (
+                  {!bookLike && item.pc_source_product_id && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">PC Product ID</span>
                       <span className="font-mono text-xs text-muted-foreground/70">{item.pc_source_product_id}</span>
                     </div>
                   )}
-                  {item.pricing_source && (
+                  {!bookLike && item.pricing_source && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Pricing Source</span>
                       <span className="font-medium">{item.pricing_source}</span>
                     </div>
                   )}
-                  {!!item.pricing_confidence && item.pricing_confidence > 0 && (
+                  {!bookLike && !!item.pricing_confidence && item.pricing_confidence > 0 && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Match Confidence</span>
                       <div className="flex items-center gap-2">
@@ -1905,7 +1917,7 @@ export default function ItemDetailPage() {
                       </div>
                     </div>
                   )}
-                  {item.pricing_last_checked_at && (
+                  {!bookLike && item.pricing_last_checked_at && (
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">Last Price Check</span>
                       <span className="font-medium">{format(new Date(item.pricing_last_checked_at), 'MMM d, yyyy')}</span>

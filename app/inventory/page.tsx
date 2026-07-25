@@ -400,11 +400,12 @@ export default function InventoryPage() {
         || String(item.barcode || '').toLowerCase().includes(query)
         || metadataText.includes(query);
       const family = getInventoryFamily(item);
+      const itemBookLike = family === 'books_media';
       const matchesType = typeFilter === 'all' || family === typeFilter;
       const matchesConsole = consoleFilter === 'all' || item.console === consoleFilter;
-      const matchesCondition = conditionFilter === 'all' || item.condition === conditionFilter;
+      const matchesCondition = conditionFilter === 'all' || (!itemBookLike && item.condition === conditionFilter);
       const normalizedRegion = getItemRegionDetails(item)?.value || 'unset';
-      const matchesRegion = regionFilter === 'all' || normalizedRegion === regionFilter;
+      const matchesRegion = regionFilter === 'all' || (!itemBookLike && normalizedRegion === regionFilter);
       const isInStock = (item.status || 'available') !== 'sold';
       const ageDays = getInventoryAgeDays(item.created_at);
       const ageStatus = getAgeStatus(ageDays, agingThresholds);
@@ -1173,7 +1174,16 @@ export default function InventoryPage() {
                 <SelectItem value="profit_low">Profit Low-High</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select
+              value={typeFilter}
+              onValueChange={(value) => {
+                setTypeFilter(value);
+                if (value === 'books_media') {
+                  setConditionFilter('all');
+                  setRegionFilter('all');
+                }
+              }}
+            >
               <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Type" />
               </SelectTrigger>
@@ -1194,6 +1204,7 @@ export default function InventoryPage() {
                 {platformOptions.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
               </SelectContent>
             </Select>
+            {typeFilter !== 'books_media' && (
             <Select value={conditionFilter} onValueChange={setConditionFilter}>
               <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Condition" />
@@ -1203,6 +1214,8 @@ export default function InventoryPage() {
                 {CONDITIONS.map((condition) => (<SelectItem key={condition} value={condition}>{condition}</SelectItem>))}
               </SelectContent>
             </Select>
+            )}
+            {typeFilter !== 'books_media' && (
             <Select value={regionFilter} onValueChange={setRegionFilter}>
               <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Region" />
@@ -1215,6 +1228,7 @@ export default function InventoryPage() {
                 <SelectItem value="unset">No Region</SelectItem>
               </SelectContent>
             </Select>
+            )}
             <Select value={ageFilter} onValueChange={setAgeFilter}>
               <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <Clock className="mr-2 h-4 w-4 text-muted-foreground/50" />

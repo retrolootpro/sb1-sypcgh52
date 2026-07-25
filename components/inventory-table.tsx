@@ -820,9 +820,11 @@ export function InventoryTable({
                 <Badge variant="outline" className="text-[11px] px-2 py-0 h-5 border-border/45 text-muted-foreground">
                   {productTypeLabel(family)}
                 </Badge>
-                <Badge variant="outline" className={`text-[11px] px-2 py-0 h-5 ${getConditionStyle(item.condition)}`}>
-                  {item.condition}
-                </Badge>
+                {!bookLike && (
+                  <Badge variant="outline" className={`text-[11px] px-2 py-0 h-5 ${getConditionStyle(item.condition)}`}>
+                    {item.condition}
+                  </Badge>
+                )}
                 {region && !bookLike && (
                   <Badge
                     variant="outline"
@@ -837,7 +839,7 @@ export function InventoryTable({
                     {item.book_format}
                   </Badge>
                 )}
-                {(item.genre || item.category) && (
+                {(item.genre || item.category || item.book_authors?.length || item.book_publisher) && (
                   <>
                     <span className="text-muted-foreground/30 text-sm hidden md:inline">|</span>
                     <span className="text-xs text-muted-foreground/60 hidden md:inline">
@@ -869,7 +871,7 @@ export function InventoryTable({
                   </Badge>
                 )}
               </div>
-              {hasPricingTiers && (
+              {!bookLike && hasPricingTiers && (
                 <div className="flex items-center gap-3 mt-1">
                   {[
                     { label: 'L', value: loosePrice, active: item.condition === 'Loose' },
@@ -913,7 +915,7 @@ export function InventoryTable({
                 </div>
               </div>
 
-              {hasPricing && dealScore.label !== 'No Data' && (
+              {!bookLike && hasPricing && dealScore.label !== 'No Data' && (
                 <div className="hidden lg:block">
                   <Badge variant="outline" className={`text-[11px] px-2.5 py-1 font-semibold ${getDealBadge(dealScore.label, dealScore.score)}`}>
                     {dealScore.label} {dealScore.score}

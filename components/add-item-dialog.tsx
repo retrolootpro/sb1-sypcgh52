@@ -42,6 +42,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
     quantity: '1',
     notes: '',
     barcode: '',
+    book_format: '',
     lot_id: defaultLotId ?? '',
   });
 
@@ -56,6 +57,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
       quantity: '1',
       notes: '',
       barcode: '',
+      book_format: '',
       lot_id: defaultLotId ?? '',
     });
   };
@@ -100,8 +102,9 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
         ...prev,
         product_name: result.title || metadata?.title || prev.product_name,
         console: result.platform || prev.console || 'Book',
-        condition: prev.condition || defaultConditionForPlatform(result.platform || 'Book'),
+        condition: 'Loose',
         notes: prev.notes || metadata?.description || result.description || '',
+        book_format: prev.book_format || metadata?.format || '',
       }));
       toast.success('Book metadata found', {
         description: result.title || barcode,
@@ -150,8 +153,8 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           user_id: accountId,
           product_name: formData.product_name.trim(),
           console: formData.console,
-          condition: formData.condition,
-          region: formData.region,
+          condition: manualPricedItem ? 'Loose' : formData.condition,
+          region: manualPricedItem ? null : formData.region,
           purchase_price: price,
           quantity: qty,
           notes: formData.notes?.trim() || null,
@@ -165,7 +168,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
           lot_id: formData.lot_id || null,
           category: manualPricedItem ? (bookLookupResult?.category || 'Books & Media') : 'Video Games',
           item_type: manualPricedItem ? (formData.console === 'Manga' ? 'manga' : 'book') : 'game',
-          book_format: bookMetadata?.format || null,
+          book_format: manualPricedItem ? formData.book_format.trim() || bookMetadata?.format || null : null,
           book_authors: bookMetadata && Array.isArray(bookMetadata.authors) ? bookMetadata.authors : null,
           book_publisher: bookMetadata?.publisher || null,
           book_published_date: bookMetadata?.publishedDate || null,
@@ -308,7 +311,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="console">Platform / Category</Label>
+                <Label htmlFor="console">{isBookLikeValue(formData.console) ? 'Book Type' : 'Platform / Category'}</Label>
                 <Select
                   value={formData.console}
                   onValueChange={(value) => {
@@ -327,24 +330,38 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
                 </Select>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="condition">Condition</Label>
-                <Select
-                  value={formData.condition}
-                  onValueChange={(value) => setFormData({ ...formData, condition: value })}
-                >
-                  <SelectTrigger className="bg-secondary/50">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CONDITIONS.map((cond) => (
-                      <SelectItem key={cond} value={cond}>{cond}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {isBookLikeValue(formData.console) ? (
+                <div className="space-y-2">
+                  <Label htmlFor="book_format">Format / Binding</Label>
+                  <Input
+                    id="book_format"
+                    placeholder="Paperback, Hardcover, Manga..."
+                    value={formData.book_format}
+                    onChange={(e) => setFormData({ ...formData, book_format: e.target.value })}
+                    className="bg-secondary/50"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Label htmlFor="condition">Condition</Label>
+                  <Select
+                    value={formData.condition}
+                    onValueChange={(value) => setFormData({ ...formData, condition: value })}
+                  >
+                    <SelectTrigger className="bg-secondary/50">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONDITIONS.map((cond) => (
+                        <SelectItem key={cond} value={cond}>{cond}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
 
+            {!isBookLikeValue(formData.console) && (
             <div className="space-y-2">
               <Label htmlFor="region">Region / TV Standard</Label>
               <Select
@@ -361,6 +378,7 @@ export function AddItemDialog({ open, onOpenChange, onSuccess, defaultCollection
                 </SelectContent>
               </Select>
             </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

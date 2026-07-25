@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertTriangle, DollarSign, Monitor, ChevronDown } from 'lucide-react';
 import { REGIONS } from '@/lib/constants';
+import { isBookLikeValue } from '@/lib/item-taxonomy';
 
 export const CONSOLE_OPTIONS = [
   { group: 'Books & Media', options: ['Book', 'Manga', 'Comic', 'Graphic Novel', 'Strategy Guide'] },
@@ -128,6 +129,7 @@ export function ScanItemDialog({
   const [consoleError, setConsoleError] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
   const askingPriceInputRef = useRef<HTMLInputElement>(null);
+  const selectedBookLike = isBookLikeValue(consoleValue);
 
   useEffect(() => {
     if (open) {
@@ -449,23 +451,25 @@ export function ScanItemDialog({
             </p>
           </div>
 
-          <div className="space-y-1.5">
-            <Label className="text-[12px] text-muted-foreground">
-              Region / TV Standard
-            </Label>
-            <Select value={region} onValueChange={setRegion}>
-              <SelectTrigger className="h-10 bg-secondary/40 border-border/60 text-[13px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {REGIONS.map((item) => (
-                  <SelectItem key={item.value} value={item.value} className="text-[13px]">
-                    {item.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {!selectedBookLike && (
+            <div className="space-y-1.5">
+              <Label className="text-[12px] text-muted-foreground">
+                Region / TV Standard
+              </Label>
+              <Select value={region} onValueChange={setRegion}>
+                <SelectTrigger className="h-10 bg-secondary/40 border-border/60 text-[13px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {REGIONS.map((item) => (
+                    <SelectItem key={item.value} value={item.value} className="text-[13px]">
+                      {item.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
         </div>
 
         <DialogFooter className="shrink-0 flex-row gap-2 border-t border-border/50 bg-card px-4 py-3 sm:gap-2 sm:px-6">

@@ -588,7 +588,8 @@ export default function ScanPage() {
     if (!user) throw new Error('Not authenticated');
 
     const pricingStatus = pricingResult ? toDatabaseStatus(pricingResult) : 'pending';
-    const condition = lookupResult.condition || defaultConditionForPlatform(selectedConsole || lookupResult.platform);
+    const manualPricedItem = isBookLikeItem({ ...lookupResult, console: selectedConsole });
+    const condition = manualPricedItem ? 'Loose' : lookupResult.condition || defaultConditionForPlatform(selectedConsole || lookupResult.platform);
     const normalizedTitleStr = normalizeTitle(lookupResult.title || '');
     const bookMetadata = lookupResult.bookMetadata || null;
 
@@ -603,7 +604,7 @@ export default function ScanPage() {
       ? Number(askingPrice)
       : 0;
 
-    if (pricingResult?.status === 'success' && pricingResult.data) {
+    if (!manualPricedItem && pricingResult?.status === 'success' && pricingResult.data) {
       priceLoose = pricingResult.data.loosePrice;
       priceCib = pricingResult.data.cibPrice;
       priceNew = pricingResult.data.newPrice;
@@ -625,7 +626,7 @@ export default function ScanPage() {
         product_name: lookupResult.title?.trim() || 'Unknown Product',
         console: selectedConsole || lookupResult.platform || '',
         condition,
-        region: selectedRegion,
+        region: manualPricedItem ? null : selectedRegion,
         purchase_price: Math.max(0, purchasePrice),
         sell_price: manualAskingPrice > 0 ? manualAskingPrice : null,
         quantity: Math.max(1, Number(queueItem.scanCount || 1)),
@@ -639,10 +640,12 @@ export default function ScanPage() {
         brand: lookupResult.brand || null,
         confidence_score: confidence.overall || 0,
         source_upc_provider: queueItem.barcode ? (lookupResult.source || 'local_upc_lookup') : 'manual_title_search',
-        source_metadata_provider: pricingResult?.status === 'success' ? 'pricecharting' : (lookupResult.source || null),
+        source_metadata_provider: manualPricedItem
+          ? (bookMetadata?.source || lookupResult.source || 'manual_book_metadata')
+          : pricingResult?.status === 'success' ? 'pricecharting' : (lookupResult.source || null),
         source_image_provider: lookupResult.imageUrl ? (lookupResult.source || 'local_upc_lookup') : null,
         description: lookupResult.description || '',
-        genre: pricingResult?.data?.genre || '',
+        genre: manualPricedItem ? null : pricingResult?.data?.genre || '',
         book_format: bookMetadata?.format || null,
         book_authors: Array.isArray(bookMetadata?.authors) ? bookMetadata.authors : null,
         book_publisher: bookMetadata?.publisher || null,
@@ -683,31 +686,31 @@ export default function ScanPage() {
         thumbnail_url: lookupResult.thumbnailUrl || null,
         added_by_employee_id: selectedEmployeeId || null,
         lot_id: selectedLotId !== 'none' ? selectedLotId : null,
-        pricing_source: pricingResult?.status === 'success' ? 'PriceCharting' : isBookLikeItem({ ...lookupResult, console: selectedConsole }) ? 'Manual / book metadata' : 'pending',
-        pricing_status: isBookLikeItem({ ...lookupResult, console: selectedConsole }) ? 'manual' : pricingStatus,
-        pricing_attempted_at: isBookLikeItem({ ...lookupResult, console: selectedConsole }) ? null : new Date().toISOString(),
-        pricing_last_checked_at: isBookLikeItem({ ...lookupResult, console: selectedConsole }) ? null : new Date().toISOString(),
-        pricing_error_message: pricingResult?.error || null,
-        pricing_error_code: pricingResult?.errorCode || null,
-        pricing_confidence: pricingResult?.data?.confidence || null,
-        pricing_matched_title: pricingResult?.data?.matchedTitle || null,
-        pricing_matched_platform: pricingResult?.data?.matchedPlatform || null,
-        pc_source_product_id: pricingResult?.data?.pcProductId || null,
-        pricing_diagnostics: pricingResult ? {
+        pricing_source: manualPricedItem ? 'Manual / book metadata' : pricingResult?.status === 'success' ? 'PriceCharting' : 'pending',
+        pricing_status: manualPricedItem ? 'manual' : pricingStatus,
+        pricing_attempted_at: manualPricedItem ? null : new Date().toISOString(),
+        pricing_last_checked_at: manualPricedItem ? null : new Date().toISOString(),
+        pricing_error_message: manualPricedItem ? null : pricingResult?.error || null,
+        pricing_error_code: manualPricedItem ? null : pricingResult?.errorCode || null,
+        pricing_confidence: manualPricedItem ? null : pricingResult?.data?.confidence || null,
+        pricing_matched_title: manualPricedItem ? null : pricingResult?.data?.matchedTitle || null,
+        pricing_matched_platform: manualPricedItem ? null : pricingResult?.data?.matchedPlatform || null,
+        pc_source_product_id: manualPricedItem ? null : pricingResult?.data?.pcProductId || null,
+        pricing_diagnostics: !manualPricedItem && pricingResult ? {
           scanStatus: pricingResult.status,
           attemptedQueries: pricingResult.attemptedQueries ?? [],
           capturedAt: new Date().toISOString(),
         } : null,
-        price_loose: priceLoose,
-        price_cib: priceCib,
-        price_new: priceNew,
-        price_graded: priceGraded,
+        price_loose: manualPricedItem ? null : priceLoose,
+        price_cib: manualPricedItem ? null : priceCib,
+        price_new: manualPricedItem ? null : priceNew,
+        price_graded: manualPricedItem ? null : priceGraded,
         selected_market_value: selectedMarketValue,
         estimated_profit: estimatedProfit,
         estimated_margin_percent: estimatedMarginPercent,
         purchase_price_override: purchasePrice > 0,
-        deal_score: dealScoreData?.score || 0,
-        deal_score_label: dealScoreData?.label || '',
+        deal_score: manualPricedItem ? 0 : dealScoreData?.score || 0,
+        deal_score_label: manualPricedItem ? '' : dealScoreData?.label || '',
         needs_review: needsReview,
       })
       .select()
@@ -716,7 +719,7 @@ export default function ScanPage() {
     if (inventoryError) throw new Error(`Failed to save item: ${inventoryError.message}`);
     if (!inventoryItem) throw new Error('Failed to create inventory item - no data returned');
 
-    if (pricingResult?.status === 'success' && pricingResult.data) {
+    if (!manualPricedItem && pricingResult?.status === 'success' && pricingResult.data) {
       await supabase.from('pricing_data').insert({
         item_id: inventoryItem.id,
         loose_price: priceLoose,
