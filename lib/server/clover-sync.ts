@@ -98,7 +98,7 @@ export async function logCloverSync(admin: any, input: {
 
 export async function syncInventoryItemToClover(admin: any, item: InventoryItem, options: { conflictAction?: CloverConflictAction } = {}) {
   const payload = mapInventoryItemToClover(item);
-  const action = item.clover_item_id ? 'update_item' : 'create_item';
+  let action = item.clover_item_id ? 'update_item' : 'create_item';
 
   try {
     const existing = item.clover_item_id || options.conflictAction === 'create_additional'
@@ -119,6 +119,7 @@ export async function syncInventoryItemToClover(admin: any, item: InventoryItem,
       return { skipped: true, cloverItemId: existing.id, action: 'conflict_skip' };
     }
     const cloverItemId = item.clover_item_id || (options.conflictAction === 'update_existing' ? existing?.id : null);
+    if (!item.clover_item_id && cloverItemId) action = 'update_existing_match';
     const result = cloverItemId ? await updateCloverItem(cloverItemId, payload) : await createCloverItem(payload);
     const finalCloverItemId = cloverItemId || result.id;
     const verifiedItem = await getCloverItem(finalCloverItemId);
