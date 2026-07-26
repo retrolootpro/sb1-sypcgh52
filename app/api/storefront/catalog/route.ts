@@ -4,11 +4,14 @@ import { createSupabaseAdmin } from '@/lib/server/supabase-admin';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
-function normalizeCategory(consoleName: unknown, productName: unknown) {
-  const text = `${consoleName || ''} ${productName || ''}`.toLowerCase();
-  if (text.includes('book') || text.includes('paperback') || text.includes('hardcover')) return 'Books';
-  if (text.includes('console') || text.includes('handheld') || text.includes('system')) return 'Consoles';
-  if (text.includes('controller') || text.includes('accessor') || text.includes('figure') || text.includes('funko') || text.includes('collectible')) return 'Collectibles';
+function normalizeCategory(item: Record<string, any>) {
+  const explicit = `${item.category || ''} ${item.item_type || ''}`.trim().toLowerCase();
+  const fallback = `${item.console || ''} ${item.product_name || ''}`.toLowerCase();
+  const text = `${explicit} ${fallback}`;
+
+  if (/book|paperback|hardcover|novel|manga|comic|literature/.test(text)) return 'Books';
+  if (/console|system|handheld|hardware/.test(explicit) || /console bundle|system bundle|handheld console/.test(fallback)) return 'Consoles';
+  if (/collectible|accessor|controller|figure|funko|toy|plush|card|memorabilia|cable|adapter|case/.test(text)) return 'Collectibles';
   return 'Games';
 }
 
@@ -52,9 +55,7 @@ export async function GET() {
       .order('created_at', { ascending: false })
       .limit(5000);
 
-    if (inventoryError) {
-      throw new Error(`Inventory query failed: ${errorDetails(inventoryError)}`);
-    }
+    if (inventoryError) throw new Error(`Inventory query failed: ${errorDetails(inventoryError)}`);
 
     const counts = new Map<string, number>();
     for (const row of inventoryRows || []) {
@@ -66,7 +67,21 @@ export async function GET() {
     const accountInventory = (inventoryRows || []).filter((row: any) => row.user_id === accountId);
     const ids = accountInventory.map((row: any) => row.id);
 
-    let pricingByItem = new Map<string, Record<string, any>>();
+    const metadataByItem = new Map<string, Record<string, any>>();
+    if (ids.length > 0) {
+      const { data: metadataRows, error: metadataError } = await admin
+        .from('inventory_items')
+        .select('id,category,item_type')
+        .in('id', ids);
+
+      if (!metadataError) {
+        for (const row of metadataRows || []) metadataByItem.set(String(row.id), row);
+      } else {
+        console.warn('Storefront category enrichment unavailable:', errorDetails(metadataError));
+      }
+    }
+
+    const pricingByItem = new Map<string, Record<string, any>>();
     if (ids.length > 0) {
       const { data: pricingRows, error: pricingError } = await admin
         .from('pricing_data')
@@ -74,23 +89,21 @@ export async function GET() {
         .in('item_id', ids)
         .order('fetched_at', { ascending: false });
 
-      if (pricingError) {
-        throw new Error(`Pricing query failed: ${errorDetails(pricingError)}`);
-      }
-
+      if (pricingError) throw new Error(`Pricing query failed: ${errorDetails(pricingError)}`);
       for (const row of pricingRows || []) {
         if (!pricingByItem.has(String(row.item_id))) pricingByItem.set(String(row.item_id), row);
       }
     }
 
     const products = accountInventory
-      .map((item: any) => {
+      .map((baseItem: any) => {
+        const item = { ...baseItem, ...(metadataByItem.get(String(baseItem.id)) || {}) };
         const price = priceForCondition(item.condition, pricingByItem.get(String(item.id)));
         return {
           id: String(item.id),
           slug: `${slugify(item.product_name)}-${String(item.id).slice(0, 8)}`,
           title: item.product_name || 'Inventory item',
-          category: normalizeCategory(item.console, item.product_name),
+          category: normalizeCategory(item),
           platform: item.console || '',
           condition: item.condition || 'Available',
           price,
@@ -125,6 +138,7 @@ export async function GET() {
         accountCandidates: counts.size,
         activeInventoryCount: accountInventory.length,
         pricedInventoryCount: products.length,
+        categorizedInventoryCount: metadataByItem.size,
       },
     });
   } catch (error) {
