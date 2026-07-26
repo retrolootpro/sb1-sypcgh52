@@ -1,12 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
-  BookOpen,
   Check,
-  ChevronDown,
-  Gamepad2,
   Heart,
   Menu,
   Minus,
@@ -20,61 +17,109 @@ import {
   Truck,
   X,
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
-type Product = {
-  id: number;
+type StorefrontProduct = {
+  id: string;
+  slug: string;
   title: string;
-  category: 'Games' | 'Consoles' | 'Books' | 'Collectibles';
+  category: string;
   platform: string;
   condition: string;
   price: number;
-  oldPrice?: number;
-  stock: number;
-  badge?: string;
-  tone: string;
-  art: string;
+  compare_at_price?: number | null;
+  quantity: number;
+  featured: boolean;
+  description?: string | null;
+  image_url?: string | null;
+  thumbnail_url?: string | null;
+  brand?: string | null;
 };
 
-const products: Product[] = [
-  { id: 1, title: 'The Legend of Zelda: Wind Waker', category: 'Games', platform: 'Nintendo GameCube', condition: 'Complete in Box', price: 79.99, stock: 1, badge: 'Staff Pick', tone: 'teal', art: 'WW' },
-  { id: 2, title: 'PlayStation 2 Slim Console', category: 'Consoles', platform: 'PlayStation 2', condition: 'Tested • Very Good', price: 119.99, stock: 1, badge: 'Ready to Play', tone: 'navy', art: 'PS2' },
-  { id: 3, title: 'Butcher & Blackbird', category: 'Books', platform: 'Paperback', condition: 'New', price: 17.99, oldPrice: 19.99, stock: 4, badge: 'BookTok Favorite', tone: 'rust', art: 'B&B' },
-  { id: 4, title: 'Pokémon Crystal Version', category: 'Games', platform: 'Game Boy Color', condition: 'Loose • Tested', price: 139.99, stock: 1, badge: 'Rare Find', tone: 'ice', art: 'PK' },
-  { id: 5, title: 'Nintendo 64 Controller — Atomic Purple', category: 'Collectibles', platform: 'Nintendo 64', condition: 'Original • Tested', price: 34.99, stock: 2, tone: 'purple', art: 'N64' },
-  { id: 6, title: 'Quicksilver Deluxe Edition', category: 'Books', platform: 'Hardcover', condition: 'New', price: 27.99, stock: 3, badge: 'Sprayed Edges', tone: 'gold', art: 'QS' },
-  { id: 7, title: 'Super Mario Sunshine', category: 'Games', platform: 'Nintendo GameCube', condition: 'Complete in Box', price: 44.99, stock: 1, tone: 'sun', art: 'SMS' },
-  { id: 8, title: 'Xbox Series Controller — Carbon Black', category: 'Collectibles', platform: 'Xbox', condition: 'Open Box', price: 39.99, oldPrice: 49.99, stock: 2, badge: 'Great Deal', tone: 'green', art: 'XB' },
-];
+type StorefrontProfile = {
+  store_name: string;
+  tagline: string;
+  announcement: string;
+  pickup_name: string;
+  pickup_details: string;
+  support_email?: string | null;
+  phone?: string | null;
+  logo_path: string;
+};
 
-const categories = ['All', 'Games', 'Consoles', 'Books', 'Collectibles'] as const;
+const fallbackProfile: StorefrontProfile = {
+  store_name: 'Pixel & Page',
+  tagline: 'Every Story Has a Save Point',
+  announcement: 'New inventory drops every week',
+  pickup_name: 'Pixel & Page at Daytona Flea Market',
+  pickup_details: 'Friday–Sunday. Pickup instructions are provided after checkout.',
+  logo_path: '/pixel-page-logo.svg',
+};
+
+const toneFor = (value: string) => {
+  const tones = ['teal', 'navy', 'rust', 'ice', 'purple', 'gold', 'sun', 'green'];
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+  return tones[Math.abs(hash) % tones.length];
+};
 
 export default function ShopPage() {
-  const [category, setCategory] = useState<(typeof categories)[number]>('All');
+  const [products, setProducts] = useState<StorefrontProduct[]>([]);
+  const [profile, setProfile] = useState<StorefrontProfile>(fallbackProfile);
+  const [loading, setLoading] = useState(true);
+  const [category, setCategory] = useState('All');
   const [query, setQuery] = useState('');
-  const [cart, setCart] = useState<Record<number, number>>({});
+  const [cart, setCart] = useState<Record<string, number>>({});
   const [cartOpen, setCartOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [fulfillment, setFulfillment] = useState<'shipping' | 'pickup'>('shipping');
 
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const [productsResult, profileResult] = await Promise.all([
+        supabase.rpc('get_storefront_products', { requested_slug: 'pixel-and-page' }),
+        supabase.rpc('get_storefront_profile', { requested_slug: 'pixel-and-page' }),
+      ]);
+
+      if (!active) return;
+      if (!productsResult.error && productsResult.data) {
+        setProducts(productsResult.data.map((item: any) => ({
+          ...item,
+          price: Number(item.price || 0),
+          compare_at_price: item.compare_at_price ? Number(item.compare_at_price) : null,
+          quantity: Number(item.quantity || 0),
+          featured: Boolean(item.featured),
+        })));
+      }
+      if (!profileResult.error && profileResult.data?.[0]) {
+        setProfile({ ...fallbackProfile, ...profileResult.data[0] });
+      }
+      setLoading(false);
+    };
+    load();
+    return () => { active = false; };
+  }, []);
+
+  const categories = useMemo(() => ['All', ...Array.from(new Set(products.map((item) => item.category || 'Other')))], [products]);
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return products.filter((product) => {
       const categoryMatch = category === 'All' || product.category === category;
-      const queryMatch = !q || `${product.title} ${product.platform} ${product.condition}`.toLowerCase().includes(q);
+      const queryMatch = !q || `${product.title} ${product.platform} ${product.condition} ${product.brand || ''}`.toLowerCase().includes(q);
       return categoryMatch && queryMatch;
     });
-  }, [category, query]);
+  }, [products, category, query]);
 
   const cartItems = products.filter((product) => cart[product.id]);
   const cartCount = Object.values(cart).reduce((sum, qty) => sum + qty, 0);
   const subtotal = cartItems.reduce((sum, item) => sum + item.price * cart[item.id], 0);
 
-  const updateCart = (product: Product, delta: number) => {
+  const updateCart = (product: StorefrontProduct, delta: number) => {
     setCart((current) => {
-      const next = Math.max(0, Math.min(product.stock, (current[product.id] || 0) + delta));
+      const next = Math.max(0, Math.min(product.quantity, (current[product.id] || 0) + delta));
       const copy = { ...current };
-      if (next === 0) delete copy[product.id];
-      else copy[product.id] = next;
+      if (next === 0) delete copy[product.id]; else copy[product.id] = next;
       return copy;
     });
   };
@@ -82,24 +127,20 @@ export default function ShopPage() {
   return (
     <main className="pp-store">
       <div className="pp-announcement">
-        <span><Sparkles size={14} /> New inventory drops every week</span>
+        <span><Sparkles size={14} /> {profile.announcement}</span>
         <span className="announcement-wide">Free local pickup at our Daytona Flea Market shop</span>
       </div>
 
       <header className="pp-header">
-        <a className="pp-logo" href="#top" aria-label="Pixel and Page home">
-          <span className="logo-mark"><Gamepad2 size={24} /><BookOpen size={18} /></span>
-          <span><strong>PIXEL</strong><i>&</i><strong>PAGE</strong><small>EVERY STORY HAS A SAVE POINT</small></span>
+        <a className="pp-logo pp-logo-image" href="#top" aria-label={`${profile.store_name} home`}>
+          <img src={profile.logo_path || '/pixel-page-logo.svg'} alt={`${profile.store_name} — ${profile.tagline}`} />
         </a>
-
         <nav className={menuOpen ? 'pp-nav open' : 'pp-nav'}>
-          <button onClick={() => { setCategory('Games'); setMenuOpen(false); }}>Video Games</button>
-          <button onClick={() => { setCategory('Consoles'); setMenuOpen(false); }}>Consoles</button>
-          <button onClick={() => { setCategory('Books'); setMenuOpen(false); }}>Books</button>
-          <button onClick={() => { setCategory('Collectibles'); setMenuOpen(false); }}>Collectibles</button>
+          {categories.filter((item) => item !== 'All').slice(0, 5).map((item) => (
+            <button key={item} onClick={() => { setCategory(item); setMenuOpen(false); }}>{item}</button>
+          ))}
           <a href="#visit">Visit Us</a>
         </nav>
-
         <div className="header-actions">
           <button className="icon-button menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu"><Menu size={21} /></button>
           <button className="icon-button" aria-label="Favorites"><Heart size={20} /></button>
@@ -111,36 +152,33 @@ export default function ShopPage() {
         <div className="hero-copy">
           <p className="eyebrow">GAMES • BOOKS • COLLECTIBLES</p>
           <h1>Find your next<br/><em>favorite story.</em></h1>
-          <p className="hero-sub">From retro cartridges to fresh BookTok favorites, every shelf has something worth discovering.</p>
+          <p className="hero-sub">Live inventory from Pixel & Page. What you see online is what is currently available in RetroLootPro.</p>
           <div className="hero-actions">
-            <a href="#shop" className="primary-button">Shop new arrivals <ArrowRight size={18} /></a>
+            <a href="#shop" className="primary-button">Shop live inventory <ArrowRight size={18} /></a>
             <a href="#visit" className="text-button">Visit the store</a>
           </div>
           <div className="trust-row">
-            <span><Check size={14} /> Tested games</span>
-            <span><Check size={14} /> Secure checkout</span>
+            <span><Check size={14} /> Tested merchandise</span>
+            <span><Check size={14} /> Live stock counts</span>
             <span><Check size={14} /> Local pickup</span>
           </div>
         </div>
-        <div className="hero-art" aria-hidden="true">
-          <div className="hero-card card-game"><span>PLAYER 1</span><Gamepad2 size={82} /><b>PRESS START</b></div>
-          <div className="hero-card card-book"><small>PIXEL & PAGE PICKS</small><BookOpen size={72} /><b>Stories worth<br/>staying up for.</b></div>
-          <div className="pixel-spark spark-1">✦</div><div className="pixel-spark spark-2">◆</div><div className="pixel-spark spark-3">+</div>
+        <div className="hero-art brand-hero" aria-hidden="true">
+          <img src="/pixel-page-logo.svg" alt="" />
         </div>
       </section>
 
       <section className="benefit-bar">
-        <div><PackageCheck size={24}/><span><b>Carefully inspected</b><small>Condition notes you can trust</small></span></div>
+        <div><PackageCheck size={24}/><span><b>Connected inventory</b><small>Availability comes from RetroLootPro</small></span></div>
         <div><Truck size={24}/><span><b>Ship or pick up</b><small>Choose what works for you</small></span></div>
-        <div><ShieldCheck size={24}/><span><b>Secure payments</b><small>Checkout powered by Clover</small></span></div>
+        <div><ShieldCheck size={24}/><span><b>Accurate condition</b><small>Photos and notes from our catalog</small></span></div>
       </section>
 
       <section className="shop-section" id="shop">
         <div className="section-heading">
-          <div><p className="eyebrow">FRESH ON THE SHELVES</p><h2>New arrivals</h2></div>
-          <p>One-of-a-kind finds move fast. Inventory shown here is available now.</p>
+          <div><p className="eyebrow">LIVE FROM RETROLOOTPRO</p><h2>Available now</h2></div>
+          <p>Published items automatically disappear when they sell out or are archived.</p>
         </div>
-
         <div className="shop-toolbar">
           <div className="category-tabs">
             {categories.map((item) => <button key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}
@@ -148,32 +186,38 @@ export default function ShopPage() {
           <label className="search-box"><Search size={18}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the shelves" /></label>
         </div>
 
-        <div className="product-grid">
-          {filtered.map((product) => (
-            <article className="product-card" key={product.id}>
-              <div className={`product-art tone-${product.tone}`}>
-                {product.badge && <span className="product-badge">{product.badge}</span>}
-                <button className="favorite" aria-label={`Save ${product.title}`}><Heart size={18}/></button>
-                <div className="art-object"><span>{product.art}</span></div>
-              </div>
-              <div className="product-info">
-                <p>{product.platform}</p>
-                <h3>{product.title}</h3>
-                <span className="condition"><Check size={12}/>{product.condition}</span>
-                <div className="product-bottom">
-                  <div className="price"><b>${product.price.toFixed(2)}</b>{product.oldPrice && <del>${product.oldPrice.toFixed(2)}</del>}</div>
-                  {cart[product.id] ? (
-                    <div className="qty-control"><button onClick={() => updateCart(product, -1)}><Minus size={14}/></button><b>{cart[product.id]}</b><button onClick={() => updateCart(product, 1)}><Plus size={14}/></button></div>
+        {loading ? <div className="empty-state"><h3>Loading the shelves…</h3></div> : (
+          <div className="product-grid">
+            {filtered.map((product) => (
+              <article className="product-card" key={product.id}>
+                <div className={`product-art tone-${toneFor(product.category || product.title)}`}>
+                  {product.featured && <span className="product-badge">Featured</span>}
+                  <button className="favorite" aria-label={`Save ${product.title}`}><Heart size={18}/></button>
+                  {product.image_url || product.thumbnail_url ? (
+                    <img className="product-photo" src={product.image_url || product.thumbnail_url || ''} alt={product.title} />
                   ) : (
-                    <button className="add-button" onClick={() => { updateCart(product, 1); setCartOpen(true); }}><Plus size={16}/> Add</button>
+                    <div className="art-object"><span>{product.title.split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase()}</span></div>
                   )}
                 </div>
-                {product.stock === 1 && <small className="last-one">Only one available</small>}
-              </div>
-            </article>
-          ))}
-        </div>
-        {filtered.length === 0 && <div className="empty-state"><Search size={32}/><h3>No treasures found</h3><p>Try a different search or category.</p></div>}
+                <div className="product-info">
+                  <p>{product.platform || product.category}</p>
+                  <h3>{product.title}</h3>
+                  <span className="condition"><Check size={12}/>{product.condition || 'Available'}</span>
+                  <div className="product-bottom">
+                    <div className="price"><b>${product.price.toFixed(2)}</b>{product.compare_at_price && product.compare_at_price > product.price && <del>${product.compare_at_price.toFixed(2)}</del>}</div>
+                    {cart[product.id] ? (
+                      <div className="qty-control"><button onClick={() => updateCart(product, -1)}><Minus size={14}/></button><b>{cart[product.id]}</b><button onClick={() => updateCart(product, 1)}><Plus size={14}/></button></div>
+                    ) : (
+                      <button className="add-button" onClick={() => { updateCart(product, 1); setCartOpen(true); }}><Plus size={16}/> Add</button>
+                    )}
+                  </div>
+                  {product.quantity === 1 && <small className="last-one">Only one available</small>}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+        {!loading && filtered.length === 0 && <div className="empty-state"><Search size={32}/><h3>No published products found</h3><p>Publish inventory from RetroLootPro’s Storefront Manager.</p></div>}
       </section>
 
       <section className="split-banner">
@@ -184,16 +228,16 @@ export default function ShopPage() {
       <section className="visit-section" id="visit">
         <div className="visit-card">
           <div className="visit-icon"><Store size={36}/></div>
-          <div><p className="eyebrow">COME SAY HI</p><h2>Shop Pixel & Page in person.</h2><p>Browse the full selection, trade in your collection, or pick up an online order at our Daytona Flea Market storefront.</p></div>
-          <div className="visit-details"><b>Daytona Flea Market</b><span>Friday–Sunday</span><span>Store hours shown at checkout</span><a href="#top">Get store details <ArrowRight size={16}/></a></div>
+          <div><p className="eyebrow">COME SAY HI</p><h2>{profile.pickup_name}</h2><p>{profile.pickup_details}</p></div>
+          <div className="visit-details"><b>Daytona Flea Market</b><span>Friday–Sunday</span>{profile.support_email && <span>{profile.support_email}</span>}<a href="#top">Back to top <ArrowRight size={16}/></a></div>
         </div>
       </section>
 
       <footer className="pp-footer">
-        <div className="footer-brand"><div className="pp-logo light"><span className="logo-mark"><Gamepad2 size={24}/><BookOpen size={18}/></span><span><strong>PIXEL</strong><i>&</i><strong>PAGE</strong></span></div><p>Games, books, and collectibles for every kind of player and reader.</p></div>
-        <div><b>Shop</b><a href="#shop">Video Games</a><a href="#shop">Consoles</a><a href="#shop">Books</a><a href="#shop">Collectibles</a></div>
-        <div><b>Help</b><a href="#visit">Pickup</a><a href="#visit">Shipping</a><a href="#visit">Returns</a><a href="#visit">Contact</a></div>
-        <div><b>Follow the inventory</b><p>New arrivals, Whatnot shows, and store updates.</p><div className="email-field"><input placeholder="Email address"/><button><ArrowRight size={18}/></button></div></div>
+        <div className="footer-brand"><img className="footer-logo" src="/pixel-page-logo.svg" alt={profile.store_name} /><p>Games, books, and collectibles for every kind of player and reader.</p></div>
+        <div><b>Shop</b>{categories.filter((item) => item !== 'All').slice(0, 4).map((item) => <a href="#shop" key={item}>{item}</a>)}</div>
+        <div><b>Help</b><a href="#visit">Pickup</a><a href="#visit">Shipping</a><a href="#visit">Trade-ins</a><a href="#visit">Contact</a></div>
+        <div><b>Follow the inventory</b><p>New arrivals, Whatnot shows, and store updates.</p></div>
       </footer>
 
       {cartOpen && <div className="cart-overlay" onClick={() => setCartOpen(false)} />}
@@ -201,15 +245,14 @@ export default function ShopPage() {
         <div className="cart-header"><div><p className="eyebrow">YOUR BAG</p><h2>{cartCount} {cartCount === 1 ? 'item' : 'items'}</h2></div><button className="icon-button" onClick={() => setCartOpen(false)}><X size={21}/></button></div>
         <div className="cart-items">
           {cartItems.length === 0 ? <div className="empty-cart"><ShoppingBag size={38}/><h3>Your bag is empty</h3><p>Your next favorite is waiting on the shelves.</p><button className="primary-button" onClick={() => setCartOpen(false)}>Keep shopping</button></div> : cartItems.map((item) => (
-            <div className="cart-line" key={item.id}><div className={`cart-thumb tone-${item.tone}`}>{item.art}</div><div><b>{item.title}</b><small>{item.condition}</small><div className="qty-control"><button onClick={() => updateCart(item, -1)}><Minus size={13}/></button><b>{cart[item.id]}</b><button onClick={() => updateCart(item, 1)}><Plus size={13}/></button></div></div><strong>${(item.price * cart[item.id]).toFixed(2)}</strong></div>
+            <div className="cart-line" key={item.id}><div className={`cart-thumb tone-${toneFor(item.category || item.title)}`}>{item.thumbnail_url ? <img src={item.thumbnail_url} alt="" /> : item.title.slice(0, 2).toUpperCase()}</div><div><b>{item.title}</b><small>{item.condition}</small><div className="qty-control"><button onClick={() => updateCart(item, -1)}><Minus size={13}/></button><b>{cart[item.id]}</b><button onClick={() => updateCart(item, 1)}><Plus size={13}/></button></div></div><strong>${(item.price * cart[item.id]).toFixed(2)}</strong></div>
           ))}
         </div>
         {cartItems.length > 0 && <div className="cart-checkout">
           <div className="fulfillment-toggle"><button className={fulfillment === 'shipping' ? 'active' : ''} onClick={() => setFulfillment('shipping')}><Truck size={18}/><span><b>Ship it</b><small>Rates at checkout</small></span></button><button className={fulfillment === 'pickup' ? 'active' : ''} onClick={() => setFulfillment('pickup')}><Store size={18}/><span><b>Pick up</b><small>Daytona store</small></span></button></div>
           <div className="subtotal"><span>Subtotal</span><b>${subtotal.toFixed(2)}</b></div>
-          <p>Taxes and {fulfillment === 'shipping' ? 'shipping' : 'pickup details'} calculated at checkout.</p>
-          <button className="checkout-button">Checkout securely <ArrowRight size={18}/></button>
-          <small className="secure-note"><ShieldCheck size={14}/> Secure checkout powered by Clover</small>
+          <p>Checkout activation is the next payment-integration step. Your cart and live inventory are already connected.</p>
+          <button className="checkout-button" disabled>Checkout coming online next</button>
         </div>}
       </aside>
     </main>
