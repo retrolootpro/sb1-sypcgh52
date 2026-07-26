@@ -1,26 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 220" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 169" role="img" aria-labelledby="title desc">
   <title id="title">Pixel &amp; Page</title>
-  <desc id="desc">Retro handheld game system and books with the tagline Every Story Has a Save Point.</desc>
-  <rect width="640" height="220" rx="28" fill="#F7F0E2"/>
-  <g transform="translate(28 22)">
-    <circle cx="88" cy="88" r="82" fill="#FBF8EF" stroke="#12394A" stroke-width="8"/>
-    <circle cx="88" cy="88" r="69" fill="none" stroke="#2FA9A1" stroke-width="3"/>
-    <g transform="translate(43 49)">
-      <rect x="0" y="0" width="48" height="78" rx="12" fill="#E8D9C2" stroke="#12394A" stroke-width="4"/>
-      <rect x="9" y="10" width="30" height="25" rx="3" fill="#2FA9A1" stroke="#12394A" stroke-width="3"/>
-      <circle cx="15" cy="54" r="5" fill="#12394A"/>
-      <circle cx="34" cy="54" r="4" fill="#D86632"/>
-      <path d="M24 65h10M29 60v10" stroke="#12394A" stroke-width="3" stroke-linecap="round"/>
-      <rect x="58" y="9" width="18" height="66" rx="3" fill="#D86632" stroke="#12394A" stroke-width="4" transform="rotate(-5 67 42)"/>
-      <rect x="78" y="4" width="18" height="72" rx="3" fill="#E9B857" stroke="#12394A" stroke-width="4" transform="rotate(5 87 40)"/>
-    </g>
-  </g>
-  <g fill="#12394A">
-    <text x="220" y="88" font-family="Arial Black, Arial, sans-serif" font-size="58" letter-spacing="2">PIXEL</text>
-    <text x="412" y="88" font-family="Georgia, serif" font-size="48" fill="#D86632">&amp;</text>
-    <text x="458" y="88" font-family="Arial Black, Arial, sans-serif" font-size="58" letter-spacing="2">PAGE</text>
-    <text x="224" y="128" font-family="Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="5" fill="#2FA9A1">GAMES • BOOKS • COLLECTIBLES</text>
-    <line x1="224" y1="148" x2="595" y2="148" stroke="#D86632" stroke-width="4"/>
-    <text x="224" y="180" font-family="Georgia, serif" font-size="24" font-style="italic">Every Story Has a Save Point.</text>
-  </g>
+  <desc id="desc">Official Pixel &amp; Page logo. Every Story Has a Save Point.</desc>
+  <image href="/pixel-page-logo.webp" width="300" height="169" preserveAspectRatio="xMidYMid meet" />
 </svg>
