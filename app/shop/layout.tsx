@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './commerce.css';
+import './commerce-fixes.css';
 
 export const metadata: Metadata = {
   title: 'Pixel & Page | Games, Books & Collectibles',
