@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 function normalizeCategory(item: Record<string, any>) {
-  const explicit = `${item.category || ''} ${item.item_type || ''} ${item.book_format || ''}`.trim().toLowerCase();
-  const fallback = `${item.console || ''} ${item.product_name || ''} ${item.genre || ''}`.toLowerCase();
+  const explicit = `${item.category || ''} ${item.item_type || ''}`.trim().toLowerCase();
+  const fallback = `${item.console || ''} ${item.product_name || ''}`.toLowerCase();
   const text = `${explicit} ${fallback}`;
 
   if (/book|paperback|hardcover|novel|manga|comic|literature/.test(text)) return 'Books';
@@ -69,17 +69,15 @@ export async function GET() {
 
     const metadataByItem = new Map<string, Record<string, any>>();
     if (ids.length > 0) {
-      // Newer RetroLootPro deployments include these merchandising fields. This query is
-      // intentionally optional so an older production schema can still serve the shop.
       const { data: metadataRows, error: metadataError } = await admin
         .from('inventory_items')
-        .select('id,category,item_type,book_format,genre,thumbnail_url')
+        .select('id,category,item_type')
         .in('id', ids);
 
       if (!metadataError) {
         for (const row of metadataRows || []) metadataByItem.set(String(row.id), row);
       } else {
-        console.warn('Storefront metadata enrichment unavailable:', errorDetails(metadataError));
+        console.warn('Storefront category enrichment unavailable:', errorDetails(metadataError));
       }
     }
 
@@ -114,7 +112,7 @@ export async function GET() {
           featured: false,
           description: item.notes || null,
           image_url: item.image_url || null,
-          thumbnail_url: item.thumbnail_url || null,
+          thumbnail_url: null,
           brand: null,
           barcode: item.barcode || null,
           created_at: item.created_at,
@@ -140,7 +138,7 @@ export async function GET() {
         accountCandidates: counts.size,
         activeInventoryCount: accountInventory.length,
         pricedInventoryCount: products.length,
-        enrichedInventoryCount: metadataByItem.size,
+        categorizedInventoryCount: metadataByItem.size,
       },
     });
   } catch (error) {
