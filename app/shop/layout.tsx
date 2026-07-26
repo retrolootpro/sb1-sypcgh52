@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
-import './storefront.css';
-import './live-storefront.css';
 import './commerce.css';
+import './commerce-fixes.css';
+import './commerce-controls.css';
 
 export const metadata: Metadata = {
   title: 'Pixel & Page | Games, Books & Collectibles',

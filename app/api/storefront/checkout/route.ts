@@ -5,6 +5,24 @@ export const dynamic = 'force-dynamic';
 
 type CheckoutItem = { id: string; quantity: number };
 
+function getPrice(item: Record<string, any>) {
+  const condition = String(item.condition || '').toLowerCase();
+  const values = [
+    item.storefront_price,
+    item.selected_market_value,
+    condition.includes('new') ? item.price_new : null,
+    condition.includes('complete') || condition.includes('cib') ? item.price_cib : null,
+    item.price_loose,
+    item.price_cib,
+    item.price_new,
+  ];
+  for (const value of values) {
+    const amount = Number(value || 0);
+    if (amount > 0) return amount;
+  }
+  return 0;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -16,20 +34,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Name and email are required.' }, { status: 400 });
     }
 
+    const ids = items.map((item) => item.id);
     const admin = createSupabaseAdmin();
-    const { data, error } = await admin.rpc('get_storefront_products', { requested_slug: 'pixel-and-page' });
+    const { data, error } = await admin
+      .from('inventory_items')
+      .select('id,product_name,console,category,condition,quantity,status,storefront_price,selected_market_value,price_loose,price_cib,price_new')
+      .in('id', ids);
     if (error) throw error;
 
     const products = new Map((data || []).map((item: any) => [String(item.id), item]));
     const lineItems = items.map((requested) => {
       const product: any = products.get(String(requested.id));
-      if (!product) throw new Error('One of the products in your cart is no longer available.');
-      const quantity = Math.max(1, Math.min(Number(requested.quantity) || 1, Number(product.quantity) || 0));
-      if (quantity < 1) throw new Error(`${product.title} is no longer available.`);
+      if (!product || ['sold', 'archived', 'deleted'].includes(String(product.status || 'available')) || Number(product.quantity || 0) < 1) {
+        throw new Error('One of the products in your cart is no longer available.');
+      }
+      const price = getPrice(product);
+      if (price <= 0) throw new Error(`${product.product_name} does not currently have a valid selling price.`);
+      const quantity = Math.min(Math.max(1, Number(requested.quantity) || 1), Number(product.quantity));
       return {
-        name: String(product.title).slice(0, 127),
-        note: `${product.platform || product.category || 'Pixel & Page'} — ${product.condition || 'Available'}`.slice(0, 255),
-        price: Math.round(Number(product.price) * 100),
+        name: String(product.product_name).slice(0, 127),
+        note: `${product.console || product.category || 'Pixel & Page'} - ${product.condition || 'Available'}`.slice(0, 255),
+        price: Math.round(price * 100),
         unitQty: quantity,
       };
     });
@@ -40,7 +65,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         success: false,
         configurationRequired: true,
-        message: 'Clover Hosted Checkout is ready in the site code but still needs the merchant ID and private key in Netlify.',
+        message: 'Secure payment is not active yet because Clover Hosted Checkout credentials are missing from Netlify.',
       }, { status: 503 });
     }
 
