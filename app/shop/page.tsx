@@ -1,10 +1,17 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowRight,
+  BookOpen,
   Check,
+  ChevronDown,
+  Clock3,
+  Gamepad2,
   Heart,
+  HelpCircle,
+  MapPin,
   Menu,
   Minus,
   PackageCheck,
@@ -14,7 +21,9 @@ import {
   ShoppingBag,
   Sparkles,
   Store,
+  Tag,
   Truck,
+  UserRound,
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -50,17 +59,25 @@ type StorefrontProfile = {
 const fallbackProfile: StorefrontProfile = {
   store_name: 'Pixel & Page',
   tagline: 'Every Story Has a Save Point',
-  announcement: 'New inventory drops every week',
+  announcement: 'Fresh inventory added every week',
   pickup_name: 'Pixel & Page at Daytona Flea Market',
   pickup_details: 'Friday–Sunday. Pickup instructions are provided after checkout.',
   logo_path: '/pixel-page-logo.svg',
 };
 
-const toneFor = (value: string) => {
-  const tones = ['teal', 'navy', 'rust', 'ice', 'purple', 'gold', 'sun', 'green'];
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
-  return tones[Math.abs(hash) % tones.length];
+const categoryMeta: Record<string, { label: string; copy: string; icon: typeof Gamepad2 }> = {
+  Games: { label: 'Video Games', copy: 'Retro cartridges, discs, and modern favorites.', icon: Gamepad2 },
+  Consoles: { label: 'Consoles & Handhelds', copy: 'Tested systems ready for their next player.', icon: PackageCheck },
+  Books: { label: 'Books', copy: 'BookTok favorites, special editions, and new reads.', icon: BookOpen },
+  Collectibles: { label: 'Collectibles', copy: 'Controllers, figures, accessories, and display pieces.', icon: Sparkles },
+};
+
+const normalizeCategory = (value?: string | null) => {
+  const text = String(value || '').toLowerCase();
+  if (text.includes('book') || text.includes('media')) return 'Books';
+  if (text.includes('console') || text.includes('handheld') || text.includes('system')) return 'Consoles';
+  if (text.includes('collect') || text.includes('accessor') || text.includes('controller') || text.includes('figure')) return 'Collectibles';
+  return 'Games';
 };
 
 export default function ShopPage() {
@@ -68,11 +85,25 @@ export default function ShopPage() {
   const [profile, setProfile] = useState<StorefrontProfile>(fallbackProfile);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState('All');
+  const [platform, setPlatform] = useState('All');
+  const [sort, setSort] = useState('featured');
   const [query, setQuery] = useState('');
   const [cart, setCart] = useState<Record<string, number>>({});
   const [cartOpen, setCartOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [fulfillment, setFulfillment] = useState<'shipping' | 'pickup'>('shipping');
+  const [newsletterEmail, setNewsletterEmail] = useState('');
+  const [newsletterDone, setNewsletterDone] = useState(false);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem('pixel-page-cart');
+    if (saved) {
+      try { setCart(JSON.parse(saved)); } catch { /* ignore */ }
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem('pixel-page-cart', JSON.stringify(cart));
+  }, [cart]);
 
   useEffect(() => {
     let active = true;
@@ -81,35 +112,43 @@ export default function ShopPage() {
         supabase.rpc('get_storefront_products', { requested_slug: 'pixel-and-page' }),
         supabase.rpc('get_storefront_profile', { requested_slug: 'pixel-and-page' }),
       ]);
-
       if (!active) return;
       if (!productsResult.error && productsResult.data) {
         setProducts(productsResult.data.map((item: any) => ({
           ...item,
+          category: normalizeCategory(item.category),
           price: Number(item.price || 0),
           compare_at_price: item.compare_at_price ? Number(item.compare_at_price) : null,
           quantity: Number(item.quantity || 0),
           featured: Boolean(item.featured),
         })));
       }
-      if (!profileResult.error && profileResult.data?.[0]) {
-        setProfile({ ...fallbackProfile, ...profileResult.data[0] });
-      }
+      if (!profileResult.error && profileResult.data?.[0]) setProfile({ ...fallbackProfile, ...profileResult.data[0] });
       setLoading(false);
     };
     load();
     return () => { active = false; };
   }, []);
 
-  const categories = useMemo(() => ['All', ...Array.from(new Set(products.map((item) => item.category || 'Other')))], [products]);
+  const platforms = useMemo(() => ['All', ...Array.from(new Set(products.map((item) => item.platform).filter(Boolean))).slice(0, 12)], [products]);
+  const featured = useMemo(() => products.filter((item) => item.featured).slice(0, 8), [products]);
+  const arrivals = useMemo(() => products.slice(0, 12), [products]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return products.filter((product) => {
+    const rows = products.filter((product) => {
       const categoryMatch = category === 'All' || product.category === category;
+      const platformMatch = platform === 'All' || product.platform === platform;
       const queryMatch = !q || `${product.title} ${product.platform} ${product.condition} ${product.brand || ''}`.toLowerCase().includes(q);
-      return categoryMatch && queryMatch;
+      return categoryMatch && platformMatch && queryMatch;
     });
-  }, [products, category, query]);
+    return [...rows].sort((a, b) => {
+      if (sort === 'price-low') return a.price - b.price;
+      if (sort === 'price-high') return b.price - a.price;
+      if (sort === 'name') return a.title.localeCompare(b.title);
+      return Number(b.featured) - Number(a.featured);
+    });
+  }, [products, category, platform, query, sort]);
 
   const cartItems = products.filter((product) => cart[product.id]);
   const cartCount = Object.values(cart).reduce((sum, qty) => sum + qty, 0);
@@ -124,136 +163,148 @@ export default function ShopPage() {
     });
   };
 
+  const ProductCard = ({ product }: { product: StorefrontProduct }) => (
+    <article className="commerce-product-card">
+      <Link href={`/shop/product/${product.slug}`} className="commerce-product-image">
+        {product.featured && <span className="commerce-badge">Staff pick</span>}
+        {product.compare_at_price && product.compare_at_price > product.price && <span className="commerce-sale">Sale</span>}
+        {product.image_url || product.thumbnail_url ? (
+          <img src={product.image_url || product.thumbnail_url || ''} alt={product.title} />
+        ) : (
+          <div className="commerce-placeholder"><Gamepad2 size={44}/><span>{product.category}</span></div>
+        )}
+      </Link>
+      <div className="commerce-product-copy">
+        <div className="commerce-product-meta">{product.platform || product.category}</div>
+        <Link href={`/shop/product/${product.slug}`} className="commerce-product-title">{product.title}</Link>
+        <div className="commerce-condition"><Check size={13}/>{product.condition || 'Available'}</div>
+        <div className="commerce-product-footer">
+          <div className="commerce-price"><strong>${product.price.toFixed(2)}</strong>{product.compare_at_price && product.compare_at_price > product.price && <del>${product.compare_at_price.toFixed(2)}</del>}</div>
+          <button onClick={() => { updateCart(product, 1); setCartOpen(true); }} disabled={product.quantity < 1}><Plus size={16}/> Add</button>
+        </div>
+        {product.quantity === 1 && <small className="commerce-low-stock">Only one left</small>}
+      </div>
+    </article>
+  );
+
   return (
-    <main className="pp-store">
-      <div className="pp-announcement">
-        <span><Sparkles size={14} /> {profile.announcement}</span>
-        <span className="announcement-wide">Free local pickup at our Daytona Flea Market shop</span>
+    <main className="commerce-site" id="top">
+      <div className="commerce-topbar">
+        <span><Sparkles size={14}/>{profile.announcement}</span>
+        <span className="commerce-topbar-wide"><Truck size={14}/> Shipping available across the U.S.</span>
+        <Link href="/shop/pages/store-info"><MapPin size={14}/> Visit our Daytona shop</Link>
       </div>
 
-      <header className="pp-header">
-        <a className="pp-logo pp-logo-image" href="#top" aria-label={`${profile.store_name} home`}>
-          <img src={profile.logo_path || '/pixel-page-logo.svg'} alt={`${profile.store_name} — ${profile.tagline}`} />
-        </a>
-        <nav className={menuOpen ? 'pp-nav open' : 'pp-nav'}>
-          {categories.filter((item) => item !== 'All').slice(0, 5).map((item) => (
-            <button key={item} onClick={() => { setCategory(item); setMenuOpen(false); }}>{item}</button>
-          ))}
-          <a href="#visit">Visit Us</a>
-        </nav>
-        <div className="header-actions">
-          <button className="icon-button menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="Menu"><Menu size={21} /></button>
-          <button className="icon-button" aria-label="Favorites"><Heart size={20} /></button>
-          <button className="cart-button" onClick={() => setCartOpen(true)}><ShoppingBag size={20} /><span>Cart</span><b>{cartCount}</b></button>
+      <header className="commerce-header">
+        <div className="commerce-header-main">
+          <button className="commerce-menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="Open menu"><Menu/></button>
+          <Link href="/shop" className="commerce-logo"><img src="/pixel-page-logo.svg" alt={`${profile.store_name} — ${profile.tagline}`}/></Link>
+          <label className="commerce-search"><Search size={20}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search games, consoles, books, collectibles…"/><button onClick={() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' })}>Search</button></label>
+          <div className="commerce-header-actions">
+            <Link href="/shop/pages/help"><HelpCircle/><span>Help</span></Link>
+            <Link href="/shop/account"><UserRound/><span>Account</span></Link>
+            <button onClick={() => setCartOpen(true)}><ShoppingBag/><span>Cart</span><b>{cartCount}</b></button>
+          </div>
         </div>
+        <nav className={menuOpen ? 'commerce-nav open' : 'commerce-nav'}>
+          <button onClick={() => { setCategory('All'); setPlatform('All'); setMenuOpen(false); }}>Shop all</button>
+          {Object.entries(categoryMeta).map(([key, item]) => <button key={key} onClick={() => { setCategory(key); setMenuOpen(false); document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }); }}>{item.label}</button>)}
+          <Link href="/shop/pages/trade-ins">Sell & trade</Link>
+          <Link href="/shop/pages/store-info">Visit us</Link>
+          <Link className="commerce-nav-sale" href="#catalog">New arrivals</Link>
+        </nav>
       </header>
 
-      <section className="pp-hero" id="top">
-        <div className="hero-copy">
-          <p className="eyebrow">GAMES • BOOKS • COLLECTIBLES</p>
-          <h1>Find your next<br/><em>favorite story.</em></h1>
-          <p className="hero-sub">Live inventory from Pixel & Page. What you see online is what is currently available in RetroLootPro.</p>
-          <div className="hero-actions">
-            <a href="#shop" className="primary-button">Shop live inventory <ArrowRight size={18} /></a>
-            <a href="#visit" className="text-button">Visit the store</a>
+      <section className="commerce-hero">
+        <div className="commerce-hero-copy">
+          <p className="commerce-kicker">GAMES · BOOKS · COLLECTIBLES</p>
+          <h1>Great finds.<br/><em>Real shelves.</em><br/>One local shop.</h1>
+          <p>Shop live Pixel & Page inventory online, choose shipping or local pickup, and find your next save point without digging through generic marketplace listings.</p>
+          <div className="commerce-hero-actions"><a href="#catalog">Shop live inventory <ArrowRight/></a><Link href="/shop/pages/trade-ins">Sell or trade yours</Link></div>
+          <div className="commerce-hero-proof"><span><Check/>Live stock</span><span><Check/>Condition notes</span><span><Check/>Secure checkout</span></div>
+        </div>
+        <div className="commerce-hero-art">
+          <img src="/pixel-page-badge.svg" alt="Pixel & Page vintage badge"/>
+          <div className="commerce-floating-card commerce-floating-game"><Gamepad2/><span>Retro & modern games</span></div>
+          <div className="commerce-floating-card commerce-floating-book"><BookOpen/><span>Books worth staying up for</span></div>
+        </div>
+      </section>
+
+      <section className="commerce-service-strip">
+        <div><Truck/><span><strong>Ship or pick up</strong><small>Choose fulfillment at checkout</small></span></div>
+        <div><PackageCheck/><span><strong>Accurate inventory</strong><small>Synced from RetroLootPro</small></span></div>
+        <div><ShieldCheck/><span><strong>Buy with confidence</strong><small>Photos, condition, and support</small></span></div>
+        <div><Tag/><span><strong>Cash or store credit</strong><small>Trade-ins welcome in store</small></span></div>
+      </section>
+
+      <section className="commerce-section commerce-categories">
+        <div className="commerce-section-heading"><div><p className="commerce-kicker">START HERE</p><h2>Shop your way</h2></div><p>Browse by what you collect, play, or read.</p></div>
+        <div className="commerce-category-grid">
+          {Object.entries(categoryMeta).map(([key, item]) => {
+            const Icon = item.icon;
+            return <button key={key} onClick={() => { setCategory(key); document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }); }}><span><Icon/></span><strong>{item.label}</strong><p>{item.copy}</p><em>Shop now <ArrowRight/></em></button>;
+          })}
+        </div>
+      </section>
+
+      {featured.length > 0 && <section className="commerce-section commerce-featured">
+        <div className="commerce-section-heading"><div><p className="commerce-kicker">CURATED BY PIXEL & PAGE</p><h2>Featured finds</h2></div><a href="#catalog">View all <ArrowRight/></a></div>
+        <div className="commerce-product-row">{featured.map((product) => <ProductCard key={product.id} product={product}/>)}</div>
+      </section>}
+
+      <section className="commerce-split-promo">
+        <div className="commerce-promo-copy"><p className="commerce-kicker">BOOK PEOPLE, THIS ONE IS FOR YOU</p><h2>Fresh reads without the big-box feel.</h2><p>Find popular romance, fantasy, thrillers, special editions, and the books everyone keeps talking about.</p><button onClick={() => { setCategory('Books'); document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }); }}>Shop books <ArrowRight/></button></div>
+        <div className="commerce-promo-visual"><BookOpen size={120}/><img src="/pixel-page-badge.svg" alt=""/></div>
+      </section>
+
+      <section className="commerce-section commerce-platforms">
+        <div className="commerce-section-heading"><div><p className="commerce-kicker">BROWSE BY PLATFORM</p><h2>Pick your player</h2></div></div>
+        <div className="commerce-platform-grid">{platforms.filter((item) => item !== 'All').slice(0, 8).map((item) => <button key={item} onClick={() => { setCategory('All'); setPlatform(item); document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }); }}><Gamepad2/><span>{item}</span></button>)}</div>
+      </section>
+
+      <section className="commerce-section commerce-catalog" id="catalog">
+        <div className="commerce-section-heading"><div><p className="commerce-kicker">LIVE INVENTORY</p><h2>{category === 'All' ? 'Shop everything' : categoryMeta[category]?.label || category}</h2></div><p>{filtered.length} item{filtered.length === 1 ? '' : 's'} available now</p></div>
+        <div className="commerce-toolbar">
+          <div className="commerce-filter-group">
+            <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option>All</option>{Object.keys(categoryMeta).map((item) => <option key={item}>{item}</option>)}</select><ChevronDown/></label>
+            <label>Platform<select value={platform} onChange={(event) => setPlatform(event.target.value)}>{platforms.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown/></label>
           </div>
-          <div className="trust-row">
-            <span><Check size={14} /> Tested merchandise</span>
-            <span><Check size={14} /> Live stock counts</span>
-            <span><Check size={14} /> Local pickup</span>
-          </div>
+          <label className="commerce-sort">Sort by<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="featured">Featured</option><option value="price-low">Price: Low to high</option><option value="price-high">Price: High to low</option><option value="name">Name</option></select><ChevronDown/></label>
         </div>
-        <div className="hero-art brand-hero" aria-hidden="true">
-          <img src="/pixel-page-logo.svg" alt="" />
-        </div>
+        {loading ? <div className="commerce-empty"><Clock3 className="commerce-spin"/><h3>Loading the shelves…</h3></div> : filtered.length > 0 ? <div className="commerce-product-grid">{filtered.map((product) => <ProductCard key={product.id} product={product}/>)}</div> : <div className="commerce-empty"><Search/><h3>No matches found</h3><p>Try another category, platform, or search.</p><button onClick={() => { setCategory('All'); setPlatform('All'); setQuery(''); }}>Clear filters</button></div>}
       </section>
 
-      <section className="benefit-bar">
-        <div><PackageCheck size={24}/><span><b>Connected inventory</b><small>Availability comes from RetroLootPro</small></span></div>
-        <div><Truck size={24}/><span><b>Ship or pick up</b><small>Choose what works for you</small></span></div>
-        <div><ShieldCheck size={24}/><span><b>Accurate condition</b><small>Photos and notes from our catalog</small></span></div>
+      <section className="commerce-trade-banner">
+        <div><p className="commerce-kicker">SELL OR TRADE</p><h2>Your old favorites can fund your next ones.</h2><p>Bring in games, consoles, books, and collectibles. Choose cash or receive more value in store credit.</p><Link href="/shop/pages/trade-ins">See how trade-ins work <ArrowRight/></Link></div>
+        <div className="commerce-trade-steps"><span>1<strong>Bring it in</strong></span><ArrowRight/><span>2<strong>Get an offer</strong></span><ArrowRight/><span>3<strong>Cash or credit</strong></span></div>
       </section>
 
-      <section className="shop-section" id="shop">
-        <div className="section-heading">
-          <div><p className="eyebrow">LIVE FROM RETROLOOTPRO</p><h2>Available now</h2></div>
-          <p>Published items automatically disappear when they sell out or are archived.</p>
-        </div>
-        <div className="shop-toolbar">
-          <div className="category-tabs">
-            {categories.map((item) => <button key={item} className={category === item ? 'active' : ''} onClick={() => setCategory(item)}>{item}</button>)}
-          </div>
-          <label className="search-box"><Search size={18}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search the shelves" /></label>
-        </div>
-
-        {loading ? <div className="empty-state"><h3>Loading the shelves…</h3></div> : (
-          <div className="product-grid">
-            {filtered.map((product) => (
-              <article className="product-card" key={product.id}>
-                <div className={`product-art tone-${toneFor(product.category || product.title)}`}>
-                  {product.featured && <span className="product-badge">Featured</span>}
-                  <button className="favorite" aria-label={`Save ${product.title}`}><Heart size={18}/></button>
-                  {product.image_url || product.thumbnail_url ? (
-                    <img className="product-photo" src={product.image_url || product.thumbnail_url || ''} alt={product.title} />
-                  ) : (
-                    <div className="art-object"><span>{product.title.split(/\s+/).slice(0, 2).map((word) => word[0]).join('').toUpperCase()}</span></div>
-                  )}
-                </div>
-                <div className="product-info">
-                  <p>{product.platform || product.category}</p>
-                  <h3>{product.title}</h3>
-                  <span className="condition"><Check size={12}/>{product.condition || 'Available'}</span>
-                  <div className="product-bottom">
-                    <div className="price"><b>${product.price.toFixed(2)}</b>{product.compare_at_price && product.compare_at_price > product.price && <del>${product.compare_at_price.toFixed(2)}</del>}</div>
-                    {cart[product.id] ? (
-                      <div className="qty-control"><button onClick={() => updateCart(product, -1)}><Minus size={14}/></button><b>{cart[product.id]}</b><button onClick={() => updateCart(product, 1)}><Plus size={14}/></button></div>
-                    ) : (
-                      <button className="add-button" onClick={() => { updateCart(product, 1); setCartOpen(true); }}><Plus size={16}/> Add</button>
-                    )}
-                  </div>
-                  {product.quantity === 1 && <small className="last-one">Only one available</small>}
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-        {!loading && filtered.length === 0 && <div className="empty-state"><Search size={32}/><h3>No published products found</h3><p>Publish inventory from RetroLootPro’s Storefront Manager.</p></div>}
+      <section className="commerce-section commerce-store-card">
+        <div className="commerce-store-map"><MapPin size={48}/><span>DAYTONA</span></div>
+        <div><p className="commerce-kicker">SHOP IN PERSON</p><h2>{profile.pickup_name}</h2><p>{profile.pickup_details}</p><div className="commerce-store-facts"><span><Store/>Daytona Flea Market</span><span><Clock3/>Friday–Sunday</span><span><PackageCheck/>Online pickup available</span></div><Link href="/shop/pages/store-info">Store details and directions <ArrowRight/></Link></div>
       </section>
 
-      <section className="split-banner">
-        <div className="banner-copy"><p className="eyebrow">SELL OR TRADE</p><h2>Give your old favorites<br/>a new save file.</h2><p>Bring us your games, consoles, books, and collectibles. Choose cash or get more value in store credit.</p><a href="#visit" className="cream-button">How trade-ins work <ArrowRight size={17}/></a></div>
-        <div className="trade-stack"><div>YOUR<br/>STUFF</div><ArrowRight size={34}/><div>NEW<br/>FINDS</div></div>
+      <section className="commerce-newsletter">
+        <img src="/pixel-page-badge.svg" alt=""/>
+        <div><p className="commerce-kicker">DON'T MISS THE NEXT DROP</p><h2>New inventory, show reminders, and store updates.</h2><p>No generic spam. Just the good stuff.</p></div>
+        <form onSubmit={(event) => { event.preventDefault(); if (newsletterEmail) setNewsletterDone(true); }}><input type="email" value={newsletterEmail} onChange={(event) => setNewsletterEmail(event.target.value)} placeholder="Email address" required/><button>{newsletterDone ? 'You’re in!' : 'Sign me up'}<ArrowRight/></button></form>
       </section>
 
-      <section className="visit-section" id="visit">
-        <div className="visit-card">
-          <div className="visit-icon"><Store size={36}/></div>
-          <div><p className="eyebrow">COME SAY HI</p><h2>{profile.pickup_name}</h2><p>{profile.pickup_details}</p></div>
-          <div className="visit-details"><b>Daytona Flea Market</b><span>Friday–Sunday</span>{profile.support_email && <span>{profile.support_email}</span>}<a href="#top">Back to top <ArrowRight size={16}/></a></div>
-        </div>
-      </section>
-
-      <footer className="pp-footer">
-        <div className="footer-brand"><img className="footer-logo" src="/pixel-page-logo.svg" alt={profile.store_name} /><p>Games, books, and collectibles for every kind of player and reader.</p></div>
-        <div><b>Shop</b>{categories.filter((item) => item !== 'All').slice(0, 4).map((item) => <a href="#shop" key={item}>{item}</a>)}</div>
-        <div><b>Help</b><a href="#visit">Pickup</a><a href="#visit">Shipping</a><a href="#visit">Trade-ins</a><a href="#visit">Contact</a></div>
-        <div><b>Follow the inventory</b><p>New arrivals, Whatnot shows, and store updates.</p></div>
+      <footer className="commerce-footer">
+        <div className="commerce-footer-brand"><img src="/pixel-page-logo.svg" alt={profile.store_name}/><p>Games, books, and collectibles for every kind of player and reader.</p><span>{profile.tagline}</span></div>
+        <div><strong>Shop</strong><a href="#catalog">All products</a><button onClick={() => setCategory('Games')}>Video games</button><button onClick={() => setCategory('Consoles')}>Consoles</button><button onClick={() => setCategory('Books')}>Books</button><button onClick={() => setCategory('Collectibles')}>Collectibles</button></div>
+        <div><strong>Customer care</strong><Link href="/shop/pages/shipping">Shipping & pickup</Link><Link href="/shop/pages/returns">Returns</Link><Link href="/shop/pages/faq">FAQ</Link><Link href="/shop/pages/contact">Contact us</Link><Link href="/shop/pages/trade-ins">Trade-ins</Link></div>
+        <div><strong>About</strong><Link href="/shop/pages/our-story">Our story</Link><Link href="/shop/pages/store-info">Visit the store</Link><Link href="/shop/pages/privacy">Privacy</Link><Link href="/shop/pages/terms">Terms</Link></div>
+        <div className="commerce-footer-bottom"><span>© {new Date().getFullYear()} Pixel & Page, LLC</span><span>Every Story Has a Save Point.</span></div>
       </footer>
 
-      {cartOpen && <div className="cart-overlay" onClick={() => setCartOpen(false)} />}
-      <aside className={cartOpen ? 'cart-drawer open' : 'cart-drawer'}>
-        <div className="cart-header"><div><p className="eyebrow">YOUR BAG</p><h2>{cartCount} {cartCount === 1 ? 'item' : 'items'}</h2></div><button className="icon-button" onClick={() => setCartOpen(false)}><X size={21}/></button></div>
-        <div className="cart-items">
-          {cartItems.length === 0 ? <div className="empty-cart"><ShoppingBag size={38}/><h3>Your bag is empty</h3><p>Your next favorite is waiting on the shelves.</p><button className="primary-button" onClick={() => setCartOpen(false)}>Keep shopping</button></div> : cartItems.map((item) => (
-            <div className="cart-line" key={item.id}><div className={`cart-thumb tone-${toneFor(item.category || item.title)}`}>{item.thumbnail_url ? <img src={item.thumbnail_url} alt="" /> : item.title.slice(0, 2).toUpperCase()}</div><div><b>{item.title}</b><small>{item.condition}</small><div className="qty-control"><button onClick={() => updateCart(item, -1)}><Minus size={13}/></button><b>{cart[item.id]}</b><button onClick={() => updateCart(item, 1)}><Plus size={13}/></button></div></div><strong>${(item.price * cart[item.id]).toFixed(2)}</strong></div>
-          ))}
+      {cartOpen && <div className="commerce-cart-overlay" onClick={() => setCartOpen(false)}/>} 
+      <aside className={cartOpen ? 'commerce-cart open' : 'commerce-cart'}>
+        <div className="commerce-cart-header"><div><p className="commerce-kicker">YOUR CART</p><h2>{cartCount} item{cartCount === 1 ? '' : 's'}</h2></div><button onClick={() => setCartOpen(false)}><X/></button></div>
+        <div className="commerce-cart-items">
+          {cartItems.length === 0 ? <div className="commerce-cart-empty"><ShoppingBag/><h3>Your cart is empty</h3><p>There is plenty waiting on the shelves.</p><button onClick={() => setCartOpen(false)}>Continue shopping</button></div> : cartItems.map((item) => <div className="commerce-cart-line" key={item.id}><div className="commerce-cart-thumb">{item.thumbnail_url || item.image_url ? <img src={item.thumbnail_url || item.image_url || ''} alt=""/> : <Gamepad2/>}</div><div><Link href={`/shop/product/${item.slug}`}>{item.title}</Link><small>{item.condition}</small><div className="commerce-cart-qty"><button onClick={() => updateCart(item, -1)}><Minus/></button><b>{cart[item.id]}</b><button onClick={() => updateCart(item, 1)}><Plus/></button></div></div><strong>${(item.price * cart[item.id]).toFixed(2)}</strong></div>)}
         </div>
-        {cartItems.length > 0 && <div className="cart-checkout">
-          <div className="fulfillment-toggle"><button className={fulfillment === 'shipping' ? 'active' : ''} onClick={() => setFulfillment('shipping')}><Truck size={18}/><span><b>Ship it</b><small>Rates at checkout</small></span></button><button className={fulfillment === 'pickup' ? 'active' : ''} onClick={() => setFulfillment('pickup')}><Store size={18}/><span><b>Pick up</b><small>Daytona store</small></span></button></div>
-          <div className="subtotal"><span>Subtotal</span><b>${subtotal.toFixed(2)}</b></div>
-          <p>Checkout activation is the next payment-integration step. Your cart and live inventory are already connected.</p>
-          <button className="checkout-button" disabled>Checkout coming online next</button>
-        </div>}
+        {cartItems.length > 0 && <div className="commerce-cart-footer"><div><span>Subtotal</span><strong>${subtotal.toFixed(2)}</strong></div><p>Shipping, pickup, and taxes are calculated at checkout.</p><Link href="/shop/checkout" onClick={() => setCartOpen(false)}>Checkout securely <ArrowRight/></Link><small><ShieldCheck/>Secure checkout powered by Clover</small></div>}
       </aside>
     </main>
   );
