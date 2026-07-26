@@ -53,7 +53,7 @@ export async function GET() {
       if (ownerError) throw ownerError;
       const counts = new Map<string, number>();
       for (const row of owners || []) counts.set(row.user_id, (counts.get(row.user_id) || 0) + 1);
-      accountId = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+      accountId = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
     }
 
     if (!accountId) {
