@@ -1,6 +1,4 @@
 import type { Metadata } from 'next';
-import './storefront.css';
-import './live-storefront.css';
 import './commerce.css';
 
 export const metadata: Metadata = {
