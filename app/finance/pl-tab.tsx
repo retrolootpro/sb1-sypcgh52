@@ -60,13 +60,18 @@ export function PLTab() {
     setLoading(true);
     try {
       const selectedMonth = month !== 'all' ? parseInt(month) : undefined;
-      const [data, missingItems] = await Promise.all([
-        getPLStatement(parseInt(year), selectedMonth),
-        getMissingCogsItems(parseInt(year), selectedMonth),
-      ]);
+      const data = await getPLStatement(parseInt(year), selectedMonth);
       setPL(data);
-      setMissingCogsItems(missingItems);
-    } catch { toast.error('Failed to load P&L data'); }
+      try {
+        const missingItems = await getMissingCogsItems(parseInt(year), selectedMonth);
+        setMissingCogsItems(missingItems);
+      } catch {
+        setMissingCogsItems([]);
+        toast.warning('P&L loaded, but the Missing COGS queue could not load.');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load P&L data');
+    }
     finally { setLoading(false); }
   }, [year, month]);
 

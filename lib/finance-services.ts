@@ -1631,19 +1631,20 @@ export async function getMissingCogsItems(year: number, month?: number): Promise
     .eq('status', 'sold')
     .gte('sold_at', startDate + 'T00:00:00Z')
     .lte('sold_at', endDate + 'T23:59:59Z')
-    .or('purchase_price.is.null,purchase_price.eq.0')
     .order('sold_at', { ascending: false });
 
   if (error) throw new Error(error.message);
 
-  return (data || []).map((item) => ({
-    id: item.id,
-    product_name: item.product_name || 'Untitled item',
-    console: item.console,
-    sell_price: Number(item.sell_price) || 0,
-    sold_at: item.sold_at,
-    sold_via: item.sold_via,
-  }));
+  return (data || [])
+    .filter((item) => (Number(item.purchase_price) || 0) <= 0)
+    .map((item) => ({
+      id: item.id,
+      product_name: item.product_name || 'Untitled item',
+      console: item.console,
+      sell_price: Number(item.sell_price) || 0,
+      sold_at: item.sold_at,
+      sold_via: item.sold_via,
+    }));
 }
 
 export function formatCurrency(amount: number): string {
