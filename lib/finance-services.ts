@@ -1492,6 +1492,10 @@ export type PLStatement = {
   period: string;
   revenue: number;
   cogs: number;
+  missingCogsItemCount: number;
+  missingCogsRevenue: number;
+  cogsCoverage: number;
+  cogsStatus: 'complete' | 'needs_review';
   grossProfit: number;
   operatingExpenses: number;
   netProfit: number;
@@ -1501,13 +1505,28 @@ export type PLStatement = {
   expensesByCategory: Record<string, number>;
 };
 
+export type MissingCogsItem = {
+  id: string;
+  product_name: string;
+  console: string | null;
+  sell_price: number;
+  sold_at: string | null;
+  sold_via: string | null;
+};
+
+function getPeriodBounds(year: number, month?: number) {
+  return {
+    startDate: month
+      ? `${year}-${String(month).padStart(2, '0')}-01`
+      : `${year}-01-01`,
+    endDate: month
+      ? new Date(year, month, 0).toISOString().slice(0, 10)
+      : `${year}-12-31`,
+  };
+}
+
 export async function getPLStatement(year: number, month?: number): Promise<PLStatement> {
-  const startDate = month
-    ? `${year}-${String(month).padStart(2, '0')}-01`
-    : `${year}-01-01`;
-  const endDate = month
-    ? new Date(year, month, 0).toISOString().slice(0, 10)
-    : `${year}-12-31`;
+  const { startDate, endDate } = getPeriodBounds(year, month);
 
   const { data: txns, error } = await supabase
     .from('financial_transactions')
@@ -1519,13 +1538,17 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
 
   const { data: soldItems } = await supabase
     .from('inventory_items')
-    .select('id, sell_price, purchase_price, sold_at, sold_via')
+    .select('id, product_name, console, sell_price, purchase_price, sold_at, sold_via')
     .eq('status', 'sold')
     .gte('sold_at', startDate + 'T00:00:00Z')
     .lte('sold_at', endDate + 'T23:59:59Z');
 
   let revenue = 0;
   let cogs = 0;
+  let soldItemCount = 0;
+  let knownCogsItemCount = 0;
+  let missingCogsItemCount = 0;
+  let missingCogsRevenue = 0;
   let operatingExpenses = 0;
   const revenueByPlatform: Record<string, number> = {};
   const expensesByCategory: Record<string, number> = {};
@@ -1534,7 +1557,14 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
   for (const item of (soldItems || [])) {
     const sp = parseFloat(item.sell_price) || 0;
     const pp = parseFloat(item.purchase_price) || 0;
-    cogs += pp;
+    soldItemCount++;
+    if (pp > 0) {
+      cogs += pp;
+      knownCogsItemCount++;
+    } else {
+      missingCogsItemCount++;
+      missingCogsRevenue += sp;
+    }
     const generatedRef = `inv_sale_${item.id}`;
     if (!generatedSaleRefs.has(generatedRef)) {
       revenue += sp;
@@ -1573,11 +1603,16 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
   const netProfit = grossProfit - operatingExpenses;
   const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
   const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+  const cogsCoverage = soldItemCount > 0 ? (knownCogsItemCount / soldItemCount) * 100 : 100;
 
   return {
     period: month ? `${year}-${String(month).padStart(2, '0')}` : String(year),
     revenue,
     cogs,
+    missingCogsItemCount,
+    missingCogsRevenue,
+    cogsCoverage,
+    cogsStatus: missingCogsItemCount > 0 ? 'needs_review' : 'complete',
     grossProfit,
     operatingExpenses,
     netProfit,
@@ -1586,6 +1621,29 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
     revenueByPlatform,
     expensesByCategory,
   };
+}
+
+export async function getMissingCogsItems(year: number, month?: number): Promise<MissingCogsItem[]> {
+  const { startDate, endDate } = getPeriodBounds(year, month);
+  const { data, error } = await supabase
+    .from('inventory_items')
+    .select('id, product_name, console, sell_price, sold_at, sold_via, purchase_price')
+    .eq('status', 'sold')
+    .gte('sold_at', startDate + 'T00:00:00Z')
+    .lte('sold_at', endDate + 'T23:59:59Z')
+    .or('purchase_price.is.null,purchase_price.eq.0')
+    .order('sold_at', { ascending: false });
+
+  if (error) throw new Error(error.message);
+
+  return (data || []).map((item) => ({
+    id: item.id,
+    product_name: item.product_name || 'Untitled item',
+    console: item.console,
+    sell_price: Number(item.sell_price) || 0,
+    sold_at: item.sold_at,
+    sold_via: item.sold_via,
+  }));
 }
 
 export function formatCurrency(amount: number): string {

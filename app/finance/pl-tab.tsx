@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Download } from 'lucide-react';
+import Link from 'next/link';
+import { AlertTriangle, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getPLStatement, formatCurrency, type PLStatement } from '@/lib/finance-services';
+import { getMissingCogsItems, getPLStatement, formatCurrency, type MissingCogsItem, type PLStatement } from '@/lib/finance-services';
 import { toast } from 'sonner';
 
 const MONTHS = [
@@ -52,13 +53,19 @@ export function PLTab() {
   const [year, setYear] = useState(String(now.getFullYear()));
   const [month, setMonth] = useState<string>('all');
   const [pl, setPL] = useState<PLStatement | null>(null);
+  const [missingCogsItems, setMissingCogsItems] = useState<MissingCogsItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getPLStatement(parseInt(year), month !== 'all' ? parseInt(month) : undefined);
+      const selectedMonth = month !== 'all' ? parseInt(month) : undefined;
+      const [data, missingItems] = await Promise.all([
+        getPLStatement(parseInt(year), selectedMonth),
+        getMissingCogsItems(parseInt(year), selectedMonth),
+      ]);
       setPL(data);
+      setMissingCogsItems(missingItems);
     } catch { toast.error('Failed to load P&L data'); }
     finally { setLoading(false); }
   }, [year, month]);
@@ -70,6 +77,12 @@ export function PLTab() {
     const lines = [
       `Profit & Loss Statement`,
       `Period: ${month !== 'all' ? MONTHS[parseInt(month) - 1] : 'Full Year'} ${year}`,
+      ``,
+      `COGS REVIEW`,
+      `  COGS Coverage,${pl.cogsCoverage.toFixed(1)}%`,
+      `  Sold Items Missing COGS,${pl.missingCogsItemCount}`,
+      `  Revenue With Missing COGS,${formatCurrency(pl.missingCogsRevenue)}`,
+      `  Report Status,${pl.cogsStatus === 'complete' ? 'Complete' : 'Needs COGS review'}`,
       ``,
       `REVENUE`,
       `  Gross Revenue,${formatCurrency(pl.revenue)}`,
@@ -83,6 +96,12 @@ export function PLTab() {
       ``,
       `NET PROFIT / LOSS,${formatCurrency(pl.netProfit)}`,
       `Net Margin,${pl.netMargin.toFixed(1)}%`,
+      ``,
+      ...(missingCogsItems.length > 0 ? [
+        `MISSING COGS ITEMS`,
+        `Item,Platform,Sold Date,Sale Price`,
+        ...missingCogsItems.map((item) => `"${item.product_name.replaceAll('"', '""')}",${item.sold_via || 'Other'},${item.sold_at || ''},${formatCurrency(item.sell_price)}`),
+      ] : []),
     ];
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -131,6 +150,21 @@ export function PLTab() {
               </span>
             </div>
 
+            {pl?.cogsStatus === 'needs_review' && (
+              <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+                <div className="flex gap-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
+                  <div>
+                    <div className="text-sm font-semibold text-amber-200">P&amp;L needs COGS cleanup</div>
+                    <p className="mt-1 text-xs leading-5 text-amber-100/80">
+                      {pl.missingCogsItemCount} sold item{pl.missingCogsItemCount === 1 ? '' : 's'} have no purchase price,
+                      covering {formatCurrency(pl.missingCogsRevenue)} of sales. Profit is overstated until those costs are filled in.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <PLDivider label="Revenue" />
             <PLRow label="Gross Revenue" value={pl?.revenue ?? 0} />
             <PLRow label="Cost of Goods Sold" value={-(pl?.cogs ?? 0)} indent highlight="neutral" />
@@ -165,17 +199,52 @@ export function PLTab() {
                 {[
                   { label: 'Revenue', value: pl?.revenue ?? 0, color: 'text-emerald-400' },
                   { label: 'COGS', value: pl?.cogs ?? 0, color: 'text-amber-400' },
+                  { label: 'COGS Coverage', value: pl?.cogsCoverage ?? 100, color: (pl?.cogsStatus === 'complete') ? 'text-emerald-400' : 'text-amber-400', percent: true },
                   { label: 'Gross Profit', value: pl?.grossProfit ?? 0, color: (pl?.grossProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400' },
                   { label: 'Operating Exp.', value: pl?.operatingExpenses ?? 0, color: 'text-red-400' },
                   { label: 'Net Profit', value: pl?.netProfit ?? 0, color: (pl?.netProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400' },
                 ].map(row => (
                   <div key={row.label} className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">{row.label}</span>
-                    <span className={`text-xs font-semibold tabular-nums ${row.color}`}>{formatCurrency(row.value)}</span>
+                    <span className={`text-xs font-semibold tabular-nums ${row.color}`}>
+                      {'percent' in row && row.percent ? `${row.value.toFixed(1)}%` : formatCurrency(row.value)}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
+
+            {missingCogsItems.length > 0 && (
+              <div className="rounded-2xl border border-amber-500/20 bg-card p-5">
+                <h3 className="text-sm font-semibold text-white/80 mb-3">Missing COGS Queue</h3>
+                <div className="space-y-2">
+                  {missingCogsItems.slice(0, 8).map((item) => (
+                    <Link
+                      key={item.id}
+                      href={`/inventory/${item.id}`}
+                      className="block rounded-xl border border-border/30 bg-secondary/20 p-3 transition hover:border-amber-500/40"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-medium text-white/80">{item.product_name}</div>
+                          <div className="mt-1 text-[10px] text-muted-foreground">
+                            {item.sold_via || 'Other'} · {item.sold_at ? item.sold_at.slice(0, 10) : 'No sold date'}
+                          </div>
+                        </div>
+                        <div className="shrink-0 text-xs font-semibold tabular-nums text-emerald-400">
+                          {formatCurrency(item.sell_price)}
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                  {missingCogsItems.length > 8 && (
+                    <div className="text-xs text-muted-foreground">
+                      {missingCogsItems.length - 8} more item{missingCogsItems.length - 8 === 1 ? '' : 's'} need cost basis.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {Object.keys(pl?.revenueByPlatform ?? {}).length > 0 && (
               <div className="rounded-2xl border border-border/40 bg-card p-5">
