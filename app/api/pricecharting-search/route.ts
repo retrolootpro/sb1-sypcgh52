@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
     return json({
       success: true,
       query,
-      products: (results.products || []).slice(0, 12).map((product: any) => ({
+      products: (results.products || []).slice(0, 50).map((product: any) => ({
         id: String(product.id || ''),
         productName: String(product['product-name'] || ''),
         consoleName: String(product['console-name'] || ''),

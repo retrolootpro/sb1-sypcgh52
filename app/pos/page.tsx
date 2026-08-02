@@ -41,15 +41,15 @@ const cents = (value: number) => Math.round((Number(value) || 0) * 100);
 const fromCents = (value: number) => Number((value / 100).toFixed(2));
 const currency = (value: number) => fromCents(cents(value));
 const money = (value: number) => `$${currency(value).toFixed(2)}`;
-const CASH_OFFER_RATE = 0.25;
-const TRADE_OFFER_RATE = 0.4;
-const RECOMMENDED_OFFER_RATE = (CASH_OFFER_RATE + TRADE_OFFER_RATE) / 2;
+const CASH_OFFER_RATE = 0.35;
+const TRADE_OFFER_RATE = 0.55;
+const RECOMMENDED_OFFER_RATE = 0.45;
 const CONDITION_RATING_MULTIPLIERS: Record<number, number> = {
   5: 1,
-  4: 0.85,
-  3: 0.65,
-  2: 0.35,
-  1: 0.1,
+  4: 0.92,
+  3: 0.78,
+  2: 0.55,
+  1: 0.25,
 };
 
 type TradeItem = PosBuyItem & {
@@ -379,7 +379,7 @@ export default function PosPage() {
         pricing_notes: '',
         lookup_status: 'idle',
       };
-      setTradeItems((current) => [...current, newItem]);
+      setTradeItems((current) => [newItem, ...current]);
       setTradeItemForm({ barcode: '', title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
       window.setTimeout(() => lookupTradeItemByUpc(newItem), 0);
       return;
@@ -434,7 +434,7 @@ export default function PosPage() {
       pricing_notes: '',
       lookup_status: 'idle',
     };
-    setTradeItems((current) => [...current, newItem]);
+    setTradeItems((current) => [newItem, ...current]);
     setTradeItemForm({ barcode: '', title: '', platform: '', condition: 'Loose', conditionRating: '5', quantity: '1' });
     window.setTimeout(() => {
       if (barcode) lookupTradeItemByUpc(newItem);
@@ -507,7 +507,7 @@ export default function PosPage() {
       updateTradeItem(item.id, {
         lookup_status: 'found',
         search_results: results,
-        pricing_notes: results.length === 1 ? 'One match found. Tap it to confirm.' : `${results.length} matches found. Choose the exact item.`,
+        pricing_notes: results.length === 1 ? 'One match found. Tap it to confirm.' : `${results.length} matches found. Scroll the match list and choose the exact item.`,
       });
       toast.success(`Found ${results.length} PriceCharting match${results.length === 1 ? '' : 'es'}`);
     } catch (error: any) {
@@ -1087,17 +1087,23 @@ export default function PosPage() {
                         {item.pricing_notes && <span className="text-amber-200">{item.pricing_notes}</span>}
                       </div>
                       {item.search_results && item.search_results.length > 0 && (
-                        <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-                          {item.search_results.map((match) => (
-                            <button
-                              key={match.id}
-                              onClick={() => applyPriceChartingMatch(item, match)}
-                              className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-left transition hover:border-primary hover:bg-primary/20"
-                            >
-                              <div className="text-base font-semibold text-white">{match.productName}</div>
-                              <div className="mt-1 text-sm text-white/50">{match.consoleName} - PC ID {match.id}</div>
-                            </button>
-                          ))}
+                        <div className="mt-3 rounded-xl border border-primary/20 bg-black/20 p-2">
+                          <div className="mb-2 flex items-center justify-between px-1 text-xs text-white/50">
+                            <span>{item.search_results.length} PriceCharting matches</span>
+                            <span>Scroll for more</span>
+                          </div>
+                          <div className="grid max-h-72 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
+                            {item.search_results.map((match) => (
+                              <button
+                                key={match.id}
+                                onClick={() => applyPriceChartingMatch(item, match)}
+                                className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-left transition hover:border-primary hover:bg-primary/20"
+                              >
+                                <div className="text-base font-semibold text-white">{match.productName}</div>
+                                <div className="mt-1 text-sm text-white/50">{match.consoleName} - PC ID {match.id}</div>
+                              </button>
+                            ))}
+                          </div>
                         </div>
                       )}
                     </div>
