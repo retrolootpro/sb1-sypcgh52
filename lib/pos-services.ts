@@ -106,6 +106,7 @@ export type PosBuy = {
   id: string;
   buy_number: string;
   customer_id?: string | null;
+  lot_id?: string | null;
   item_summary: string;
   offer_amount: number;
   payout_type: 'cash' | 'trade_credit' | 'mixed';
@@ -118,6 +119,7 @@ export type PosBuy = {
 
 export type PosBuyItem = {
   id?: string;
+  inventory_item_id?: string | null;
   title: string;
   platform?: string;
   condition?: string;
@@ -131,6 +133,23 @@ export type PosBuyItem = {
   accepted_offer: number;
   pricing_source?: string;
   pricing_notes?: string;
+};
+
+type MaterializedBuyItem = PosBuyItem & {
+  id: string;
+};
+
+type BuyMaterializationInput = {
+  id: string;
+  buy_number: string;
+  customer_id?: string | null;
+  item_summary: string;
+  offer_amount: number;
+  cash_paid: number;
+  trade_credit_issued: number;
+  notes?: string | null;
+  bought_at?: string | null;
+  lot_id?: string | null;
 };
 
 export async function searchPosInventory(search = ''): Promise<PosInventoryItem[]> {
@@ -517,6 +536,8 @@ export async function completeCustomerBuy(input: {
 
   if (error) throw error;
 
+  let materializedItems: MaterializedBuyItem[] = [];
+
   if (input.items?.length) {
     const buyItems = input.items.map((item) => ({
       user_id: accountId,
@@ -536,9 +557,15 @@ export async function completeCustomerBuy(input: {
       pricing_notes: item.pricing_notes?.trim() || '',
     }));
 
-    const { error: itemsError } = await supabase.from('pos_customer_buy_items').insert(buyItems);
+    const { data: insertedItems, error: itemsError } = await supabase
+      .from('pos_customer_buy_items')
+      .insert(buyItems)
+      .select('*');
     if (itemsError) throw itemsError;
+    materializedItems = (insertedItems || []) as MaterializedBuyItem[];
   }
+
+  await materializeCompletedBuyAsLot(accountId, buy as BuyMaterializationInput, materializedItems);
 
   if (input.customer_id && Number(input.trade_credit_issued || 0) > 0) {
     const { data: customer } = await supabase
@@ -567,4 +594,194 @@ export async function completeCustomerBuy(input: {
   }
 
   return buy as PosBuy;
+}
+
+export async function backfillCompletedPosBuysIntoInventory(): Promise<number> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(session.user);
+
+  const { data: buys, error } = await supabase
+    .from('pos_customer_buys')
+    .select('*')
+    .eq('user_id', accountId)
+    .eq('status', 'completed')
+    .is('lot_id', null)
+    .order('bought_at', { ascending: true })
+    .limit(25);
+
+  if (error) throw error;
+  if (!buys?.length) return 0;
+
+  let backfilled = 0;
+  for (const buy of buys as BuyMaterializationInput[]) {
+    const { data: items, error: itemsError } = await supabase
+      .from('pos_customer_buy_items')
+      .select('*')
+      .eq('user_id', accountId)
+      .eq('buy_id', buy.id)
+      .is('inventory_item_id', null);
+
+    if (itemsError) throw itemsError;
+    await materializeCompletedBuyAsLot(accountId, buy, (items || []) as MaterializedBuyItem[]);
+    backfilled += 1;
+  }
+
+  return backfilled;
+}
+
+async function materializeCompletedBuyAsLot(
+  accountId: string,
+  buy: BuyMaterializationInput,
+  items: MaterializedBuyItem[],
+) {
+  if (buy.lot_id) return buy.lot_id;
+
+  const customerName = await getPosCustomerName(accountId, buy.customer_id);
+  const lotName = customerName || `POS buy ${buy.buy_number}`;
+  const totalPaid = currency(Number(buy.cash_paid || 0) + Number(buy.trade_credit_issued || 0) || Number(buy.offer_amount || 0));
+  const receivedAt = buy.bought_at || new Date().toISOString();
+  const lotNotes = [
+    `Created automatically from POS buy ${buy.buy_number}.`,
+    buy.notes?.trim() || '',
+  ].filter(Boolean).join('\n');
+
+  const { data: lot, error: lotError } = await supabase
+    .from('lots')
+    .insert({
+      user_id: accountId,
+      name: lotName,
+      source: 'POS trade-in',
+      notes: lotNotes,
+      received_at: receivedAt,
+      total_paid: totalPaid,
+      allocation_status: items.length > 0 ? 'allocated' : 'pending',
+      cost_allocated_at: items.length > 0 ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+
+  if (lotError) throw lotError;
+
+  const itemRows = buildInventoryRowsFromBuy(accountId, lot.id, buy, items);
+
+  if (itemRows.length > 0) {
+    const { data: inventoryItems, error: inventoryError } = await supabase
+      .from('inventory_items')
+      .insert(itemRows)
+      .select('id, product_name');
+
+    if (inventoryError) throw inventoryError;
+
+    await Promise.all((inventoryItems || []).map(async (inventoryItem: { id: string; product_name: string }, index: number) => {
+      const buyItem = items[index];
+      if (!buyItem?.id) return;
+
+      const { error: linkError } = await supabase
+        .from('pos_customer_buy_items')
+        .update({ inventory_item_id: inventoryItem.id })
+        .eq('id', buyItem.id)
+        .eq('user_id', accountId);
+
+      if (linkError) throw linkError;
+    }));
+  }
+
+  const { error: buyUpdateError } = await supabase
+    .from('pos_customer_buys')
+    .update({ lot_id: lot.id, updated_at: new Date().toISOString() })
+    .eq('id', buy.id)
+    .eq('user_id', accountId);
+
+  if (buyUpdateError) throw buyUpdateError;
+  return lot.id as string;
+}
+
+async function getPosCustomerName(accountId: string, customerId?: string | null) {
+  if (!customerId) return '';
+
+  const { data, error } = await supabase
+    .from('pos_customers')
+    .select('name')
+    .eq('id', customerId)
+    .eq('user_id', accountId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return String(data?.name || '').trim();
+}
+
+function buildInventoryRowsFromBuy(
+  accountId: string,
+  lotId: string,
+  buy: BuyMaterializationInput,
+  items: MaterializedBuyItem[],
+) {
+  const sourceItems = items.length > 0
+    ? items
+    : [{
+        id: buy.id,
+        title: buy.item_summary,
+        platform: '',
+        condition: 'Loose',
+        quantity: 1,
+        pricecharting_value: 0,
+        gamestop_value: 0,
+        market_value: 0,
+        recommended_cash_offer: 0,
+        recommended_trade_offer: 0,
+        accepted_offer: Number(buy.offer_amount || 0),
+        pricing_source: 'POS manual summary',
+        pricing_notes: '',
+      }];
+
+  return sourceItems
+    .filter((item) => item.title?.trim())
+    .map((item, index) => {
+      const quantity = Math.max(1, Math.floor(Number(item.quantity || 1)));
+      const acceptedTotal = currency(Number(item.accepted_offer || 0));
+      const unitCost = currency(acceptedTotal > 0 ? acceptedTotal / quantity : Number(buy.offer_amount || 0) / sourceItems.length / quantity);
+      const marketValue = currency(Number(item.market_value || 0));
+      const condition = normalizeInventoryCondition(item.condition);
+      const pricingNotes = [
+        item.pricing_notes?.trim() || '',
+        `POS buy ${buy.buy_number}`,
+      ].filter(Boolean).join(' | ');
+
+      return {
+        user_id: accountId,
+        product_name: item.title.trim(),
+        console: item.platform?.trim() || 'Unknown',
+        condition,
+        purchase_price: unitCost,
+        quantity,
+        notes: pricingNotes,
+        lot_id: lotId,
+        status: 'available',
+        sell_price: marketValue > 0 ? marketValue : null,
+        selected_market_value: marketValue > 0 ? marketValue : null,
+        price_loose: condition === 'Loose' && marketValue > 0 ? marketValue : null,
+        price_cib: condition === 'CIB' && marketValue > 0 ? marketValue : null,
+        price_new: condition === 'New' && marketValue > 0 ? marketValue : null,
+        sku: makePosBuySku(buy.buy_number, index),
+        pricing_status: marketValue > 0 ? 'found' : 'pending',
+        pricing_source: item.pricing_source?.trim() || 'POS trade-in',
+        lot_market_value_at_allocation: marketValue,
+        lot_allocation_ratio: marketValue > 0 && acceptedTotal > 0 ? acceptedTotal / marketValue : 0,
+        purchase_price_override: false,
+        clover_sync_status: 'pending',
+      };
+    });
+}
+
+function normalizeInventoryCondition(condition?: string) {
+  const normalized = String(condition || '').toLowerCase();
+  if (normalized.includes('cib') || normalized.includes('complete')) return 'CIB';
+  if (normalized.includes('new') || normalized.includes('sealed') || normalized.includes('graded')) return 'New';
+  return 'Loose';
+}
+
+function makePosBuySku(buyNumber: string, index: number) {
+  return `POS-${String(buyNumber || 'BUY').replace(/[^a-z0-9]/gi, '').toUpperCase()}-${String(index + 1).padStart(2, '0')}`;
 }

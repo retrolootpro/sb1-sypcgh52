@@ -16,6 +16,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { useAuth } from '@/lib/auth-context';
 import type { ScanResult } from '@/lib/barcode-scanner';
 import {
+  backfillCompletedPosBuysIntoInventory,
   completeCustomerBuy,
   completePosSale,
   createPosCustomer,
@@ -203,6 +204,7 @@ export default function PosPage() {
     loadCustomers();
     loadTaxSettings();
     loadRecentSales();
+    backfillPosBuys();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -235,6 +237,18 @@ export default function PosPage() {
       setRecentSales(await getRecentPosSales(30));
     } catch (error: any) {
       toast.error(error.message || 'Failed to load POS history');
+    }
+  };
+
+  const backfillPosBuys = async () => {
+    try {
+      const count = await backfillCompletedPosBuysIntoInventory();
+      if (count > 0) {
+        toast.success(`Added ${count} completed POS buy${count === 1 ? '' : 's'} to lots and inventory`);
+        await loadInventory();
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to backfill completed POS buys');
     }
   };
 
@@ -777,7 +791,7 @@ export default function PosPage() {
           credit_balance: Number(selectedCustomer.credit_balance || 0) + tradeCreditIssued,
         });
       }
-      await loadCustomers();
+      await Promise.all([loadCustomers(), loadInventory()]);
     } catch (error: any) {
       toast.error(error.message || 'Failed to complete buy');
     } finally {
