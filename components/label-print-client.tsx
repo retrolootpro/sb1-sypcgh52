@@ -22,6 +22,8 @@ type LabelItem = {
   id: string;
   product_name: string;
   console?: string | null;
+  barcode?: string | null;
+  sku?: string | null;
   purchase_price?: number | null;
   sell_price?: number | null;
   selected_market_value?: number | null;
@@ -35,8 +37,55 @@ type PrintableLabel = {
   id: string;
   title: string;
   price: string;
+  barcode: string;
   inventoryId?: string;
 };
+
+type LabelSizeKey = '1x2' | '1x4';
+
+const LABEL_SIZES: Record<LabelSizeKey, {
+  label: string;
+  widthIn: number;
+  heightIn: number;
+  canvasWidth: number;
+  canvasHeight: number;
+}> = {
+  '1x2': {
+    label: '1 x 2',
+    widthIn: 2,
+    heightIn: 1,
+    canvasWidth: 600,
+    canvasHeight: 300,
+  },
+  '1x4': {
+    label: '1 x 4',
+    widthIn: 4,
+    heightIn: 1,
+    canvasWidth: 1200,
+    canvasHeight: 300,
+  },
+};
+
+const CODE_128_PATTERNS = [
+  '11011001100', '11001101100', '11001100110', '10010011000', '10010001100', '10001001100',
+  '10011001000', '10011000100', '10001100100', '11001001000', '11001000100', '11000100100',
+  '10110011100', '10011011100', '10011001110', '10111001100', '10011101100', '10011100110',
+  '11001110010', '11001011100', '11001001110', '11011100100', '11001110100', '11101101110',
+  '11101001100', '11100101100', '11100100110', '11101100100', '11100110100', '11100110010',
+  '11011011000', '11011000110', '11000110110', '10100011000', '10001011000', '10001000110',
+  '10110001000', '10001101000', '10001100010', '11010001000', '11000101000', '11000100010',
+  '10110111000', '10110001110', '10001101110', '10111011000', '10111000110', '10001110110',
+  '11101110110', '11010001110', '11000101110', '11011101000', '11011100010', '11011101110',
+  '11101011000', '11101000110', '11100010110', '11101101000', '11101100010', '11100011010',
+  '11101111010', '11001000010', '11110001010', '10100110000', '10100001100', '10010110000',
+  '10010000110', '10000101100', '10000100110', '10110010000', '10110000100', '10011010000',
+  '10011000010', '10000110100', '10000110010', '11000010010', '11001010000', '11110111010',
+  '11000010100', '10001111010', '10100111100', '10010111100', '10010011110', '10111100100',
+  '10011110100', '10011110010', '11110100100', '11110010100', '11110010010', '11011011110',
+  '11011110110', '11110110110', '10101111000', '10100011110', '10001011110', '10111101000',
+  '10111100010', '11110101000', '11110100010', '10111011110', '10111101110', '11101011110',
+  '11110101110', '11010000100', '11010010000', '11010011100', '1100011101011',
+];
 
 function readQueue() {
   if (typeof window === 'undefined') return [];
@@ -69,15 +118,21 @@ function labelTitle(item: LabelItem) {
   return productName || consoleName || 'Inventory Item';
 }
 
-function labelTextStyle(title: string, price: string): CSSProperties {
+function labelTextStyle(title: string, price: string, labelSize: LabelSizeKey): CSSProperties {
   const titleLength = title.length;
   const priceLength = price.length;
-  const titleSize = titleLength <= 12 ? 12 : titleLength <= 22 ? 10 : titleLength <= 34 ? 8.5 : titleLength <= 48 ? 7.4 : 6.6;
-  const priceSize = priceLength <= 5 ? 20 : priceLength <= 6 ? 17 : priceLength <= 7 ? 14.5 : 12.5;
+  const titleSize = labelSize === '1x4'
+    ? titleLength <= 22 ? 13 : titleLength <= 38 ? 11 : titleLength <= 58 ? 9.5 : 8
+    : titleLength <= 12 ? 11 : titleLength <= 22 ? 9 : titleLength <= 34 ? 7.8 : titleLength <= 48 ? 6.8 : 6.2;
+  const priceSize = labelSize === '1x4'
+    ? priceLength <= 5 ? 24 : priceLength <= 6 ? 21 : priceLength <= 7 ? 18 : 15
+    : priceLength <= 5 ? 18 : priceLength <= 6 ? 15.5 : priceLength <= 7 ? 13 : 11.5;
 
   return {
     '--label-title-size': `${titleSize}px`,
     '--label-price-size': `${priceSize}px`,
+    '--label-width': `${LABEL_SIZES[labelSize].widthIn}in`,
+    '--label-height': `${LABEL_SIZES[labelSize].heightIn}in`,
   } as CSSProperties;
 }
 
@@ -119,10 +174,28 @@ async function waitForPressStartFont() {
   }
 }
 
-async function renderLabelJpeg(label: PrintableLabel) {
+function code128Modules(value: string) {
+  const sanitizedValue = value.trim().replace(/[^\x20-\x7e]/g, '').slice(0, 48);
+  const encodedValue = sanitizedValue || 'RLP-MANUAL';
+  const codes = [104, ...Array.from(encodedValue, (character) => character.charCodeAt(0) - 32)];
+  const checksum = codes[0] + codes.slice(1).reduce((sum, code, index) => sum + code * (index + 1), 0);
+  return [...codes, checksum % 103, 106].map((code) => CODE_128_PATTERNS[code]).join('');
+}
+
+function drawBarcode(ctx: CanvasRenderingContext2D, value: string, x: number, y: number, width: number, height: number) {
+  const modules = code128Modules(value);
+  const moduleWidth = width / modules.length;
+  ctx.fillStyle = '#000';
+  Array.from(modules).forEach((bit, index) => {
+    if (bit === '1') ctx.fillRect(x + index * moduleWidth, y, Math.max(moduleWidth, 1), height);
+  });
+}
+
+async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
+  const size = LABEL_SIZES[labelSize];
   const canvas = document.createElement('canvas');
-  canvas.width = 600;
-  canvas.height = 300;
+  canvas.width = size.canvasWidth;
+  canvas.height = size.canvasHeight;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Could not create label print job');
   await waitForPressStartFont();
@@ -132,28 +205,46 @@ async function renderLabelJpeg(label: PrintableLabel) {
 
   const safe = 32;
   const logo = await loadImage(LOGO_SRC);
-  ctx.drawImage(logo, safe + 8, 38, 210, 210);
+  const logoSize = labelSize === '1x4' ? 180 : 148;
+  ctx.drawImage(logo, safe, (canvas.height - logoSize) / 2, logoSize, logoSize);
 
   const titleLength = label.title.length;
-  const titleSize = titleLength <= 12 ? 31 : titleLength <= 22 ? 26 : titleLength <= 34 ? 22 : titleLength <= 48 ? 18 : 16;
+  const titleSize = labelSize === '1x4'
+    ? titleLength <= 22 ? 38 : titleLength <= 38 ? 32 : titleLength <= 58 ? 26 : 22
+    : titleLength <= 12 ? 26 : titleLength <= 22 ? 21 : titleLength <= 34 ? 17 : titleLength <= 48 ? 14 : 12;
   const priceLength = label.price.length;
-  const priceSize = priceLength <= 5 ? 64 : priceLength <= 6 ? 54 : priceLength <= 7 ? 45 : 38;
-  const textX = 245;
+  const priceSize = labelSize === '1x4'
+    ? priceLength <= 5 ? 70 : priceLength <= 6 ? 60 : priceLength <= 7 ? 50 : 42
+    : priceLength <= 5 ? 46 : priceLength <= 6 ? 38 : priceLength <= 7 ? 32 : 27;
+  const textX = labelSize === '1x4' ? 250 : 205;
   const textRight = canvas.width - safe - 18;
-  const textWidth = textRight - textX;
+  const barcodeHeight = labelSize === '1x4' ? 70 : 54;
+  const barcodeTop = canvas.height - safe - barcodeHeight - 24;
+  const priceTop = labelSize === '1x4' ? 96 : 88;
+  const textWidth = labelSize === '1x4'
+    ? Math.floor((textRight - textX) * 0.56)
+    : textRight - textX;
+  const textLeft = labelSize === '1x4' ? textX : textRight - textWidth;
 
   ctx.fillStyle = '#000';
-  ctx.textAlign = 'right';
+  ctx.textAlign = labelSize === '1x4' ? 'left' : 'right';
   ctx.textBaseline = 'top';
   ctx.font = `${titleSize}px ${LABEL_FONT_FAMILY}`;
-  const lines = wrapCanvasText(ctx, label.title, textWidth, 4);
+  const lines = wrapCanvasText(ctx, label.title, textWidth, labelSize === '1x4' ? 3 : 2);
   lines.forEach((line, index) => {
-    ctx.fillText(line, textRight, 38 + index * Math.round(titleSize * 1.35));
+    ctx.fillText(line, labelSize === '1x4' ? textLeft : textRight, 34 + index * Math.round(titleSize * 1.35));
   });
 
-  ctx.textBaseline = 'alphabetic';
+  ctx.textBaseline = 'top';
   ctx.font = `${priceSize}px ${LABEL_FONT_FAMILY}`;
-  ctx.fillText(label.price, textRight, canvas.height - safe - 12);
+  ctx.fillText(label.price, labelSize === '1x4' ? textLeft : textRight, priceTop);
+
+  const barcodeLeft = labelSize === '1x4' ? Math.floor(canvas.width * 0.58) : textX;
+  const barcodeWidth = textRight - barcodeLeft;
+  drawBarcode(ctx, label.barcode, barcodeLeft, barcodeTop, barcodeWidth, barcodeHeight);
+  ctx.font = `${labelSize === '1x4' ? 18 : 13}px Arial, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(label.barcode, barcodeLeft + barcodeWidth / 2, barcodeTop + barcodeHeight + 7);
 
   return canvas.toDataURL('image/jpeg', 0.92);
 }
@@ -182,8 +273,9 @@ function concatPdfParts(parts: Array<string | Uint8Array>) {
   return output;
 }
 
-async function buildLabelPdf(labels: PrintableLabel[]) {
-  const images = await Promise.all(labels.map(renderLabelJpeg));
+async function buildLabelPdf(labels: PrintableLabel[], labelSize: LabelSizeKey) {
+  const size = LABEL_SIZES[labelSize];
+  const images = await Promise.all(labels.map((label) => renderLabelJpeg(label, labelSize)));
   const parts: Array<string | Uint8Array> = ['%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'];
   const offsets: number[] = [0];
   let byteLength = stringBytes(parts[0] as string).length;
@@ -207,14 +299,16 @@ async function buildLabelPdf(labels: PrintableLabel[]) {
   images.forEach((dataUrl, index) => {
     const imageBytes = base64ToBytes(dataUrl);
     const imageId = addObject([
-      `<< /Type /XObject /Subtype /Image /Width 600 /Height 300 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
+      `<< /Type /XObject /Subtype /Image /Width ${size.canvasWidth} /Height ${size.canvasHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
       imageBytes,
       '\nendstream',
     ]);
-    const content = `q\n144 0 0 72 0 0 cm\n/Im${index} Do\nQ\n`;
+    const pageWidth = size.widthIn * 72;
+    const pageHeight = size.heightIn * 72;
+    const content = `q\n${pageWidth} 0 0 ${pageHeight} 0 0 cm\n/Im${index} Do\nQ\n`;
     const contentId = addObject([`<< /Length ${content.length} >>\nstream\n${content}endstream`]);
     const pageId = addObject([
-      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 144 72] /Resources << /XObject << /Im${index} ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`,
+      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /XObject << /Im${index} ${imageId} 0 R >> >> /Contents ${contentId} 0 R >>`,
     ]);
     pageObjectIds.push(pageId);
   });
@@ -260,9 +354,9 @@ async function waitForLabelAssets() {
   await new Promise((resolve) => requestAnimationFrame(resolve));
 }
 
-function LabelMarkup({ label, fontClassName }: { label: PrintableLabel; fontClassName: string }) {
+function LabelMarkup({ label, fontClassName, labelSize }: { label: PrintableLabel; fontClassName: string; labelSize: LabelSizeKey }) {
   return (
-    <div className={`price-label ${fontClassName}`} style={labelTextStyle(label.title, label.price)}>
+    <div className={`price-label price-label-${labelSize} ${fontClassName}`} style={labelTextStyle(label.title, label.price, labelSize)}>
       <div className="price-label-logo">
         <img src={LOGO_SRC} alt="Pixel & Page" />
       </div>
@@ -270,7 +364,23 @@ function LabelMarkup({ label, fontClassName }: { label: PrintableLabel; fontClas
         <div className="price-label-name">{label.title}</div>
         <div className="price-label-price">{label.price}</div>
       </div>
+      <div className="price-label-barcode" aria-label={`Barcode ${label.barcode}`}>
+        <BarcodeSvg value={label.barcode} />
+        <span>{label.barcode}</span>
+      </div>
     </div>
+  );
+}
+
+function BarcodeSvg({ value }: { value: string }) {
+  const modules = code128Modules(value);
+
+  return (
+    <svg viewBox={`0 0 ${modules.length} 40`} preserveAspectRatio="none" aria-hidden="true">
+      {Array.from(modules).map((bit, index) => (
+        bit === '1' ? <rect key={index} x={index} y="0" width="1" height="40" fill="currentColor" /> : null
+      ))}
+    </svg>
   );
 }
 
@@ -279,10 +389,12 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const searchParams = useSearchParams();
   const [queueIds, setQueueIds] = useState<string[]>([]);
   const [items, setItems] = useState<LabelItem[]>([]);
+  const [labelSize, setLabelSize] = useState<LabelSizeKey>('1x2');
   const [loading, setLoading] = useState(true);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualName, setManualName] = useState('');
   const [manualPrice, setManualPrice] = useState('');
+  const [manualBarcode, setManualBarcode] = useState('');
   const [printingLabels, setPrintingLabels] = useState(false);
   const autoPrintStartedRef = useRef(false);
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
@@ -296,6 +408,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     inventoryId: item.id,
     title: labelTitle(item),
     price: money(inventoryLabelPrice(item)),
+    barcode: item.barcode?.trim() || item.sku?.trim() || item.id,
   })), [items]);
 
   useEffect(() => {
@@ -320,7 +433,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     setLoading(true);
     const { data, error } = await supabase
       .from('inventory_items')
-      .select('id, product_name, console, purchase_price, sell_price, selected_market_value, price_loose, price_cib, price_new, price_graded')
+      .select('id, product_name, console, barcode, sku, purchase_price, sell_price, selected_market_value, price_loose, price_cib, price_new, price_graded')
       .eq('user_id', accountId)
       .in('id', activeIds);
 
@@ -369,7 +482,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     let url = '';
     try {
       await waitForLabelAssets();
-      const blob = await buildLabelPdf(labels);
+      const blob = await buildLabelPdf(labels, labelSize);
       url = URL.createObjectURL(blob);
       const frame = printFrameRef.current;
 
@@ -410,7 +523,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     } finally {
       window.setTimeout(() => setPrintingLabels(false), 1000);
     }
-  }, []);
+  }, [labelSize]);
 
   const printLabels = () => {
     startBrowserPrint(printableLabels);
@@ -432,10 +545,12 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
       id: `manual-${Date.now()}`,
       title,
       price: money(price),
+      barcode: manualBarcode.trim() || `RLP-${Date.now()}`,
     }]);
     setManualOpen(false);
     setManualName('');
     setManualPrice('');
+    setManualBarcode('');
   };
 
   useEffect(() => {
@@ -470,10 +585,24 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             </Link>
             <h1 className="text-2xl font-bold tracking-tight">Print Labels</h1>
             <p className="text-sm text-muted-foreground">
-              2 x 1 inch labels with logo left, item name and price right.
+              Choose 1 x 2 or 1 x 4 inch labels before printing.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-md border border-border bg-background p-1">
+              {(Object.keys(LABEL_SIZES) as LabelSizeKey[]).map((sizeKey) => (
+                <Button
+                  key={sizeKey}
+                  type="button"
+                  size="sm"
+                  variant={labelSize === sizeKey ? 'default' : 'ghost'}
+                  onClick={() => setLabelSize(sizeKey)}
+                  aria-pressed={labelSize === sizeKey}
+                >
+                  {LABEL_SIZES[sizeKey].label}
+                </Button>
+              ))}
+            </div>
             <Button variant="outline" onClick={() => setManualOpen(true)}>
               Manual Label
             </Button>
@@ -516,7 +645,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
                     <X className="h-3.5 w-3.5" />
                   </button>
                 )}
-                <LabelMarkup label={label} fontClassName={fontClassName} />
+                <LabelMarkup label={label} fontClassName={fontClassName} labelSize={labelSize} />
               </div>
               );
             })}
@@ -550,6 +679,15 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
                   placeholder="49.99"
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="manual-label-barcode">Barcode / SKU</Label>
+                <Input
+                  id="manual-label-barcode"
+                  value={manualBarcode}
+                  onChange={(event) => setManualBarcode(event.target.value)}
+                  placeholder="012345678905"
+                />
+              </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setManualOpen(false)}>Cancel</Button>
@@ -565,7 +703,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
           @page {
-            size: 2in 1in;
+            size: ${LABEL_SIZES[labelSize].widthIn}in ${LABEL_SIZES[labelSize].heightIn}in;
             margin: 0;
           }
 
@@ -582,10 +720,11 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           }
 
           .price-label {
-            width: 2in;
-            height: 1in;
+            width: var(--label-width);
+            height: var(--label-height);
             display: grid;
-            grid-template-columns: 40% 60%;
+            grid-template-columns: 34% 66%;
+            grid-template-rows: 1fr 0.3in;
             align-items: center;
             overflow: hidden;
             background: white;
@@ -594,20 +733,35 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             box-sizing: border-box;
           }
 
+          .price-label-1x4 {
+            grid-template-columns: 18% 38% 44%;
+            grid-template-rows: 1fr;
+          }
+
           .price-label-logo {
             height: 100%;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 0.035in;
+            grid-row: 1 / span 2;
+            padding: 0.04in;
             box-sizing: border-box;
           }
 
+          .price-label-1x4 .price-label-logo {
+            grid-row: auto;
+          }
+
           .price-label-logo img {
-            width: 0.77in;
-            height: 0.77in;
+            width: 0.56in;
+            height: 0.56in;
             object-fit: contain;
             display: block;
+          }
+
+          .price-label-1x4 .price-label-logo img {
+            width: 0.62in;
+            height: 0.62in;
           }
 
           .price-label-copy {
@@ -619,6 +773,11 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             padding: 0.075in 0.075in 0.06in 0.015in;
             text-align: right;
             box-sizing: border-box;
+          }
+
+          .price-label-1x4 .price-label-copy {
+            padding: 0.09in 0.04in;
+            text-align: left;
           }
 
           .price-label-name {
@@ -634,6 +793,10 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             align-self: start;
           }
 
+          .price-label-1x4 .price-label-name {
+            text-align: left;
+          }
+
           .price-label-price {
             width: 100%;
             max-width: 100%;
@@ -644,6 +807,45 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             overflow: hidden;
             text-align: right;
             align-self: end;
+          }
+
+          .price-label-1x4 .price-label-price {
+            text-align: left;
+          }
+
+          .price-label-barcode {
+            min-width: 0;
+            padding: 0 0.075in 0.045in 0.015in;
+            text-align: center;
+            box-sizing: border-box;
+          }
+
+          .price-label-1x4 .price-label-barcode {
+            align-self: center;
+            padding: 0.08in 0.1in 0.06in;
+          }
+
+          .price-label-barcode svg {
+            display: block;
+            width: 100%;
+            height: 0.19in;
+            color: black;
+          }
+
+          .price-label-1x4 .price-label-barcode svg {
+            height: 0.42in;
+          }
+
+          .price-label-barcode span {
+            display: block;
+            margin-top: 0.025in;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: Arial, sans-serif;
+            font-size: 0.07in;
+            font-weight: 700;
+            line-height: 1;
           }
 
           .label-card-wrap {
@@ -672,7 +874,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
 
           @media print {
             @page {
-              size: 2in 1in;
+              size: ${LABEL_SIZES[labelSize].widthIn}in ${LABEL_SIZES[labelSize].heightIn}in;
               margin: 0;
             }
 
@@ -681,8 +883,8 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
               margin: 0 !important;
               padding: 0 !important;
               background: white !important;
-              width: 2in !important;
-              min-width: 2in !important;
+              width: var(--label-width) !important;
+              min-width: var(--label-width) !important;
               height: auto !important;
               overflow: hidden !important;
             }
@@ -717,8 +919,8 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
 
             .label-sheet {
               display: block !important;
-              width: 2in !important;
-              max-width: 2in !important;
+              width: var(--label-width) !important;
+              max-width: var(--label-width) !important;
               margin: 0 !important;
               padding: 0 !important;
               background: white !important;
@@ -731,8 +933,8 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             }
 
             .label-card-wrap {
-              width: 2in !important;
-              height: 1in !important;
+              width: var(--label-width) !important;
+              height: var(--label-height) !important;
               margin: 0 !important;
               padding: 0 !important;
               border: 0 !important;
@@ -751,8 +953,8 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             }
 
             .price-label {
-              width: 2in !important;
-              height: 1in !important;
+              width: var(--label-width) !important;
+              height: var(--label-height) !important;
               border: 0.01in solid transparent !important;
             }
           }
