@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 const LABEL_QUEUE_KEY = 'retroloot-label-queue';
 const LOGO_SRC = '/labels/pixel-page-logo.png';
 const LABEL_FONT_FAMILY = '"Press Start 2P", monospace';
+const LABEL_DPI = 203;
 
 type LabelItem = {
   id: string;
@@ -54,15 +55,15 @@ const LABEL_SIZES: Record<LabelSizeKey, {
     label: '1 x 2',
     widthIn: 2,
     heightIn: 1,
-    canvasWidth: 600,
-    canvasHeight: 300,
+    canvasWidth: 2 * LABEL_DPI,
+    canvasHeight: LABEL_DPI,
   },
   '1x4': {
     label: '1 x 4',
     widthIn: 4,
     heightIn: 1,
-    canvasWidth: 1200,
-    canvasHeight: 300,
+    canvasWidth: 4 * LABEL_DPI,
+    canvasHeight: LABEL_DPI,
   },
 };
 
@@ -184,14 +185,16 @@ function code128Modules(value: string) {
 
 function drawBarcode(ctx: CanvasRenderingContext2D, value: string, x: number, y: number, width: number, height: number) {
   const modules = code128Modules(value);
-  const moduleWidth = width / modules.length;
+  const moduleWidth = Math.max(1, Math.floor(width / modules.length));
+  const renderedWidth = moduleWidth * modules.length;
+  const barcodeX = Math.round(x + (width - renderedWidth) / 2);
   ctx.fillStyle = '#000';
   Array.from(modules).forEach((bit, index) => {
-    if (bit === '1') ctx.fillRect(x + index * moduleWidth, y, Math.max(moduleWidth, 1), height);
+    if (bit === '1') ctx.fillRect(barcodeX + index * moduleWidth, y, moduleWidth, height);
   });
 }
 
-async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
+async function renderLabelBitmap(label: PrintableLabel, labelSize: LabelSizeKey) {
   const size = LABEL_SIZES[labelSize];
   const canvas = document.createElement('canvas');
   canvas.width = size.canvasWidth;
@@ -203,23 +206,25 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const safe = 32;
+  ctx.imageSmoothingEnabled = false;
+
+  const safe = 22;
   const logo = await loadImage(LOGO_SRC);
-  const logoSize = labelSize === '1x4' ? 180 : 148;
+  const logoSize = labelSize === '1x4' ? 126 : 108;
   ctx.drawImage(logo, safe, (canvas.height - logoSize) / 2, logoSize, logoSize);
 
   const titleLength = label.title.length;
   let titleSize = labelSize === '1x4'
-    ? titleLength <= 22 ? 38 : titleLength <= 38 ? 32 : titleLength <= 58 ? 26 : 22
-    : titleLength <= 12 ? 26 : titleLength <= 22 ? 21 : titleLength <= 34 ? 17 : titleLength <= 48 ? 14 : 12;
+    ? titleLength <= 22 ? 32 : titleLength <= 38 ? 28 : titleLength <= 58 ? 24 : 20
+    : titleLength <= 12 ? 22 : titleLength <= 22 ? 19 : titleLength <= 34 ? 16 : titleLength <= 48 ? 14 : 12;
   const priceLength = label.price.length;
   const priceSize = labelSize === '1x4'
-    ? priceLength <= 5 ? 50 : priceLength <= 6 ? 44 : priceLength <= 7 ? 38 : 32
-    : priceLength <= 5 ? 46 : priceLength <= 6 ? 38 : priceLength <= 7 ? 32 : 27;
-  const textX = labelSize === '1x4' ? 250 : 205;
-  const textRight = canvas.width - safe - 18;
-  const barcodeHeight = labelSize === '1x4' ? 70 : 54;
-  const barcodeTop = canvas.height - safe - barcodeHeight - 24;
+    ? priceLength <= 5 ? 40 : priceLength <= 6 ? 36 : priceLength <= 7 ? 32 : 28
+    : priceLength <= 5 ? 34 : priceLength <= 6 ? 30 : priceLength <= 7 ? 27 : 24;
+  const textX = labelSize === '1x4' ? 169 : 139;
+  const textRight = canvas.width - safe - 12;
+  const barcodeHeight = labelSize === '1x4' ? 48 : 38;
+  const barcodeTop = canvas.height - safe - barcodeHeight - 16;
   const textWidth = labelSize === '1x4'
     ? textRight - textX
     : textRight - textX;
@@ -254,19 +259,17 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   const barcodeLeft = labelSize === '1x4' ? Math.floor(canvas.width * 0.58) : textX;
   const barcodeWidth = textRight - barcodeLeft;
   drawBarcode(ctx, label.barcode, barcodeLeft, barcodeTop, barcodeWidth, barcodeHeight);
-  ctx.font = `${labelSize === '1x4' ? 18 : 13}px Arial, sans-serif`;
+  ctx.font = `${labelSize === '1x4' ? 13 : 10}px Arial, sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(label.barcode, barcodeLeft + barcodeWidth / 2, barcodeTop + barcodeHeight + 7);
+  ctx.fillText(label.barcode, barcodeLeft + barcodeWidth / 2, barcodeTop + barcodeHeight + 5);
 
-  return canvas.toDataURL('image/jpeg', 0.92);
-}
-
-function base64ToBytes(dataUrl: string) {
-  const base64 = dataUrl.split(',')[1] || '';
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
+  const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const pixels = new Uint8Array(canvas.width * canvas.height);
+  for (let source = 0, target = 0; source < rgba.length; source += 4, target += 1) {
+    const luminance = (rgba[source] * 299 + rgba[source + 1] * 587 + rgba[source + 2] * 114) / 1000;
+    pixels[target] = luminance < 180 ? 0 : 255;
+  }
+  return pixels;
 }
 
 function stringBytes(value: string) {
@@ -287,7 +290,7 @@ function concatPdfParts(parts: Array<string | Uint8Array>) {
 
 async function buildLabelPdf(labels: PrintableLabel[], labelSize: LabelSizeKey) {
   const size = LABEL_SIZES[labelSize];
-  const images = await Promise.all(labels.map((label) => renderLabelJpeg(label, labelSize)));
+  const images = await Promise.all(labels.map((label) => renderLabelBitmap(label, labelSize)));
   const parts: Array<string | Uint8Array> = ['%PDF-1.4\n%\xE2\xE3\xCF\xD3\n'];
   const offsets: number[] = [0];
   let byteLength = stringBytes(parts[0] as string).length;
@@ -308,10 +311,9 @@ async function buildLabelPdf(labels: PrintableLabel[], labelSize: LabelSizeKey) 
   const pagesId = 2;
   objectId = 3;
 
-  images.forEach((dataUrl, index) => {
-    const imageBytes = base64ToBytes(dataUrl);
+  images.forEach((imageBytes, index) => {
     const imageId = addObject([
-      `<< /Type /XObject /Subtype /Image /Width ${size.canvasWidth} /Height ${size.canvasHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${imageBytes.length} >>\nstream\n`,
+      `<< /Type /XObject /Subtype /Image /Width ${size.canvasWidth} /Height ${size.canvasHeight} /ColorSpace /DeviceGray /BitsPerComponent 8 /Length ${imageBytes.length} >>\nstream\n`,
       imageBytes,
       '\nendstream',
     ]);
