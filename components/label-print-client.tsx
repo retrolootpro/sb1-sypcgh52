@@ -237,16 +237,18 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   }
   const lines = wrapCanvasText(ctx, label.title, textWidth, labelSize === '1x4' ? 2 : 2);
   const titleLineHeight = Math.round(titleSize * 1.35);
+  const priceTop = labelSize === '1x4'
+    ? Math.round((canvas.height - (lines.length * titleLineHeight + 10 + priceSize)) / 2 + lines.length * titleLineHeight + 10)
+    : 88;
+  const titleTop = labelSize === '1x4'
+    ? Math.max(safe, priceTop - 10 - lines.length * titleLineHeight)
+    : 34;
   lines.forEach((line, index) => {
-    ctx.fillText(line, labelSize === '1x4' ? textLeft : textRight, 34 + index * titleLineHeight);
+    ctx.fillText(line, labelSize === '1x4' ? textLeft : textRight, titleTop + index * titleLineHeight);
   });
 
   ctx.textBaseline = 'top';
   ctx.font = `${priceSize}px ${LABEL_FONT_FAMILY}`;
-  const titleBottom = 34 + lines.length * titleLineHeight;
-  const priceTop = labelSize === '1x4'
-    ? canvas.height - safe - priceSize
-    : 88;
   ctx.fillText(label.price, labelSize === '1x4' ? textLeft : textRight, priceTop);
 
   const barcodeLeft = labelSize === '1x4' ? Math.floor(canvas.width * 0.58) : textX;
@@ -790,6 +792,9 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
             grid-column: 2 / 3;
             padding: 0.09in 0.08in 0.09in 0.04in;
             text-align: left;
+            align-content: center;
+            grid-template-rows: auto auto;
+            row-gap: 0.04in;
           }
 
           .price-label-name {
