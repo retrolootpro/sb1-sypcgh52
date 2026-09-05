@@ -209,7 +209,7 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   ctx.drawImage(logo, safe, (canvas.height - logoSize) / 2, logoSize, logoSize);
 
   const titleLength = label.title.length;
-  const titleSize = labelSize === '1x4'
+  let titleSize = labelSize === '1x4'
     ? titleLength <= 22 ? 38 : titleLength <= 38 ? 32 : titleLength <= 58 ? 26 : 22
     : titleLength <= 12 ? 26 : titleLength <= 22 ? 21 : titleLength <= 34 ? 17 : titleLength <= 48 ? 14 : 12;
   const priceLength = label.price.length;
@@ -229,6 +229,12 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   ctx.textAlign = labelSize === '1x4' ? 'left' : 'right';
   ctx.textBaseline = 'top';
   ctx.font = `${titleSize}px ${LABEL_FONT_FAMILY}`;
+  if (labelSize === '1x4') {
+    while (ctx.measureText(label.title).width > textWidth && titleSize > 18) {
+      titleSize -= 2;
+      ctx.font = `${titleSize}px ${LABEL_FONT_FAMILY}`;
+    }
+  }
   const lines = wrapCanvasText(ctx, label.title, textWidth, labelSize === '1x4' ? 2 : 2);
   const titleLineHeight = Math.round(titleSize * 1.35);
   lines.forEach((line, index) => {
@@ -801,6 +807,9 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
 
           .price-label-1x4 .price-label-name {
             text-align: left;
+            overflow-wrap: normal;
+            word-break: normal;
+            white-space: nowrap;
           }
 
           .price-label-price {
