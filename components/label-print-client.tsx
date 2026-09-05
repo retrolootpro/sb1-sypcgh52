@@ -245,7 +245,7 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   ctx.font = `${priceSize}px ${LABEL_FONT_FAMILY}`;
   const titleBottom = 34 + lines.length * titleLineHeight;
   const priceTop = labelSize === '1x4'
-    ? Math.min(titleBottom + 10, canvas.height - safe - priceSize)
+    ? canvas.height - safe - priceSize
     : 88;
   ctx.fillText(label.price, labelSize === '1x4' ? textLeft : textRight, priceTop);
 
