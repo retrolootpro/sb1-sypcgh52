@@ -125,7 +125,7 @@ function labelTextStyle(title: string, price: string, labelSize: LabelSizeKey): 
     ? titleLength <= 22 ? 13 : titleLength <= 38 ? 11 : titleLength <= 58 ? 9.5 : 8
     : titleLength <= 12 ? 11 : titleLength <= 22 ? 9 : titleLength <= 34 ? 7.8 : titleLength <= 48 ? 6.8 : 6.2;
   const priceSize = labelSize === '1x4'
-    ? priceLength <= 5 ? 24 : priceLength <= 6 ? 21 : priceLength <= 7 ? 18 : 15
+    ? priceLength <= 5 ? 20 : priceLength <= 6 ? 18 : priceLength <= 7 ? 16 : 14
     : priceLength <= 5 ? 18 : priceLength <= 6 ? 15.5 : priceLength <= 7 ? 13 : 11.5;
 
   return {
@@ -214,13 +214,12 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
     : titleLength <= 12 ? 26 : titleLength <= 22 ? 21 : titleLength <= 34 ? 17 : titleLength <= 48 ? 14 : 12;
   const priceLength = label.price.length;
   const priceSize = labelSize === '1x4'
-    ? priceLength <= 5 ? 70 : priceLength <= 6 ? 60 : priceLength <= 7 ? 50 : 42
+    ? priceLength <= 5 ? 50 : priceLength <= 6 ? 44 : priceLength <= 7 ? 38 : 32
     : priceLength <= 5 ? 46 : priceLength <= 6 ? 38 : priceLength <= 7 ? 32 : 27;
   const textX = labelSize === '1x4' ? 250 : 205;
   const textRight = canvas.width - safe - 18;
   const barcodeHeight = labelSize === '1x4' ? 70 : 54;
   const barcodeTop = canvas.height - safe - barcodeHeight - 24;
-  const priceTop = labelSize === '1x4' ? 96 : 88;
   const textWidth = labelSize === '1x4'
     ? Math.floor((textRight - textX) * 0.56)
     : textRight - textX;
@@ -231,12 +230,17 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   ctx.textBaseline = 'top';
   ctx.font = `${titleSize}px ${LABEL_FONT_FAMILY}`;
   const lines = wrapCanvasText(ctx, label.title, textWidth, labelSize === '1x4' ? 3 : 2);
+  const titleLineHeight = Math.round(titleSize * 1.35);
   lines.forEach((line, index) => {
-    ctx.fillText(line, labelSize === '1x4' ? textLeft : textRight, 34 + index * Math.round(titleSize * 1.35));
+    ctx.fillText(line, labelSize === '1x4' ? textLeft : textRight, 34 + index * titleLineHeight);
   });
 
   ctx.textBaseline = 'top';
   ctx.font = `${priceSize}px ${LABEL_FONT_FAMILY}`;
+  const titleBottom = 34 + lines.length * titleLineHeight;
+  const priceTop = labelSize === '1x4'
+    ? Math.min(titleBottom + 10, canvas.height - safe - priceSize)
+    : 88;
   ctx.fillText(label.price, labelSize === '1x4' ? textLeft : textRight, priceTop);
 
   const barcodeLeft = labelSize === '1x4' ? Math.floor(canvas.width * 0.58) : textX;
