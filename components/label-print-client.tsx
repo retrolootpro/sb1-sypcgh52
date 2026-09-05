@@ -221,7 +221,7 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   const barcodeHeight = labelSize === '1x4' ? 70 : 54;
   const barcodeTop = canvas.height - safe - barcodeHeight - 24;
   const textWidth = labelSize === '1x4'
-    ? Math.floor((textRight - textX) * 0.56)
+    ? textRight - textX
     : textRight - textX;
   const textLeft = labelSize === '1x4' ? textX : textRight - textWidth;
 
@@ -229,7 +229,7 @@ async function renderLabelJpeg(label: PrintableLabel, labelSize: LabelSizeKey) {
   ctx.textAlign = labelSize === '1x4' ? 'left' : 'right';
   ctx.textBaseline = 'top';
   ctx.font = `${titleSize}px ${LABEL_FONT_FAMILY}`;
-  const lines = wrapCanvasText(ctx, label.title, textWidth, labelSize === '1x4' ? 3 : 2);
+  const lines = wrapCanvasText(ctx, label.title, textWidth, labelSize === '1x4' ? 2 : 2);
   const titleLineHeight = Math.round(titleSize * 1.35);
   lines.forEach((line, index) => {
     ctx.fillText(line, labelSize === '1x4' ? textLeft : textRight, 34 + index * titleLineHeight);
@@ -738,7 +738,8 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           }
 
           .price-label-1x4 {
-            grid-template-columns: 18% 38% 44%;
+            position: relative;
+            grid-template-columns: 18% 82%;
             grid-template-rows: 1fr;
           }
 
@@ -780,7 +781,8 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           }
 
           .price-label-1x4 .price-label-copy {
-            padding: 0.09in 0.04in;
+            grid-column: 2 / 3;
+            padding: 0.09in 0.08in 0.09in 0.04in;
             text-align: left;
           }
 
@@ -825,8 +827,11 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
           }
 
           .price-label-1x4 .price-label-barcode {
-            align-self: center;
-            padding: 0.08in 0.1in 0.06in;
+            position: absolute;
+            right: 0.08in;
+            bottom: 0.06in;
+            width: 1.55in;
+            padding: 0;
           }
 
           .price-label-barcode svg {
