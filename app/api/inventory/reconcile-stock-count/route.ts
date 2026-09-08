@@ -301,14 +301,24 @@ export async function POST(req: NextRequest) {
     }
 
     const changedAt = new Date().toISOString();
+    const updatesByQuantity = new Map<number, string[]>();
     for (const update of result.updates) {
-      const { error } = await current.admin
-        .from('inventory_items')
-        .update({ quantity: update.desired.quantity, updated_at: changedAt, clover_sync_status: 'pending' })
-        .eq('id', update.item.id)
-        .eq('user_id', accountId);
-      if (error) throw error;
+      const ids = updatesByQuantity.get(update.desired.quantity) || [];
+      ids.push(update.item.id);
+      updatesByQuantity.set(update.desired.quantity, ids);
     }
+    const quantityWrites = Array.from(updatesByQuantity.entries()).flatMap(([quantity, ids]) => (
+      Array.from({ length: Math.ceil(ids.length / 200) }, (_, batchIndex) => (
+        current.admin
+          .from('inventory_items')
+          .update({ quantity, updated_at: changedAt, clover_sync_status: 'pending' })
+          .eq('user_id', accountId)
+          .in('id', ids.slice(batchIndex * 200, (batchIndex + 1) * 200))
+      ))
+    ));
+    const quantityResults = await Promise.all(quantityWrites);
+    const quantityError = quantityResults.find((write) => write.error)?.error;
+    if (quantityError) throw quantityError;
 
     for (let index = 0; index < result.archives.length; index += 200) {
       const ids = result.archives.slice(index, index + 200).map((item) => item.id);
