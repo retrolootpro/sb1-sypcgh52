@@ -81,7 +81,8 @@ function normalizedPlatform(value: unknown) {
 }
 
 function mapCondition(section: StockRecord['section'], value: unknown) {
-  if (section !== 'Game') return normalizeText(value).includes('new') ? 'New' : 'Loose';
+  if (section === 'Book') return 'Loose';
+  if (section === 'Misc') return normalizeText(value).includes('new') ? 'New' : 'Loose';
   const condition = normalizeText(value);
   if (condition.includes('new') || condition.includes('sealed')) return 'New';
   if (condition.includes('cib') || condition.includes('complete')) return 'CIB';
@@ -349,7 +350,7 @@ export async function POST(req: NextRequest) {
       sku: item.sku || null,
       region: item.section === 'Game' ? item.region || null : null,
       category: item.section === 'Book' ? 'Books & Media' : item.section === 'Game' ? 'Video Games' : 'Miscellaneous',
-      item_type: item.section === 'Book' ? 'book' : item.section === 'Game' ? 'game' : 'other',
+      item_type: item.section === 'Book' ? 'book' : item.section === 'Game' ? 'game' : 'accessory',
       book_format: item.section === 'Book' ? item.version || null : null,
       status: 'available',
       sell_price: item.unitPrice || null,
@@ -382,7 +383,11 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Stock-count reconciliation failed';
+    const message = error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error && 'message' in error
+        ? String(error.message)
+        : 'Stock-count reconciliation failed';
     const status = /auth|administrator/i.test(message) ? 401 : 500;
     return json({ success: false, message }, status);
   }
