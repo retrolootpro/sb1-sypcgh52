@@ -261,7 +261,7 @@ function previewResult(
     protectedItems: current.protectedItems.map((item) => ({
       id: item.id,
       product_name: item.product_name,
-      quantity: item.quantity,
+      quantity: 1,
       lot_id: item.lot_id,
     })),
     changes: {
