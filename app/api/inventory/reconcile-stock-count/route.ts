@@ -49,7 +49,6 @@ type DesiredStock = {
 
 const PROTECTED_LOT_START = '2026-09-06T04:00:00.000Z';
 const PROTECTED_LOT_END = '2026-09-07T04:00:00.000Z';
-const ARCHIVE_REASON = 'stock_count_2026-08-30';
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -266,11 +265,11 @@ function previewResult(
     })),
     changes: {
       matched: result.matches.length,
-      quantityUpdates: result.updates.length,
+      quantityUpdates: 0,
       additions: result.additions.length,
-      archives: result.archives.length,
+      archives: 0,
       additionUnits: result.additions.reduce((sum, item) => sum + item.quantity, 0),
-      archivedUnits: result.archives.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+      archivedUnits: 0,
     },
     samples: {
       additions: result.additions.slice(0, 20).map((item) => ({ name: item.name, console: item.console, condition: item.condition, quantity: item.quantity })),
@@ -301,7 +300,6 @@ export async function POST(req: NextRequest) {
       return json({ success: false, message: 'Confirmation phrase is invalid' }, 400);
     }
 
-    const changedAt = new Date().toISOString();
     const liveItemTypes = Array.from(new Set(current.inventory.map((item) => item.item_type).filter(Boolean))) as string[];
     const candidateTypes: Record<StockRecord['section'], string[]> = {
       Book: Array.from(new Set([...liveItemTypes, 'book', 'media', 'unknown', 'game'])),
@@ -339,42 +337,6 @@ export async function POST(req: NextRequest) {
       compatibleTypes[section] = accepted;
     }
 
-    const updatesByQuantity = new Map<number, string[]>();
-    for (const update of result.updates) {
-      const ids = updatesByQuantity.get(update.desired.quantity) || [];
-      ids.push(update.item.id);
-      updatesByQuantity.set(update.desired.quantity, ids);
-    }
-    const quantityWrites = Array.from(updatesByQuantity.entries()).flatMap(([quantity, ids]) => (
-      Array.from({ length: Math.ceil(ids.length / 200) }, (_, batchIndex) => (
-        current.admin
-          .from('inventory_items')
-          .update({ quantity, updated_at: changedAt, clover_sync_status: 'pending' })
-          .eq('user_id', accountId)
-          .in('id', ids.slice(batchIndex * 200, (batchIndex + 1) * 200))
-      ))
-    ));
-    const quantityResults = await Promise.all(quantityWrites);
-    const quantityError = quantityResults.find((write) => write.error)?.error;
-    if (quantityError) throw quantityError;
-
-    for (let index = 0; index < result.archives.length; index += 200) {
-      const ids = result.archives.slice(index, index + 200).map((item) => item.id);
-      const { error } = await current.admin
-        .from('inventory_items')
-        .update({
-          status: 'archived',
-          quantity: 0,
-          archived_at: changedAt,
-          archived_reason: ARCHIVE_REASON,
-          updated_at: changedAt,
-          clover_sync_status: 'pending',
-        })
-        .eq('user_id', accountId)
-        .in('id', ids);
-      if (error) throw error;
-    }
-
     const insertRows = result.additions.map((item) => ({
       user_id: accountId,
       product_name: item.name,
@@ -388,25 +350,23 @@ export async function POST(req: NextRequest) {
     }));
     for (const section of ['Book', 'Game', 'Misc'] as const) {
       const sectionRows = insertRows.filter((_, index) => result.additions[index].section === section);
-      for (let index = 0; index < sectionRows.length; index += 100) {
-        const { error } = await current.admin.from('inventory_items').insert(sectionRows.slice(index, index + 100));
-        if (error) throw new Error(`${section} rows ${index + 1}-${Math.min(index + 100, sectionRows.length)}: ${error.message}`);
+      for (let index = 0; index < sectionRows.length; index += 50) {
+        const { error } = await current.admin.from('inventory_items').insert(sectionRows.slice(index, index + 50));
+        if (error) throw new Error(`${section} rows ${index + 1}-${Math.min(index + 50, sectionRows.length)}: ${error.message}`);
       }
     }
 
-    const { data: verified, error: verifyError } = await current.admin
-      .from('inventory_items')
-      .select('id,quantity,lot_id,status')
-      .eq('user_id', accountId)
-      .not('status', 'in', '(sold,archived,deleted)');
-    if (verifyError) throw verifyError;
+    const verified = await loadCurrent(accountId);
+    const verifiedProtectedIds = new Set(verified.protectedItems.map((item) => item.id));
+    const verification = reconcile(desired, verified.inventory, verifiedProtectedIds);
     return json({
       ...preview,
       applied: true,
       verified: {
-        rows: verified?.length || 0,
-        units: (verified || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0),
-        protectedItemsPresent: current.protectedItems.every((item) => verified?.some((row) => row.id === item.id)),
+        rows: verified.inventory.length,
+        units: verified.inventory.reduce((sum, item) => sum + Number(item.quantity || 0), 0),
+        protectedItemsPresent: current.protectedItems.every((item) => verified.inventory.some((row) => row.id === item.id)),
+        missingSpreadsheetItems: verification.additions.length,
       },
     });
   } catch (error) {
