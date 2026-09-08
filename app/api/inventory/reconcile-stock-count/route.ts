@@ -386,9 +386,12 @@ export async function POST(req: NextRequest) {
       category: item.section === 'Book' ? 'Books & Media' : item.section === 'Game' ? 'Video Games' : 'Miscellaneous',
       item_type: compatibleTypes[item.section],
     }));
-    for (let index = 0; index < insertRows.length; index += 200) {
-      const { error } = await current.admin.from('inventory_items').insert(insertRows.slice(index, index + 200));
-      if (error) throw error;
+    for (const section of ['Book', 'Game', 'Misc'] as const) {
+      const sectionRows = insertRows.filter((_, index) => result.additions[index].section === section);
+      for (let index = 0; index < sectionRows.length; index += 100) {
+        const { error } = await current.admin.from('inventory_items').insert(sectionRows.slice(index, index + 100));
+        if (error) throw new Error(`${section} rows ${index + 1}-${Math.min(index + 100, sectionRows.length)}: ${error.message}`);
+      }
     }
 
     const { data: verified, error: verifyError } = await current.admin
