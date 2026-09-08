@@ -382,21 +382,8 @@ export async function POST(req: NextRequest) {
       purchase_price: 0,
       quantity: item.quantity,
       notes: [item.notes, 'Imported from P&P Stock Count - 8.30.26'].filter(Boolean).join(' | '),
-      barcode: item.sku || '',
-      sku: item.sku || null,
-      region: item.section === 'Game' ? item.region || null : null,
       category: item.section === 'Book' ? 'Books & Media' : item.section === 'Game' ? 'Video Games' : 'Miscellaneous',
       item_type: compatibleTypes[item.section],
-      book_format: item.section === 'Book' ? item.version || null : null,
-      status: 'available',
-      sell_price: item.unitPrice || null,
-      selected_market_value: item.unitPrice || null,
-      pricing_source: item.section === 'Game' ? 'pending' : 'Manual stock count',
-      pricing_status: item.section === 'Game' ? 'pending' : 'manual',
-      source_metadata_provider: 'stock_count_import',
-      clover_sync_status: 'pending',
-      created_at: changedAt,
-      updated_at: changedAt,
     }));
     for (let index = 0; index < insertRows.length; index += 200) {
       const { error } = await current.admin.from('inventory_items').insert(insertRows.slice(index, index + 200));
