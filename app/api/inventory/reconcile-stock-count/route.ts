@@ -350,7 +350,7 @@ export async function POST(req: NextRequest) {
       sku: item.sku || null,
       region: item.section === 'Game' ? item.region || null : null,
       category: item.section === 'Book' ? 'Books & Media' : item.section === 'Game' ? 'Video Games' : 'Miscellaneous',
-      item_type: null,
+      item_type: 'game',
       book_format: item.section === 'Book' ? item.version || null : null,
       status: 'available',
       sell_price: item.unitPrice || null,
