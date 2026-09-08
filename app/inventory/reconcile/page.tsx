@@ -29,7 +29,7 @@ type ReconcileResult = {
     fuzzyMatches: Array<{ workbook: string; inventory: string; score: number }>;
   };
   applied?: boolean;
-  verified?: { rows: number; units: number; protectedItemsPresent: boolean };
+  verified?: { rows: number; units: number; protectedItemsPresent: boolean; missingSpreadsheetItems?: number };
 };
 
 export default function ReconcileStockCountPage() {
@@ -123,7 +123,7 @@ export default function ReconcileStockCountPage() {
                 </div>
                 {result.applied && result.verified && (
                   <div className="border border-emerald-500/40 bg-emerald-500/10 p-4 text-emerald-200">
-                    Applied: {result.verified.rows} active rows / {result.verified.units} units. Protected lot present: {result.verified.protectedItemsPresent ? 'Yes' : 'No'}.
+                    Added missing spreadsheet items. {result.verified.rows} active rows / {result.verified.units} units. Spreadsheet items still missing: {result.verified.missingSpreadsheetItems ?? 0}. Protected lot present: {result.verified.protectedItemsPresent ? 'Yes' : 'No'}.
                   </div>
                 )}
                 <Sample title="Fuzzy matches" rows={(result.samples?.fuzzyMatches || []).map((item) => `${item.workbook} -> ${item.inventory} (${item.score})`)} />
