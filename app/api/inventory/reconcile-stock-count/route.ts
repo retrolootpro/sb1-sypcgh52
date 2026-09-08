@@ -302,10 +302,11 @@ export async function POST(req: NextRequest) {
     }
 
     const changedAt = new Date().toISOString();
+    const liveItemTypes = Array.from(new Set(current.inventory.map((item) => item.item_type).filter(Boolean))) as string[];
     const candidateTypes: Record<StockRecord['section'], string[]> = {
-      Book: ['book', 'media', 'unknown', 'game'],
-      Game: ['game', 'unknown', 'console', 'accessory'],
-      Misc: ['accessory', 'unknown', 'console', 'game'],
+      Book: Array.from(new Set([...liveItemTypes, 'book', 'media', 'unknown', 'game'])),
+      Game: Array.from(new Set([...liveItemTypes, 'game', 'unknown', 'console', 'accessory'])),
+      Misc: Array.from(new Set([...liveItemTypes, 'accessory', 'unknown', 'console', 'game'])),
     };
     const compatibleTypes = {} as Record<StockRecord['section'], string>;
     for (const section of ['Book', 'Game', 'Misc'] as const) {
@@ -317,12 +318,12 @@ export async function POST(req: NextRequest) {
           .from('inventory_items')
           .insert({
             user_id: accountId,
-            product_name: `__stock_count_probe_${section.toLowerCase()}__`,
+            product_name: sample.name,
             console: sample.console,
             condition: sample.condition,
             purchase_price: 0,
             quantity: 1,
-            notes: 'Temporary stock-count compatibility probe',
+            notes: [sample.notes, 'Imported from P&P Stock Count - 8.30.26'].filter(Boolean).join(' | '),
             category: section === 'Book' ? 'Books & Media' : section === 'Game' ? 'Video Games' : 'Miscellaneous',
             item_type: candidate,
           })
