@@ -338,11 +338,6 @@ export async function POST(req: NextRequest) {
       if (error) throw error;
     }
 
-    const existingGameType = current.inventory.find((item) => !isBookRow(item) && item.item_type)?.item_type || 'game';
-    const existingBookType = current.inventory.find((item) => isBookRow(item) && item.item_type)?.item_type || existingGameType;
-    const existingMiscType = current.inventory.find((item) => (
-      normalizeText(item.category).includes('misc') && item.item_type
-    ))?.item_type || current.inventory.find((item) => item.item_type === 'accessory')?.item_type || existingGameType;
     const insertRows = result.additions.map((item) => ({
       user_id: accountId,
       product_name: item.name,
@@ -355,7 +350,7 @@ export async function POST(req: NextRequest) {
       sku: item.sku || null,
       region: item.section === 'Game' ? item.region || null : null,
       category: item.section === 'Book' ? 'Books & Media' : item.section === 'Game' ? 'Video Games' : 'Miscellaneous',
-      item_type: item.section === 'Book' ? existingBookType : item.section === 'Game' ? existingGameType : existingMiscType,
+      item_type: null,
       book_format: item.section === 'Book' ? item.version || null : null,
       status: 'available',
       sell_price: item.unitPrice || null,
