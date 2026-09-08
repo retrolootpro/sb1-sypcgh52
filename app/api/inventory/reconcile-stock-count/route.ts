@@ -302,6 +302,42 @@ export async function POST(req: NextRequest) {
     }
 
     const changedAt = new Date().toISOString();
+    const candidateTypes: Record<StockRecord['section'], string[]> = {
+      Book: ['book', 'media', 'unknown', 'game'],
+      Game: ['game', 'unknown', 'console', 'accessory'],
+      Misc: ['accessory', 'unknown', 'console', 'game'],
+    };
+    const compatibleTypes = {} as Record<StockRecord['section'], string>;
+    for (const section of ['Book', 'Game', 'Misc'] as const) {
+      const sample = result.additions.find((item) => item.section === section);
+      if (!sample) continue;
+      let accepted = '';
+      for (const candidate of candidateTypes[section]) {
+        const { data: probe, error: probeError } = await current.admin
+          .from('inventory_items')
+          .insert({
+            user_id: accountId,
+            product_name: `__stock_count_probe_${section.toLowerCase()}__`,
+            console: sample.console,
+            condition: sample.condition,
+            purchase_price: 0,
+            quantity: 1,
+            notes: 'Temporary stock-count compatibility probe',
+            category: section === 'Book' ? 'Books & Media' : section === 'Game' ? 'Video Games' : 'Miscellaneous',
+            item_type: candidate,
+          })
+          .select('id')
+          .single();
+        if (!probeError && probe) {
+          await current.admin.from('inventory_items').delete().eq('id', probe.id).eq('user_id', accountId);
+          accepted = candidate;
+          break;
+        }
+      }
+      if (!accepted) throw new Error(`No production-compatible item type found for ${section}`);
+      compatibleTypes[section] = accepted;
+    }
+
     const updatesByQuantity = new Map<number, string[]>();
     for (const update of result.updates) {
       const ids = updatesByQuantity.get(update.desired.quantity) || [];
@@ -350,7 +386,7 @@ export async function POST(req: NextRequest) {
       sku: item.sku || null,
       region: item.section === 'Game' ? item.region || null : null,
       category: item.section === 'Book' ? 'Books & Media' : item.section === 'Game' ? 'Video Games' : 'Miscellaneous',
-      item_type: 'game',
+      item_type: compatibleTypes[item.section],
       book_format: item.section === 'Book' ? item.version || null : null,
       status: 'available',
       sell_price: item.unitPrice || null,
