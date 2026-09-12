@@ -3,9 +3,9 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { ArrowLeft, Printer, Trash2, X } from 'lucide-react';
+import { ArrowLeft, Plus, Printer, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { DashboardLayout } from '@/components/dashboard-layout';
@@ -412,6 +412,9 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
   const [printingLabels, setPrintingLabels] = useState(false);
   const autoPrintStartedRef = useRef(false);
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const manualNameInputRef = useRef<HTMLInputElement | null>(null);
+  const manualPriceInputRef = useRef<HTMLInputElement | null>(null);
+  const lastManualInputRef = useRef<HTMLInputElement | null>(null);
   const queryIds = useMemo(() => (
     searchParams.get('ids')?.split(',').map((id) => id.trim()).filter(Boolean) || []
   ), [searchParams]);
@@ -486,7 +489,7 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     setItems([]);
   };
 
-  const startBrowserPrint = useCallback(async (labels: PrintableLabel[]) => {
+  const startBrowserPrint = useCallback(async (labels: PrintableLabel[], onPrintClosed?: () => void) => {
     if (labels.length === 0) {
       toast.info('No labels queued');
       return;
@@ -522,9 +525,11 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
         try {
           frame.contentWindow?.focus();
           frame.contentWindow?.print();
+          window.setTimeout(() => onPrintClosed?.(), 0);
         } catch {
           window.open(url, '_blank', 'noopener,noreferrer');
           toast.info('Label print job opened in a new tab');
+          window.setTimeout(() => onPrintClosed?.(), 0);
         }
       }, 150);
 
@@ -548,23 +553,32 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
     const price = Number(manualPrice);
     if (!title) {
       toast.error('Enter a label name');
+      manualNameInputRef.current?.focus();
       return;
     }
     if (!Number.isFinite(price) || price < 0) {
       toast.error('Enter a valid label price');
+      manualPriceInputRef.current?.focus();
       return;
     }
 
+    const inputToRestore = lastManualInputRef.current || manualNameInputRef.current;
     startBrowserPrint([{
       id: `manual-${Date.now()}`,
       title,
       price: money(price),
       barcode: manualBarcode.trim() || `RLP-${Date.now()}`,
-    }]);
-    setManualOpen(false);
+    }], () => inputToRestore?.focus());
+  };
+
+  const startNewManualLabel = () => {
     setManualName('');
     setManualPrice('');
     setManualBarcode('');
+    window.requestAnimationFrame(() => {
+      manualNameInputRef.current?.focus();
+      lastManualInputRef.current = manualNameInputRef.current;
+    });
   };
 
   useEffect(() => {
@@ -675,21 +689,25 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
               <div className="grid gap-2">
                 <Label htmlFor="manual-label-name">Name</Label>
                 <Input
+                  ref={manualNameInputRef}
                   id="manual-label-name"
                   value={manualName}
                   onChange={(event) => setManualName(event.target.value)}
+                  onFocus={(event) => { lastManualInputRef.current = event.currentTarget; }}
                   placeholder="Xbox 360 Fat AC Adapter"
                 />
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="manual-label-price">Price</Label>
                 <Input
+                  ref={manualPriceInputRef}
                   id="manual-label-price"
                   type="number"
                   min="0"
                   step="0.01"
                   value={manualPrice}
                   onChange={(event) => setManualPrice(event.target.value)}
+                  onFocus={(event) => { lastManualInputRef.current = event.currentTarget; }}
                   placeholder="49.99"
                 />
               </div>
@@ -699,17 +717,24 @@ export function LabelPrintClient({ fontClassName }: { fontClassName: string }) {
                   id="manual-label-barcode"
                   value={manualBarcode}
                   onChange={(event) => setManualBarcode(event.target.value)}
+                  onFocus={(event) => { lastManualInputRef.current = event.currentTarget; }}
                   placeholder="012345678905"
                 />
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setManualOpen(false)}>Cancel</Button>
-              <Button onClick={printManualLabel} disabled={printingLabels}>
-                <Printer className="mr-2 h-4 w-4" />
-                {printingLabels ? 'Preparing...' : 'Print Label'}
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <Button variant="ghost" onClick={startNewManualLabel} disabled={printingLabels}>
+                <Plus className="mr-2 h-4 w-4" />
+                New
               </Button>
-            </DialogFooter>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                <Button variant="outline" onClick={() => setManualOpen(false)}>Cancel</Button>
+                <Button onClick={printManualLabel} disabled={printingLabels}>
+                  <Printer className="mr-2 h-4 w-4" />
+                  {printingLabels ? 'Preparing...' : 'Print Label'}
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 
