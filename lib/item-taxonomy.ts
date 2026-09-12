@@ -41,6 +41,8 @@ export function isBookLikeItem(item: ItemLike) {
 }
 
 export function getInventoryFamily(item: ItemLike): InventoryFamily {
+  const explicitMisc = [item.console, item.platform, item.category]
+    .some((value) => ['misc', 'miscellaneous'].includes(normalize(value)));
   const text = [
     item.console,
     item.platform,
@@ -50,6 +52,7 @@ export function getInventoryFamily(item: ItemLike): InventoryFamily {
     item.title,
   ].map((value) => normalize(value)).join(' ');
 
+  if (explicitMisc) return 'other';
   if (isBookLikeItem(item)) return 'books_media';
   if (/\b(collectible|figure|figurine|statue|trading card|toy|plush)\b/.test(text)) return 'collectibles';
   if (/\b(game|console|controller|accessory|cable|memory card|playstation|xbox|nintendo|switch|wii|gamecube|sega|ps[1-5]?)\b/.test(text)) {
