@@ -50,3 +50,7 @@ clover-android/local.properties
 
 # Generated workspace tooling
 work/**/node_modules/
+
+# Generated alternate hosting output
+/dist/
+/.wrangler/
