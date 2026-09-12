@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, ScanBarcode, Tags, FileDown, Archive } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, Gamepad2, Boxes, ScanBarcode, Tags, FileDown, Archive } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { BarcodeScannerView, type ScanResult } from '@/components/barcode-scanner-view';
@@ -15,7 +15,7 @@ import { CONDITIONS, PLATFORM_OPTIONS, REGIONS } from '@/lib/constants';
 import { lookupUPC } from '@/lib/api-services';
 import { getCanonicalPricing } from '@/lib/pricing-service';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
-import { getInventoryFamily, lookupModeForItem, productTypeLabel, supportsAutomatedGamePricing } from '@/lib/item-taxonomy';
+import { getInventoryFamily, lookupModeForItem, supportsAutomatedGamePricing } from '@/lib/item-taxonomy';
 import { getItemRegionDetails } from '@/lib/region';
 import { getAgeStatus, getInventoryAgeDays, normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds, type AgingThresholds } from '@/lib/inventory-aging';
 import { toast } from 'sonner';
@@ -88,6 +88,15 @@ type InventoryItem = {
   listed_whatnot_at?: string | null;
 };
 
+type InventorySection = 'all' | 'books' | 'games' | 'misc';
+
+function getInventorySection(item: InventoryItem): Exclude<InventorySection, 'all'> {
+  const family = getInventoryFamily(item);
+  if (family === 'books_media') return 'books';
+  if (family === 'games') return 'games';
+  return 'misc';
+}
+
 export default function InventoryPage() {
   const { user, accountId } = useAuth();
   const searchParams = useSearchParams();
@@ -96,7 +105,7 @@ export default function InventoryPage() {
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [inventoryScannerActive, setInventoryScannerActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState('all');
+  const [inventorySection, setInventorySection] = useState<InventorySection>('all');
   const [consoleFilter, setConsoleFilter] = useState('all');
   const [conditionFilter, setConditionFilter] = useState('all');
   const [regionFilter, setRegionFilter] = useState('all');
@@ -401,7 +410,7 @@ export default function InventoryPage() {
         || metadataText.includes(query);
       const family = getInventoryFamily(item);
       const itemBookLike = family === 'books_media';
-      const matchesType = typeFilter === 'all' || family === typeFilter;
+      const matchesSection = inventorySection === 'all' || getInventorySection(item) === inventorySection;
       const matchesConsole = consoleFilter === 'all' || item.console === consoleFilter;
       const matchesCondition = conditionFilter === 'all' || (!itemBookLike && item.condition === conditionFilter);
       const normalizedRegion = getItemRegionDetails(item)?.value || 'unset';
@@ -417,7 +426,7 @@ export default function InventoryPage() {
       const matchesCollection = selectedCollectionId === null
         ? true
         : item.collection_id === selectedCollectionId;
-      return matchesInventoryView && matchesSearch && matchesType && matchesConsole && matchesCondition && matchesRegion && matchesAge && matchesCollection;
+      return matchesInventoryView && matchesSearch && matchesSection && matchesConsole && matchesCondition && matchesRegion && matchesAge && matchesCollection;
     });
 
     return [...filtered].sort((a, b) => {
@@ -469,7 +478,7 @@ export default function InventoryPage() {
           return nameCompare;
       }
     });
-  }, [items, searchQuery, typeFilter, consoleFilter, conditionFilter, regionFilter, ageFilter, inventoryView, agingThresholds, selectedCollectionId, sortBy, getItemMarketValue]);
+  }, [items, searchQuery, inventorySection, consoleFilter, conditionFilter, regionFilter, ageFilter, inventoryView, agingThresholds, selectedCollectionId, sortBy, getItemMarketValue]);
 
   const platformOptions = useMemo(() => {
     const defaults = PLATFORM_OPTIONS.map((value) => String(value));
@@ -482,6 +491,19 @@ export default function InventoryPage() {
 
   const activeItems = useMemo(() => items.filter((item) => !['sold', 'archived', 'deleted'].includes(item.status || 'available')), [items]);
   const archivedItems = useMemo(() => items.filter((item) => ['sold', 'archived', 'deleted'].includes(item.status || 'available')), [items]);
+
+  const sectionCounts = useMemo(() => {
+    const visibleItems = items.filter((item) => {
+      const isArchived = ['sold', 'archived', 'deleted'].includes(item.status || 'available');
+      const matchesView = inventoryView === 'all' || (inventoryView === 'archive' ? isArchived : !isArchived);
+      const matchesCollection = selectedCollectionId === null || item.collection_id === selectedCollectionId;
+      return matchesView && matchesCollection;
+    });
+    return visibleItems.reduce((counts, item) => {
+      counts[getInventorySection(item)] += 1;
+      return counts;
+    }, { books: 0, games: 0, misc: 0 });
+  }, [items, inventoryView, selectedCollectionId]);
 
   const collectionItemCount = useCallback((colId: string) =>
     activeItems.filter((i) => i.collection_id === colId).length, [activeItems]);
@@ -1106,6 +1128,36 @@ export default function InventoryPage() {
             </div>
           </div>
           <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" aria-label="Inventory sections">
+              {[
+                { value: 'all', label: 'All Inventory', count: sectionCounts.books + sectionCounts.games + sectionCounts.misc, icon: Package },
+                { value: 'books', label: 'Books', count: sectionCounts.books, icon: BookOpen },
+                { value: 'games', label: 'Games', count: sectionCounts.games, icon: Gamepad2 },
+                { value: 'misc', label: 'Misc', count: sectionCounts.misc, icon: Boxes },
+              ].map(({ value, label, count, icon: Icon }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setInventorySection(value as InventorySection);
+                    setConsoleFilter('all');
+                    setConditionFilter('all');
+                    setRegionFilter('all');
+                  }}
+                  className={`flex min-h-12 items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                    inventorySection === value
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border/50 bg-background/50 text-muted-foreground hover:border-border hover:text-foreground'
+                  }`}
+                >
+                  <span className="inline-flex min-w-0 items-center gap-2 font-semibold">
+                    <Icon className="h-4 w-4 shrink-0" />
+                    <span>{label}</span>
+                  </span>
+                  <span className="ml-2 text-xs tabular-nums">{count}</span>
+                </button>
+              ))}
+            </div>
             <div className="grid gap-2 sm:grid-cols-3">
               {[
                 { value: 'active', label: 'Active Inventory', count: activeItems.length, icon: Package },
@@ -1150,7 +1202,7 @@ export default function InventoryPage() {
                 Scan
               </Button>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <Select value={sortBy} onValueChange={setSortBy}>
               <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <ArrowUpDown className="mr-2 h-4 w-4 text-muted-foreground/50" />
@@ -1174,27 +1226,7 @@ export default function InventoryPage() {
                 <SelectItem value="profit_low">Profit Low-High</SelectItem>
               </SelectContent>
             </Select>
-            <Select
-              value={typeFilter}
-              onValueChange={(value) => {
-                setTypeFilter(value);
-                if (value === 'books_media') {
-                  setConditionFilter('all');
-                  setRegionFilter('all');
-                }
-              }}
-            >
-              <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
-                <SelectValue placeholder="Type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Types</SelectItem>
-                <SelectItem value="games">{productTypeLabel('games')}</SelectItem>
-                <SelectItem value="books_media">{productTypeLabel('books_media')}</SelectItem>
-                <SelectItem value="collectibles">{productTypeLabel('collectibles')}</SelectItem>
-                <SelectItem value="other">{productTypeLabel('other')}</SelectItem>
-              </SelectContent>
-            </Select>
+            {inventorySection !== 'books' && (
             <Select value={consoleFilter} onValueChange={setConsoleFilter}>
               <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Platform" />
@@ -1204,7 +1236,8 @@ export default function InventoryPage() {
                 {platformOptions.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
               </SelectContent>
             </Select>
-            {typeFilter !== 'books_media' && (
+            )}
+            {inventorySection !== 'books' && (
             <Select value={conditionFilter} onValueChange={setConditionFilter}>
               <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Condition" />
@@ -1215,7 +1248,7 @@ export default function InventoryPage() {
               </SelectContent>
             </Select>
             )}
-            {typeFilter !== 'books_media' && (
+            {inventorySection !== 'books' && (
             <Select value={regionFilter} onValueChange={setRegionFilter}>
               <SelectTrigger className="h-11 w-full bg-card text-sm rounded-xl border-border/50">
                 <SelectValue placeholder="Region" />
