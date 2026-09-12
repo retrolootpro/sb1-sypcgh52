@@ -12,6 +12,7 @@ import { ArrowLeft, Plus, Trash2, DollarSign } from 'lucide-react';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { AddToShowDialog } from '@/components/add-to-show-dialog';
+import { ShowSaleScanner } from '@/components/show-sale-scanner';
 import { toast } from 'sonner';
 
 type ShowItem = {
@@ -37,7 +38,7 @@ type ShowList = {
 export default function ShowDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, accountId } = useAuth();
   const [show, setShow] = useState<ShowList | null>(null);
   const [items, setItems] = useState<ShowItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +51,7 @@ export default function ShowDetailPage() {
           .from('show_lists')
           .select('*')
           .eq('id', params.id as string)
-          .eq('user_id', user!.id)
+          .eq('user_id', accountId || user!.id)
           .single(),
         supabase
           .from('show_items')
@@ -77,7 +78,7 @@ export default function ShowDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [user, params.id, router]);
+  }, [user, accountId, params.id, router]);
 
   useEffect(() => {
     if (user && params.id) {
@@ -169,6 +170,16 @@ export default function ShowDetailPage() {
             </div>
           </div>
         </div>
+
+        {accountId && (
+          <ShowSaleScanner
+            accountId={accountId}
+            showId={show.id}
+            showName={show.name}
+            showItemIds={items.map((item) => item.item_id)}
+            onSaleComplete={loadShowData}
+          />
+        )}
 
         {items.length === 0 ? (
           <div className="rounded-xl border border-border/50 bg-card/60">
