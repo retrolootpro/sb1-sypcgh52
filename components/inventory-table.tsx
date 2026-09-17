@@ -268,7 +268,6 @@ export function InventoryTable({
           sold_at: soldAt,
           archived_at: soldAt,
           archived_reason: 'sold',
-          clover_sync_status: 'pending',
           updated_at: soldAt,
         })
         .in('id', ids)
@@ -292,7 +291,6 @@ export function InventoryTable({
           quantity: 1,
           archived_at: null,
           archived_reason: null,
-          clover_sync_status: 'pending',
           updated_at: new Date().toISOString(),
         })
         .in('id', ids)
@@ -346,7 +344,6 @@ export function InventoryTable({
           .update({
             quantity: nextQuantity,
             purchase_price: weightedCost,
-            clover_sync_status: 'pending',
             updated_at: mergedAt,
           })
           .eq('id', keeper.id)

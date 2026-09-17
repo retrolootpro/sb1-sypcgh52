@@ -770,7 +770,6 @@ function buildInventoryRowsFromBuy(
         lot_market_value_at_allocation: marketValue,
         lot_allocation_ratio: marketValue > 0 && acceptedTotal > 0 ? acceptedTotal / marketValue : 0,
         purchase_price_override: false,
-        clover_sync_status: 'pending',
       };
     });
 }

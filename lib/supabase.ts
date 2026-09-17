@@ -21,12 +21,6 @@ export type Database = {
           image_url: string;
           barcode: string;
           sku?: string | null;
-          clover_item_id?: string | null;
-          clover_variant_id?: string | null;
-          clover_synced_at?: string | null;
-          clover_sync_status?: 'pending' | 'synced' | 'failed';
-          clover_sync_error?: string | null;
-          sync_to_clover?: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -42,12 +36,6 @@ export type Database = {
           image_url?: string;
           barcode?: string;
           sku?: string | null;
-          clover_item_id?: string | null;
-          clover_variant_id?: string | null;
-          clover_synced_at?: string | null;
-          clover_sync_status?: 'pending' | 'synced' | 'failed';
-          clover_sync_error?: string | null;
-          sync_to_clover?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -63,12 +51,6 @@ export type Database = {
           image_url?: string;
           barcode?: string;
           sku?: string | null;
-          clover_item_id?: string | null;
-          clover_variant_id?: string | null;
-          clover_synced_at?: string | null;
-          clover_sync_status?: 'pending' | 'synced' | 'failed';
-          clover_sync_error?: string | null;
-          sync_to_clover?: boolean;
           created_at?: string;
           updated_at?: string;
         };

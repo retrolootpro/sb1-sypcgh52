@@ -266,7 +266,7 @@ export default function StorefrontClient() {
         <div className="commerce-cart-items">
           {!cartItems.length ? <div className="commerce-cart-empty"><ShoppingBag/><h3>Your cart is empty</h3><button type="button" onClick={() => setCartOpen(false)}>Continue shopping</button></div> : cartItems.map((item) => <div className="commerce-cart-line" key={item.id}><div className="commerce-cart-thumb">{item.thumbnail_url || item.image_url ? <img src={item.thumbnail_url || item.image_url || ''} alt=""/> : <Gamepad2/>}</div><div><Link href={`/shop/product/${item.slug}`}>{item.title}</Link><small>{item.condition}</small><div className="commerce-cart-qty"><button type="button" onClick={() => updateCart(item, -1)}><Minus/></button><b>{cart[item.id]}</b><button type="button" onClick={() => updateCart(item, 1)}><Plus/></button></div></div><strong>${(item.price * cart[item.id]).toFixed(2)}</strong></div>)}
         </div>
-        {cartItems.length > 0 && <div className="commerce-cart-footer"><div><span>Subtotal</span><strong>${subtotal.toFixed(2)}</strong></div><p>Shipping, pickup, and taxes are calculated at checkout.</p><Link href="/shop/checkout" onClick={() => setCartOpen(false)}>Checkout securely <ArrowRight/></Link><small><ShieldCheck/>Secure checkout powered by Clover</small></div>}
+        {cartItems.length > 0 && <div className="commerce-cart-footer"><div><span>Subtotal</span><strong>${subtotal.toFixed(2)}</strong></div><p>Online checkout is unavailable. Bring this list to the store to complete your purchase.</p><Link href="/shop/pages/contact" onClick={() => setCartOpen(false)}>Contact the store <ArrowRight/></Link><small><ShieldCheck/>Card payments are completed in person.</small></div>}
       </aside>
     </main>
   );

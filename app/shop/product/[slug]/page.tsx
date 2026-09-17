@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { ArrowLeft, Check, Gamepad2, MapPin, PackageCheck, ShieldCheck, ShoppingBag, Truck } from 'lucide-react';
+import { ArrowLeft, Check, Gamepad2, MapPin, PackageCheck, ShieldCheck, ShoppingBag } from 'lucide-react';
 
 type Product = {
   id: string;
@@ -80,9 +80,9 @@ export default function ProductPage() {
             <div><small>Brand</small><strong>{product.brand || 'Pixel & Page inventory'}</strong></div>
           </div>
           <div className="commerce-add-panel"><button type="button" onClick={addToCart} disabled={product.quantity < 1}>{added ? 'Added to cart' : 'Add to cart'}</button></div>
-          <div className="commerce-product-assurances"><span><ShieldCheck/>Secure checkout</span><span><Truck/>U.S. shipping</span><span><MapPin/>Local pickup</span></div>
-          <div className="commerce-page-card commerce-product-note"><h3>Live RetroLootPro inventory</h3><p><PackageCheck/>This exact item is checked against current quantity before checkout.</p></div>
-          {added && <Link href="/shop/checkout" className="commerce-continue-checkout"><ShoppingBag/>Continue to checkout</Link>}
+          <div className="commerce-product-assurances"><span><ShieldCheck/>Card payment in store</span><span><MapPin/>Store pickup</span></div>
+          <div className="commerce-page-card commerce-product-note"><h3>Live RetroLootPro inventory</h3><p><PackageCheck/>Contact the store to confirm this exact item before visiting.</p></div>
+          {added && <Link href="/shop/pages/contact" className="commerce-continue-checkout"><ShoppingBag/>Contact the store</Link>}
         </section>
       </div>
     </main>

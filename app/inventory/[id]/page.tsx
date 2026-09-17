@@ -104,11 +104,6 @@ type InventoryItem = {
   listed_ebay_at?: string | null;
   listed_amazon_at?: string | null;
   listed_whatnot_at?: string | null;
-  clover_item_id?: string | null;
-  clover_synced_at?: string | null;
-  clover_sync_status?: 'pending' | 'synced' | 'failed' | null;
-  clover_sync_error?: string | null;
-  sync_to_clover?: boolean | null;
   sku?: string | null;
 };
 
@@ -138,31 +133,11 @@ type MetadataForm = {
   quantity: string;
   sell_price: string;
   sku: string;
-  sync_to_clover: boolean;
   price_loose: string;
   price_cib: string;
   price_new: string;
   price_graded: string;
   manual_market_value: string;
-};
-
-type CloverDiagnosticState = {
-  success: boolean;
-  message: string;
-  baseUrl?: string;
-  merchantId?: string;
-  tokenLength?: number;
-  failedProbe?: string;
-  upc?: string | null;
-  cloverCode?: string | null;
-  upcSynced?: boolean;
-  imageMessage?: string | null;
-  stockSync?: {
-    mode?: 'set' | 'add';
-    previousQuantity?: number;
-    addedQuantity?: number;
-    finalQuantity?: number;
-  } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -237,9 +212,6 @@ export default function ItemDetailPage() {
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [savingMetadata, setSavingMetadata] = useState(false);
-  const [syncingClover, setSyncingClover] = useState(false);
-  const [testingClover, setTestingClover] = useState(false);
-  const [cloverDiagnostic, setCloverDiagnostic] = useState<CloverDiagnosticState | null>(null);
   const [editingMetadata, setEditingMetadata] = useState(false);
   const [showDiag, setShowDiag]     = useState(false);
   const [autoRefreshAttempted, setAutoRefreshAttempted] = useState(false);
@@ -269,7 +241,6 @@ export default function ItemDetailPage() {
     quantity: '1',
     sell_price: '',
     sku: '',
-    sync_to_clover: false,
     price_loose: '',
     price_cib: '',
     price_new: '',
@@ -330,7 +301,6 @@ export default function ItemDetailPage() {
       quantity: String(Number(item.quantity) || (['sold', 'archived', 'deleted'].includes(item.status || '') ? 0 : 1)),
       sell_price: item.sell_price != null ? String(Number(item.sell_price) || 0) : '',
       sku: item.sku || '',
-      sync_to_clover: Boolean(item.sync_to_clover),
       price_loose: item.price_loose != null ? String(Number(item.price_loose) || 0) : '',
       price_cib: item.price_cib != null ? String(Number(item.price_cib) || 0) : '',
       price_new: item.price_new != null ? String(Number(item.price_new) || 0) : '',
@@ -493,109 +463,6 @@ export default function ItemDetailPage() {
     setMetadataForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const updateMetadataChecked = (field: 'sync_to_clover', value: boolean) => {
-    setMetadataForm((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const syncToCloverRequest = async (conflictAction?: 'create_additional' | 'update_existing' | 'skip') => {
-    if (!item) return;
-    const { data: { session } } = await supabase.auth.getSession();
-    const response = await fetch('/api/clover/sync-item', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session?.access_token || ''}`,
-      },
-      body: JSON.stringify({ inventoryItemId: item.id, conflictAction }),
-    });
-    const result = await response.json();
-    return { response, result };
-  };
-
-  const handleSyncToClover = async () => {
-    if (!item) return;
-    setSyncingClover(true);
-    try {
-      const first = await syncToCloverRequest();
-      if (first?.response.status === 409 && first.result?.conflict) {
-        const choice = window.prompt(
-          'This item already appears to exist in Clover. Type create, update, or skip.',
-          'update'
-        )?.trim().toLowerCase();
-        const conflictAction =
-          choice === 'create' ? 'create_additional' :
-          choice === 'skip' ? 'skip' :
-          choice === 'update' ? 'update_existing' :
-          null;
-        if (!conflictAction) {
-          toast.info('Clover sync cancelled');
-          return;
-        }
-        const second = await syncToCloverRequest(conflictAction);
-        if (!second?.response.ok || !second.result.success) throw new Error(second?.result.message || 'Clover sync failed');
-        setCloverDiagnostic({
-          success: true,
-          message: conflictAction === 'skip' ? 'Skipped Clover sync' : 'Synced to Clover',
-          upc: second.result.upc,
-          cloverCode: second.result.cloverCode,
-          upcSynced: second.result.upcSynced,
-          imageMessage: second.result.imageMessage,
-          stockSync: second.result.stockSync,
-        });
-        toast.success(conflictAction === 'skip' ? 'Skipped Clover sync' : 'Synced to Clover');
-      } else {
-        if (!first?.response.ok || !first.result.success) throw new Error(first?.result.message || 'Clover sync failed');
-        setCloverDiagnostic({
-          success: true,
-          message: 'Synced to Clover',
-          upc: first.result.upc,
-          cloverCode: first.result.cloverCode,
-          upcSynced: first.result.upcSynced,
-          imageMessage: first.result.imageMessage,
-          stockSync: first.result.stockSync,
-        });
-        toast.success('Synced to Clover');
-      }
-      await loadItem();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Clover sync failed');
-      await loadItem();
-    } finally {
-      setSyncingClover(false);
-    }
-  };
-
-  const handleTestCloverConnection = async () => {
-    setTestingClover(true);
-    setCloverDiagnostic(null);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/clover/diagnostics', {
-        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
-      });
-      const result = await response.json();
-      const probes = result?.diagnostics?.probes || [];
-      const failed = probes.find((probe: { ok?: boolean; name?: string; message?: string }) => !probe.ok);
-      const message = failed?.message || result?.message || (result?.success ? 'Clover connection looks good' : 'Clover connection failed');
-      setCloverDiagnostic({
-        success: Boolean(result?.success),
-        message,
-        baseUrl: result?.diagnostics?.baseUrl,
-        merchantId: result?.diagnostics?.merchantId,
-        tokenLength: result?.diagnostics?.tokenLength,
-        failedProbe: failed?.name,
-      });
-      if (result?.success) toast.success('Clover connection looks good');
-      else toast.error(message);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Clover diagnostic failed';
-      setCloverDiagnostic({ success: false, message });
-      toast.error(message);
-    } finally {
-      setTestingClover(false);
-    }
-  };
-
   const handleSaveMetadata = async () => {
     if (!item || !user || !accountId) return;
     if (!metadataForm.product_name.trim()) {
@@ -663,8 +530,6 @@ export default function ItemDetailPage() {
           quantity: Math.floor(quantity),
           sell_price: sellPrice,
           sku: normalizedBarcode || metadataForm.sku.trim() || null,
-          sync_to_clover: metadataForm.sync_to_clover,
-          clover_sync_status: metadataForm.sync_to_clover && item.clover_sync_status !== 'synced' ? 'pending' : item.clover_sync_status || 'pending',
           brand: metadataForm.brand.trim() || null,
           category: metadataForm.category.trim() || null,
           genre: manualPricedItem ? null : metadataForm.genre.trim() || null,
@@ -743,7 +608,6 @@ export default function ItemDetailPage() {
           sold_at: soldAt,
           archived_at: soldAt,
           archived_reason: 'sold',
-          clover_sync_status: 'pending',
           updated_at: soldAt,
         })
         .eq('id', item.id)
@@ -766,7 +630,6 @@ export default function ItemDetailPage() {
           quantity: 1,
           archived_at: null,
           archived_reason: null,
-          clover_sync_status: 'pending',
           updated_at: new Date().toISOString(),
         })
         .eq('id', item.id)
@@ -1195,16 +1058,6 @@ export default function ItemDetailPage() {
                       />
                     </div>
 
-                    <label className="flex items-center gap-2 rounded-lg border border-border/40 bg-secondary/20 px-3 py-2 text-sm sm:col-span-2">
-                      <input
-                        type="checkbox"
-                        checked={metadataForm.sync_to_clover}
-                        onChange={(event) => updateMetadataChecked('sync_to_clover', event.target.checked)}
-                        className="h-4 w-4 accent-primary"
-                      />
-                      Sync this item to Clover
-                    </label>
-
                     <div className="space-y-1.5">
                       <Label className="text-xs text-muted-foreground">{editingBookLike ? 'Publisher' : 'Publisher / Brand'}</Label>
                       <Input
@@ -1388,76 +1241,6 @@ export default function ItemDetailPage() {
               fields={item}
               onUpdate={(updates) => setItem(prev => prev ? { ...prev, ...updates } as InventoryItem : null)}
             />
-
-            <Card className="border-border/40 bg-card/40">
-              <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="text-sm font-semibold">Clover sync</div>
-                  <div className="mt-1 text-xs text-muted-foreground">
-                    Status: {item.clover_sync_status || 'pending'}
-                    {item.clover_synced_at ? ` · Last synced ${format(new Date(item.clover_synced_at), 'MMM d, yyyy h:mm a')}` : ''}
-                  </div>
-                  {item.clover_item_id && (
-                    <div className="mt-1 font-mono text-[11px] text-muted-foreground">Clover item {item.clover_item_id}</div>
-                  )}
-                  {item.clover_sync_error && (
-                    <div className="mt-1 text-xs text-red-400">{item.clover_sync_error}</div>
-                  )}
-                  {cloverDiagnostic && (
-                    <div className="mt-1 space-y-1 text-xs">
-                      <div className={cloverDiagnostic.success ? 'text-emerald-400' : 'text-red-400'}>
-                        {cloverDiagnostic.message}
-                      </div>
-                      {(cloverDiagnostic.baseUrl || cloverDiagnostic.merchantId || cloverDiagnostic.tokenLength || cloverDiagnostic.failedProbe) && (
-                        <div className="font-mono text-[11px] text-muted-foreground">
-                          {[
-                            cloverDiagnostic.failedProbe ? `probe=${cloverDiagnostic.failedProbe}` : null,
-                            cloverDiagnostic.baseUrl ? `url=${cloverDiagnostic.baseUrl}` : null,
-                            cloverDiagnostic.merchantId ? `merchant=${cloverDiagnostic.merchantId}` : null,
-                            cloverDiagnostic.tokenLength ? `token chars=${cloverDiagnostic.tokenLength}` : null,
-                          ].filter(Boolean).join(' / ')}
-                        </div>
-                      )}
-                      {(cloverDiagnostic.upc || cloverDiagnostic.cloverCode) && (
-                        <div className={cloverDiagnostic.upcSynced ? 'text-emerald-400' : 'text-amber-400'}>
-                          UPC {cloverDiagnostic.upcSynced ? 'synced' : 'needs review'}: RetroLoot {cloverDiagnostic.upc || 'none'} / Clover code {cloverDiagnostic.cloverCode || 'none'}
-                        </div>
-                      )}
-                      {cloverDiagnostic.imageMessage && (
-                        <div className="text-muted-foreground">{cloverDiagnostic.imageMessage}</div>
-                      )}
-                      {cloverDiagnostic.stockSync && (
-                        <div className="text-muted-foreground">
-                          Clover quantity {cloverDiagnostic.stockSync.mode === 'add' ? 'added' : 'set'}:
-                          {' '}{cloverDiagnostic.stockSync.mode === 'add'
-                            ? `${cloverDiagnostic.stockSync.previousQuantity ?? 0} + ${cloverDiagnostic.stockSync.addedQuantity ?? 0} = ${cloverDiagnostic.stockSync.finalQuantity ?? 0}`
-                            : `${cloverDiagnostic.stockSync.finalQuantity ?? 0}`}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-wrap gap-2 sm:justify-end">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleTestCloverConnection}
-                    disabled={testingClover || syncingClover}
-                  >
-                    <CheckCircle2 className={`mr-1.5 h-3.5 w-3.5 ${testingClover ? 'animate-pulse' : ''}`} />
-                    {testingClover ? 'Testing...' : 'Test connection'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    onClick={handleSyncToClover}
-                    disabled={syncingClover || testingClover || ['sold', 'archived', 'deleted'].includes(String(item.status || ''))}
-                  >
-                    <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${syncingClover ? 'animate-spin' : ''}`} />
-                    {syncingClover ? 'Syncing...' : 'Sync to Clover'}
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
 
             {/* KPI row */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

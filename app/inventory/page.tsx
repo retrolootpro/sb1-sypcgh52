@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, Gamepad2, Boxes, ScanBarcode, Tags, FileDown, Archive } from 'lucide-react';
+import { Plus, Search, RefreshCw, Package, DollarSign, TrendingUp, FolderOpen, X, FolderPlus, ArrowUpDown, Bell, Clock, MoreHorizontal, BookOpen, Gamepad2, Boxes, ScanBarcode, Tags, Archive } from 'lucide-react';
 import { AddItemDialog } from '@/components/add-item-dialog';
 import { InventoryTable } from '@/components/inventory-table';
 import { BarcodeScannerView, type ScanResult } from '@/components/barcode-scanner-view';
@@ -115,15 +115,6 @@ export default function InventoryPage() {
   const [agingThresholds, setAgingThresholds] = useState<AgingThresholds>({ watchDays: 45, reviewDays: 60 });
   const [backfilling, setBackfilling] = useState(false);
   const [refreshingPrices, setRefreshingPrices] = useState(false);
-  const [syncingClover, setSyncingClover] = useState(false);
-  const [exportingCloverWorkbook, setExportingCloverWorkbook] = useState(false);
-  const [exportingCloverNewWorkbook, setExportingCloverNewWorkbook] = useState(false);
-  const [buildingCloverUpdateWorkbook, setBuildingCloverUpdateWorkbook] = useState(false);
-  const [buildingCloverRepairWorkbook, setBuildingCloverRepairWorkbook] = useState(false);
-  const [cloverAutoSyncEnabled, setCloverAutoSyncEnabled] = useState(false);
-  const cloverUpdateUploadRef = useRef<HTMLInputElement | null>(null);
-  const cloverRepairUploadRef = useRef<HTMLInputElement | null>(null);
-
   const [collections, setCollections] = useState<Collection[]>([]);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [showCreateCollection, setShowCreateCollection] = useState(false);
@@ -162,19 +153,6 @@ export default function InventoryPage() {
       loadCollections();
     }
   }, [user, accountId, loadInventory, loadCollections]);
-
-  useEffect(() => {
-    if (!user || !accountId) return;
-    (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/clover/settings', {
-        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
-      });
-      if (!response.ok) return;
-      const result = await response.json();
-      setCloverAutoSyncEnabled(Boolean(result.settings?.auto_sync_enabled));
-    })();
-  }, [user, accountId]);
 
   useEffect(() => {
     if (searchParams.get('age') === 'stale') {
@@ -660,213 +638,11 @@ export default function InventoryPage() {
     toast.success(`Aging alerts set: watch ${next.watchDays}d, review ${next.reviewDays}d`);
   };
 
-  const handleSyncPendingToClover = async () => {
-    setSyncingClover(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/clover/sync-pending', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || ''}`,
-        },
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.message || 'Clover bulk sync failed');
-      toast.success(`Clover sync complete: ${result.synced || 0} synced, ${result.failed || 0} failed`);
-      await loadInventory();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Clover bulk sync failed');
-    } finally {
-      setSyncingClover(false);
-    }
-  };
-
-  const handleDownloadCloverWorkbook = async () => {
-    setExportingCloverWorkbook(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/clover/export-xlsx', {
-        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result.message || 'Clover workbook export failed');
-      }
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `retrolootpro-clover-import-${date}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      toast.success('Clover import workbook downloaded');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Clover workbook export failed');
-    } finally {
-      setExportingCloverWorkbook(false);
-    }
-  };
-
-  const handleDownloadCloverNewWorkbook = async () => {
-    setExportingCloverNewWorkbook(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/clover/export-new-xlsx', {
-        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result.message || 'Clover new-items export failed');
-      }
-      const blob = await response.blob();
-      const total = Number(response.headers.get('X-Clover-Total') || 0);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `retrolootpro-clover-new-items-${date}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      toast.success(`Clover new-items workbook downloaded${total > 0 ? `: ${total} item${total === 1 ? '' : 's'}` : ''}`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Clover new-items export failed');
-    } finally {
-      setExportingCloverNewWorkbook(false);
-    }
-  };
-
-  const handleConfigureCloverAutoSync = async () => {
-    try {
-      const minutesText = window.prompt('Auto-sync interval in minutes. Use 0 to disable.', cloverAutoSyncEnabled ? '60' : '60');
-      if (minutesText == null) return;
-      const minutes = Number(minutesText);
-      const enabled = minutes > 0;
-      const { data: { session } } = await supabase.auth.getSession();
-      const response = await fetch('/api/clover/settings', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session?.access_token || ''}`,
-        },
-        body: JSON.stringify({
-          auto_sync_enabled: enabled,
-          auto_sync_interval_minutes: enabled ? Math.max(15, minutes) : 60,
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.message || 'Could not save Clover auto-sync settings');
-      setCloverAutoSyncEnabled(Boolean(result.settings?.auto_sync_enabled));
-      toast.success(enabled ? `Clover auto-sync enabled every ${Math.max(15, minutes)} minutes` : 'Clover auto-sync disabled');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Could not save Clover auto-sync settings');
-    }
-  };
-
-  const handleBuildCloverNewItemsWorkbook = async (file: File) => {
-    setBuildingCloverUpdateWorkbook(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const formData = new FormData();
-      formData.append('file', file);
-      const response = await fetch('/api/clover/export-update-xlsx', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
-        body: formData,
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result.message || 'Clover new-items workbook generation failed');
-      }
-      const blob = await response.blob();
-      const created = Number(response.headers.get('X-Clover-Matched') || 0);
-      const skipped = Number(response.headers.get('X-Clover-Skipped') || 0);
-      const total = Number(response.headers.get('X-Clover-Total') || 0);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `retrolootpro-clover-new-items-${date}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      toast.success(`Clover new-items workbook ready: ${created} new, ${skipped} already in Clover, ${total} total`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Clover new-items workbook generation failed');
-    } finally {
-      if (cloverUpdateUploadRef.current) cloverUpdateUploadRef.current.value = '';
-      setBuildingCloverUpdateWorkbook(false);
-    }
-  };
-
-  const handleBuildCloverRepairWorkbook = async (file: File) => {
-    setBuildingCloverRepairWorkbook(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const formData = new FormData();
-      formData.append('file', file);
-      const response = await fetch('/api/clover/export-repair-xlsx', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${session?.access_token || ''}` },
-        body: formData,
-      });
-      if (!response.ok) {
-        const result = await response.json().catch(() => ({}));
-        throw new Error(result.message || 'Clover repair workbook generation failed');
-      }
-      const blob = await response.blob();
-      const repaired = Number(response.headers.get('X-Clover-Repaired') || 0);
-      const skipped = Number(response.headers.get('X-Clover-Skipped') || 0);
-      const total = Number(response.headers.get('X-Clover-Total') || 0);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const date = new Date().toISOString().slice(0, 10);
-      link.href = url;
-      link.download = `retrolootpro-clover-repair-${date}.xlsx`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      toast.success(`Clover repair workbook ready: ${repaired} fixes, ${skipped} skipped, ${total} Clover rows checked`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Clover repair workbook generation failed');
-    } finally {
-      if (cloverRepairUploadRef.current) cloverRepairUploadRef.current.value = '';
-      setBuildingCloverRepairWorkbook(false);
-    }
-  };
-
   const activeCollection = collections.find((c) => c.id === selectedCollectionId);
 
   return (
     <DashboardLayout>
       <div className="p-5 sm:p-7 lg:p-8 max-w-7xl space-y-6">
-        <input
-          ref={cloverUpdateUploadRef}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) handleBuildCloverNewItemsWorkbook(file);
-          }}
-        />
-        <input
-          ref={cloverRepairUploadRef}
-          type="file"
-          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="hidden"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (file) handleBuildCloverRepairWorkbook(file);
-          }}
-        />
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
           <div>
             <div className="mb-1 flex items-center gap-2">
@@ -882,7 +658,7 @@ export default function InventoryPage() {
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || syncingClover || exportingCloverWorkbook || exportingCloverNewWorkbook || buildingCloverUpdateWorkbook || buildingCloverRepairWorkbook || loading}>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || loading}>
                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                   Tools
                 </Button>
@@ -895,36 +671,6 @@ export default function InventoryPage() {
                 <DropdownMenuItem onClick={handleBackfillBarcodeData}>
                   <RefreshCw className={`mr-2 h-4 w-4 ${backfilling ? 'animate-spin' : ''}`} />
                   Refresh metadata
-                </DropdownMenuItem>
-                <DropdownMenuItem asChild>
-                  <Link href="/review/data-issues">
-                    <Search className="mr-2 h-4 w-4" />
-                    Review Missing Clover Data
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDownloadCloverWorkbook}>
-                  <FileDown className={`mr-2 h-4 w-4 ${exportingCloverWorkbook ? 'animate-pulse' : ''}`} />
-                  Export All Items for Clover
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleDownloadCloverNewWorkbook}>
-                  <FileDown className={`mr-2 h-4 w-4 ${exportingCloverNewWorkbook ? 'animate-pulse' : ''}`} />
-                  Export Newly Added for Clover
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => cloverUpdateUploadRef.current?.click()}>
-                  <FileDown className={`mr-2 h-4 w-4 ${buildingCloverUpdateWorkbook ? 'animate-pulse' : ''}`} />
-                  Compare Clover Export for Missing Items
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => cloverRepairUploadRef.current?.click()}>
-                  <FileDown className={`mr-2 h-4 w-4 ${buildingCloverRepairWorkbook ? 'animate-pulse' : ''}`} />
-                  Fix Missing Clover SKU/UPC
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleSyncPendingToClover}>
-                  <RefreshCw className={`mr-2 h-4 w-4 ${syncingClover ? 'animate-spin' : ''}`} />
-                  Send Pending Items to Clover
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleConfigureCloverAutoSync}>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {cloverAutoSyncEnabled ? 'Edit Clover auto-sync' : 'Enable Clover auto-sync'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

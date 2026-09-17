@@ -272,7 +272,7 @@ export default function DashboardPage() {
             <div className="mt-4 space-y-2">
               {[
                 { href: '/inventory?age=stale', icon: Clock, label: 'Review aging inventory', sub: agingAlerts.count ? `${agingAlerts.count} item${agingAlerts.count === 1 ? '' : 's'} past ${agingThresholds.reviewDays} days` : 'Nothing stale right now' },
-                { href: '/review/data-issues', icon: ListChecks, label: 'Fix missing data', sub: `${missingPriceItems.length} missing market value` },
+                { href: '/review', icon: ListChecks, label: 'Fix missing data', sub: `${missingPriceItems.length} missing market value` },
                 { href: '/shows', icon: TrendingUp, label: 'Build from best items', sub: `${topDeals.length} strong candidates` },
                 { href: '/assistant', icon: Bell, label: 'Ask the assistant', sub: 'Inventory and pricing questions' },
               ].map((action) => {

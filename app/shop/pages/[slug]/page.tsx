@@ -59,7 +59,7 @@ const pages: Record<string, { title: string; eyebrow: string; intro: string; sec
   },
   'privacy': {
     title: 'Privacy policy', eyebrow: 'YOUR INFORMATION', intro: 'Pixel & Page uses customer information only to operate the store, fulfill orders, provide support, and improve the shopping experience.', sections: [
-      { title: 'Information collected', body: 'Checkout and support may require contact, delivery, order, and transaction information. Payment details are processed by Clover rather than stored directly by Pixel & Page.' },
+      { title: 'Information collected', body: 'Support requests may require contact, order, and transaction information. Payment card details are not stored by Pixel & Page.' },
       { title: 'How information is used', body: 'Information is used for fulfillment, communication, fraud prevention, legal compliance, and optional marketing when consent is provided.' },
       { title: 'Service providers', body: 'Necessary information may be processed by hosting, database, shipping, commerce, and payment providers used to run the store.' },
       { title: 'Questions', body: 'Contact Pixel & Page with privacy questions or requests regarding your customer information.' },
@@ -70,7 +70,7 @@ const pages: Record<string, { title: string; eyebrow: string; intro: string; sec
       { title: 'Inventory availability', body: 'Inventory is limited and may be one of a kind. A cart does not reserve an item until payment is completed.' },
       { title: 'Product condition', body: 'Customers should review photos, condition labels, descriptions, and included accessories before purchasing.' },
       { title: 'Pricing and errors', body: 'Pixel & Page may correct material listing or pricing errors before fulfillment and will communicate when an order is affected.' },
-      { title: 'Payment', body: 'Online payment is processed using Clover Hosted Checkout and may be subject to Clover’s terms and fraud controls.' },
+      { title: 'Payment', body: 'Online payment is not currently available. Purchases are completed in person at the store.' },
     ],
   },
   'help': {
