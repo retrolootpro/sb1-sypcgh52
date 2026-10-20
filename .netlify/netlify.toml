@@ -1,0 +1,52 @@
+functionsDirectory = "/Users/admin/Documents/GitHub/sb1-sypcgh52/netlify/functions"
+functionsDirectoryOrigin = "default"
+headersOrigin = "config"
+redirects = []
+
+[build]
+publish = "/Users/admin/Documents/GitHub/sb1-sypcgh52/.next"
+publishOrigin = "config"
+commandOrigin = "config"
+command = "npm run build"
+functions = "/Users/admin/Documents/GitHub/sb1-sypcgh52/netlify/functions"
+
+[build.environment]
+NODE_VERSION = "20"
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[functions]
+
+[functions."*"]
+
+[[plugins]]
+origin = "config"
+package = "@netlify/plugin-nextjs"
+
+[plugins.inputs]
+
+[[headers]]
+for = "/*"
+
+[headers.values]
+X-Frame-Options = "DENY"
+X-Content-Type-Options = "nosniff"
+Referrer-Policy = "strict-origin-when-cross-origin"
+Permissions-Policy = "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+
+[[headers]]
+for = "/api/*"
+
+[headers.values]
+Cache-Control = "no-store"
