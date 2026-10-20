@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { BarcodeScannerView } from '@/components/barcode-scanner-view';
 import { ScanItemDialog } from '@/components/scan-item-dialog';
+import { ShowFloorScanner } from '@/components/show-floor-scanner';
 import { ScanResult } from '@/lib/barcode-scanner';
 import {
   Camera, Keyboard, History, CircleCheck as CheckCircle2,
@@ -554,6 +555,8 @@ export default function ScanPage() {
           <div className="label-caps mb-1">Catalog</div>
           <h1 className="heading-lg text-[22px]">Scan Items</h1>
         </div>
+
+        <ShowFloorScanner />
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-border/40 bg-card p-5 space-y-4">
