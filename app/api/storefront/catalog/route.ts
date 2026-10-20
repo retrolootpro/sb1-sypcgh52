@@ -4,6 +4,9 @@ import { createSupabaseAdmin } from '@/lib/server/supabase-admin';
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
+const ENRICHMENT_BATCH_SIZE = 100;
+const PRICING_PAGE_SIZE = 500;
+
 function normalizeCategory(item: Record<string, any>) {
   const explicit = `${item.category || ''} ${item.item_type || ''}`.trim().toLowerCase();
   const fallback = `${item.console || ''} ${item.product_name || ''}`.toLowerCase();
@@ -68,11 +71,12 @@ export async function GET() {
     const ids = accountInventory.map((row: any) => row.id);
 
     const metadataByItem = new Map<string, Record<string, any>>();
-    if (ids.length > 0) {
+    for (let offset = 0; offset < ids.length; offset += ENRICHMENT_BATCH_SIZE) {
+      const batchIds = ids.slice(offset, offset + ENRICHMENT_BATCH_SIZE);
       const { data: metadataRows, error: metadataError } = await admin
         .from('inventory_items')
         .select('id,category,item_type')
-        .in('id', ids);
+        .in('id', batchIds);
 
       if (!metadataError) {
         for (const row of metadataRows || []) metadataByItem.set(String(row.id), row);
@@ -82,16 +86,22 @@ export async function GET() {
     }
 
     const pricingByItem = new Map<string, Record<string, any>>();
-    if (ids.length > 0) {
-      const { data: pricingRows, error: pricingError } = await admin
-        .from('pricing_data')
-        .select('item_id,loose_price,cib_price,new_price,fetched_at')
-        .in('item_id', ids)
-        .order('fetched_at', { ascending: false });
+    for (let offset = 0; offset < ids.length; offset += ENRICHMENT_BATCH_SIZE) {
+      const batchIds = ids.slice(offset, offset + ENRICHMENT_BATCH_SIZE);
+      for (let pageOffset = 0; ; pageOffset += PRICING_PAGE_SIZE) {
+        const { data: pricingRows, error: pricingError } = await admin
+          .from('pricing_data')
+          .select('item_id,loose_price,cib_price,new_price,fetched_at')
+          .in('item_id', batchIds)
+          .order('fetched_at', { ascending: false, nullsFirst: false })
+          .order('id', { ascending: false })
+          .range(pageOffset, pageOffset + PRICING_PAGE_SIZE - 1);
 
-      if (pricingError) throw new Error(`Pricing query failed: ${errorDetails(pricingError)}`);
-      for (const row of pricingRows || []) {
-        if (!pricingByItem.has(String(row.item_id))) pricingByItem.set(String(row.item_id), row);
+        if (pricingError) throw new Error(`Pricing query failed: ${errorDetails(pricingError)}`);
+        for (const row of pricingRows || []) {
+          if (!pricingByItem.has(String(row.item_id))) pricingByItem.set(String(row.item_id), row);
+        }
+        if (!pricingRows || pricingRows.length < PRICING_PAGE_SIZE) break;
       }
     }
 
