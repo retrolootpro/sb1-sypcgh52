@@ -4,6 +4,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { parseSavedCart } from '@/lib/storefront-model';
+import { ShippingProgress } from '@/components/storefront-shipping-progress';
+import type { ShippingPromotionMode } from '@/lib/storefront-shipping-promotion';
 import { browseProducts, browseUrl, catalogSorts, defaultBrowse, isOnSale, matchesCategory, pageSizes, readBrowse, type BrowseState } from '@/lib/storefront-browse';
 import {
   ArrowRight,
@@ -38,6 +40,7 @@ type Product = {
   compare_at_price?: number | null;
   quantity: number;
   featured: boolean;
+  shippingPromotion?: ShippingPromotionMode;
   description?: string | null;
   image_url?: string | null;
   thumbnail_url?: string | null;
@@ -225,6 +228,7 @@ export default function StorefrontClient() {
         <div className="commerce-price"><strong>${item.price.toFixed(2)}</strong>{item.compare_at_price && item.compare_at_price > item.price ? <del>${item.compare_at_price.toFixed(2)}</del> : null}</div>
         <div className="commerce-product-meta">{item.platform || item.category}</div>
         <Link href={`/shop/product/${item.slug}`} className="commerce-product-title">{item.title}</Link>
+        {item.shippingPromotion && item.shippingPromotion!=='excluded' && <p className="shipping-eligibility">{item.shippingPromotion==='free'?'Free shipping eligible':'Free shipping eligible on $50+ orders'}</p>}
         <div className="commerce-condition"><Check/>{item.condition}</div>
         <div className="commerce-product-footer">
           <button type="button" aria-label={`Add ${item.title} to cart`} onClick={() => { updateCart(item, 1); setCartOpen(true); }} disabled={!item.quantity}><ShoppingCart/></button>
@@ -344,7 +348,7 @@ export default function StorefrontClient() {
         <div className="commerce-cart-items">
           {!cartItems.length ? <div className="commerce-cart-empty"><ShoppingBag/><h3>Your cart is empty</h3><button type="button" onClick={() => setCartOpen(false)}>Continue shopping</button></div> : cartItems.map((item) => <div className="commerce-cart-line" key={item.id}><div className="commerce-cart-thumb">{item.thumbnail_url || item.image_url ? <Image src={item.thumbnail_url || item.image_url || ''} alt="" width={64} height={64} unoptimized/> : <Gamepad2/>}</div><div><Link href={`/shop/product/${item.slug}`}>{item.title}</Link><small>{item.condition}</small><div className="commerce-cart-qty"><button type="button" aria-label={`Remove one ${item.title}`} onClick={() => updateCart(item, -1)}><Minus/></button><b>{cart[item.id]}</b><button type="button" aria-label={`Add one ${item.title}`} onClick={() => updateCart(item, 1)}><Plus/></button></div></div><strong>${(item.price * cart[item.id]).toFixed(2)}</strong></div>)}
         </div>
-        {cartItems.length > 0 && <div className="commerce-cart-footer"><div><span>Subtotal</span><strong>${subtotal.toFixed(2)}</strong></div><p>Shipping and applicable tax are calculated during secure checkout. Stock is checked again before payment.</p><Link href="/shop/checkout" onClick={() => setCartOpen(false)}>Review & checkout <ArrowRight/></Link><small><ShieldCheck/>Secure payment with Stripe</small></div>}
+        {cartItems.length > 0 && <div className="commerce-cart-footer"><ShippingProgress hasExcludedItems={cartItems.some(item=>item.shippingPromotion==='excluded')} hasIndividualOffers={cartItems.some(item=>item.shippingPromotion==='free')} subtotal={cartItems.reduce((sum,item)=>sum+(item.shippingPromotion==='excluded'?0:Math.round(item.price*100)*cart[item.id]),0)}/><div><span>Subtotal</span><strong>${subtotal.toFixed(2)}</strong></div><p>Shipping and applicable tax are calculated during secure checkout. Stock is checked again before payment.</p><Link href="/shop/checkout" onClick={() => setCartOpen(false)}>Review & checkout <ArrowRight/></Link><small><ShieldCheck/>Secure payment with Stripe</small></div>}
       </aside>}
     </main>
   );

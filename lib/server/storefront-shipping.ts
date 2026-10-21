@@ -5,7 +5,8 @@ import { createSupabaseAdmin } from './supabase-admin';
 import { CommerceError, fingerprint, storeAccount } from './storefront-http';
 import { loadStorefrontCatalog } from '@/lib/server/storefront-catalog';
 import { cartSchema } from '@/lib/storefront-model';
-import { shippingCustomerSchema, shippingParcels, shippingSettingsSchema, type ShippingCustomer, type ShippingRate, type QuotedShipping, type ShippingSettings } from '@/lib/storefront-shipping';
+import { shippingCustomerSchema, shippingParcels, shippingPackages, shippingSettingsSchema, type ShippingCustomer, type ShippingRate, type QuotedShipping, type ShippingSettings } from '@/lib/storefront-shipping';
+import { shippingPromotion, type ShippingPromotionMode } from '@/lib/storefront-shipping-promotion';
 
 const providerRateSchema = z.object({
   object_id: z.string().min(1).max(100), provider: z.string(), currency: z.string(),
@@ -17,7 +18,8 @@ const shipmentSchema = z.object({ rates: z.array(providerRateSchema), messages: 
 const quoteSchema = z.object({
   version: z.literal(1), account: z.string().uuid(), expires: z.number(),
   cart: z.string(), settings: z.string(), customer: shippingCustomerSchema, parcels: z.number().int().min(1).max(10),
-  rates: z.array(z.object({ id: z.string(), name: z.string(), amount: z.number().int().positive().max(10000000), estimatedDays: z.number().nullable() })).min(1).max(20),
+  rates: z.array(z.object({ id: z.string(), name: z.string(), amount: z.number().int().nonnegative().max(10000000), estimatedDays: z.number().nullable(),
+    carrierAmount: z.number().int().positive().optional(), discount: z.number().int().nonnegative().optional(), promotionGoal: z.number().int().positive().nullable().optional() })).min(1).max(20),
 });
 
 export async function loadShippingSettings(accountId: string): Promise<ShippingSettings> {
@@ -34,7 +36,8 @@ export async function pricedShippingLines(items: z.infer<typeof cartSchema>) {
   return [...items].sort((a, b) => a.id.localeCompare(b.id)).map(line => {
     const item = products.find(p => p.id === line.id);
     if (!item || item.quantity < line.quantity) throw new CommerceError('Stock changed. Refresh your cart and request new shipping rates.', 409);
-    return { ...line, title: item.title, category: item.category, platform: item.platform, condition: item.condition, unit_amount: Math.round(item.price * 100) };
+    const mode: ShippingPromotionMode = item.shippingPromotion === 'free' || item.shippingPromotion === 'excluded' ? item.shippingPromotion : 'eligible';
+    return { ...line, title: item.title, category: item.category, platform: item.platform, condition: item.condition, unit_amount: Math.round(item.price * 100), shippingPromotion: mode };
   });
 }
 
@@ -76,24 +79,38 @@ export async function shippoShipment(origin: ShippingCustomer, destination: Ship
 export async function shippingQuote(items: z.infer<typeof cartSchema>, customer: ShippingCustomer) {
   const account = await storeAccount();
   const [settings, lines] = await Promise.all([loadShippingSettings(account), pricedShippingLines(items)]);
-  let parcels: ReturnType<typeof shippingParcels>;
-  try { parcels = shippingParcels(lines, settings.profiles); }
+  let packages: ReturnType<typeof shippingPackages>;
+  try { packages = shippingPackages(lines, settings.profiles); }
   catch (error) { throw new CommerceError(error instanceof Error ? error.message : 'Package configuration failed.', 409); }
+  const parcels = packages.map(pack => pack.parcel);
   // Separate single-parcel quotes support USPS, which cannot rate a multipiece shipment.
   const shipments = await Promise.all(parcels.map(parcel => shippoShipment(settings.origin, customer, parcel)));
   const rates: ShippingRate[] = [];
+  const standardTokens = new Set(['usps_ground_advantage', 'ups_ground', 'fedex_ground', 'fedex_home_delivery']);
+  const standardCosts = new Map<string, number[]>();
   for (const first of shipments[0] || []) {
     const matching = shipments.map(rates => rates.find(rate => rate.provider === first.provider && rate.servicelevel.token === first.servicelevel.token));
     if (matching.some(rate => !rate)) continue;
     const amount = matching.reduce((sum, rate) => sum + Math.round(Number(rate!.amount) * 100), 0);
     if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10000000) throw new Error('Carrier quote exceeds supported shipping limits.');
     const days = matching.map(rate => rate!.estimated_days);
-    rates.push({ id: fingerprint(matching.map(rate => rate!.object_id)), name: `${first.provider} ${first.servicelevel.name}`,
+    const id = fingerprint(matching.map(rate => rate!.object_id));
+    if (standardTokens.has(first.servicelevel.token)) standardCosts.set(id, matching.map(rate => Math.round(Number(rate!.amount) * 100)));
+    rates.push({ id, name: `${first.provider} ${first.servicelevel.name}`,
       amount, estimatedDays: days.every(value => typeof value === 'number') ? Math.max(...days.map(value => value!)) : null });
   }
   rates.sort((a, b) => a.amount - b.amount || a.name.localeCompare(b.name));
   const unique = rates.filter((rate, index) => rates.findIndex(other => other.name === rate.name) === index).slice(0, 20);
   if (!unique.length) throw new CommerceError('No supported USPS, UPS or FedEx service is available for every package in this cart. Check your address or request an item for a staff quote.', 409);
+  const standard = unique.find(rate => standardCosts.has(rate.id));
+  if (standard) {
+    const promotion = shippingPromotion(standardCosts.get(standard.id)!, packages);
+    standard.carrierAmount = standard.amount;
+    standard.discount = promotion.discount;
+    standard.promotionGoal = promotion.goal;
+    standard.amount = promotion.amount;
+  }
+  unique.sort((a,b) => a.amount-b.amount || a.name.localeCompare(b.name));
   const expires = Date.now() + 15 * 60 * 1000;
   const payload = Buffer.from(JSON.stringify({ version: 1, account, expires, cart: fingerprint(lines), settings: fingerprint(settings), customer, parcels: parcels.length, rates: unique })).toString('base64url');
   return { token: `${payload}.${quoteSignature(payload).toString('base64url')}`, rates: unique, parcels: parcels.length, expires };

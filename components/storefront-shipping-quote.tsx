@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { type ShippingCustomer, type ShippingRate } from '@/lib/storefront-shipping';
 import { StorefrontAddressSearch } from '@/components/storefront-address-search';
 
-export type ShippingSelection = { shippingToken: string; shippingRate: string; expires: number; amount: number; name: string };
+export type ShippingSelection = { shippingToken: string; shippingRate: string; expires: number; amount: number; name: string; promotion?: { cost: number; amount: number; discount: number; goal: number | null } };
+function selection(quote: Quote, rate: ShippingRate): ShippingSelection {
+  return { shippingToken: quote.token, shippingRate: rate.id, expires: quote.expires, amount: rate.amount, name: rate.name,
+    ...(rate.carrierAmount !== undefined ? { promotion: { cost: rate.carrierAmount, amount: rate.amount, discount: rate.discount || 0, goal: rate.promotionGoal ?? null } } : {}) };
+}
 type Quote = { token: string; rates: ShippingRate[]; parcels: number; expires: number };
 const emptyCustomer: ShippingCustomer = { name: '', email: '', address: { line1: '', line2: '', city: '', state: '', postal_code: '', country: 'US' } };
 
@@ -19,15 +23,22 @@ export function ShippingQuotePicker({ items, requestId, onSelect, disabled = fal
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [expired, setExpired] = useState(false);
+  const generation = useRef({});
   const cartKey = JSON.stringify(items);
   const customerKey = JSON.stringify(customer);
-  useEffect(() => { setQuote(null); setRate(''); setError(''); setExpired(false); onSelect(null); }, [cartKey, customerKey, requestId, onSelect]);
+  useEffect(() => {
+    generation.current = {};
+    setQuote(null); setRate(''); setError(''); setExpired(false); setBusy(false); onSelect(null);
+    return () => { generation.current = {}; };
+  }, [cartKey, customerKey, requestId, onSelect]);
   useEffect(() => {
     if (!quote) return;
     const timer = setTimeout(() => { setExpired(true); onSelect(null); }, Math.max(0, quote.expires - Date.now()));
     return () => clearTimeout(timer);
   }, [quote, onSelect]);
   const getRates = async () => {
+    const request = {};
+    generation.current = request;
     setBusy(true); setError(''); setExpired(false); setQuote(null); onSelect(null);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -39,12 +50,13 @@ export function ShippingQuotePicker({ items, requestId, onSelect, disabled = fal
       const response = await fetch('/api/storefront/shipping', { method: 'POST', headers,
         body: JSON.stringify(requestId ? { action: 'invoice-quote', requestId, items } : { action: 'quote', customer, items }) });
       const result = await response.json();
+      if (request !== generation.current) return;
       if (!response.ok || !result.success) throw new Error(result.message || 'Shipping rates could not load.');
       if (!Array.isArray(result.rates) || !result.rates.length) throw new Error('No shipping services returned. Contact support.');
       setQuote(result); setRate(result.rates[0].id);
-      onSelect({ shippingToken: result.token, shippingRate: result.rates[0].id, expires: result.expires, amount: result.rates[0].amount, name: result.rates[0].name });
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Shipping quote failed. Contact support.'); }
-    finally { setBusy(false); }
+      onSelect(selection(result, result.rates[0]));
+    } catch (cause) { if (request === generation.current) setError(cause instanceof Error ? cause.message : 'Shipping quote failed. Contact support.'); }
+    finally { if (request === generation.current) setBusy(false); }
   };
   return <section className="shipping-quote space-y-4 rounded-lg border p-4" aria-label="Delivery and carrier rates">
     <h2 className="text-xl font-bold">Delivery & shipping options</h2>
@@ -66,8 +78,8 @@ export function ShippingQuotePicker({ items, requestId, onSelect, disabled = fal
         <label className="block">Delivery service<select aria-label="Delivery service" value={rate} disabled={expired} className="mt-1 w-full rounded border bg-background p-3" onChange={e => {
           const selected = quote.rates.find(r => r.id === e.target.value);
           if (!selected) { onSelect(null); return; }
-          setRate(selected.id); onSelect({ shippingToken: quote.token, shippingRate: selected.id, expires: quote.expires, amount: selected.amount, name: selected.name });
-        }}>{quote.rates.map(r => <option value={r.id} key={r.id}>{r.name} · ${(r.amount / 100).toFixed(2)}{r.estimatedDays === null ? '' : ` · estimated ${r.estimatedDays} business days`}</option>)}</select></label>
+          setRate(selected.id); onSelect(selection(quote, selected));
+        }}>{quote.rates.map(r => <option value={r.id} key={r.id}>{r.name} · {r.amount===0?'Free':`$${(r.amount / 100).toFixed(2)}`}{r.estimatedDays === null ? '' : ` · estimated ${r.estimatedDays} business days`}</option>)}</select></label>
         <p className="text-sm">The delivery address is locked for this quote. To change it, update the address here and get new rates before paying.</p></>}
     </fieldset>
   </section>;

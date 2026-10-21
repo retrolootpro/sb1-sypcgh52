@@ -19,7 +19,7 @@ const products = [
   { id: 'console', title: 'Handheld Console', category: 'Consoles', platform: 'Handheld', price: 45, quantity: 1, art: 'consoles' },
   { id: 'accessory', title: 'Wireless Controller', category: 'Collectibles', platform: 'SNES', price: 22, quantity: 3, art: 'accessories' },
   { id: 'apparel', title: 'Pixel Hoodie', category: 'Games', platform: 'Apparel', price: 35, quantity: 1, art: 'apparel' },
-].map((item) => ({ ...item, quantity: item.id === 'game-1' ? 25 : item.quantity, slug: item.id, condition: 'Good', featured: item.id === 'game-0', image_url: `/storefront/category-${item.art}.png` }));
+].map((item) => ({ ...item, shippingPromotion:item.id==='book'?'excluded':item.id==='accessory'?'free':'eligible', quantity: item.id === 'game-1' ? 25 : item.quantity, slug: item.id, condition: 'Good', featured: item.id === 'game-0', image_url: `/storefront/category-${item.art}.png` }));
 const largeCatalog = Array.from({ length: 73 }, (_, index) => ({
   ...products[0], id: `large-${index}`, slug: `large-${index}`,
   title: `Catalog Game ${String(index).padStart(2, '0')}`,
@@ -32,6 +32,7 @@ let paymentStatus = 'paid';
 let paymentReady = true;
 let carrierShipping = false;
 let shippingFails = false;
+let promotionScenario = 'none';
 let requestFails = false;
 const submissions = [];
 const checkoutActions = [];
@@ -63,7 +64,13 @@ await page.route('**/api/storefront/checkout*', (route) => {
 await page.route('**/api/storefront/shipping', route => route.fulfill(shippingFails
   ? { status: 503, json: { success: false, message: 'Carrier rates unavailable. Please retry.' } }
   : { json: { success: true, token: 'signed-fixture-quote', expires: Date.now() + 900000, parcels: 2,
-    rates: [{ id: 'usps-fixture', name: 'USPS Ground Advantage', amount: 1050, estimatedDays: 4 },
+    rates: [{ id: 'usps-fixture', name: 'USPS Ground Advantage', amount: 1050, estimatedDays: 4,
+      ...({
+        threshold:{amount:800,carrierAmount:800,discount:0,promotionGoal:5334},
+        free:{amount:0,carrierAmount:750,discount:750,promotionGoal:5000},
+        blocked:{amount:1050,carrierAmount:1050,discount:0,promotionGoal:null},
+        partial:{amount:650,carrierAmount:1050,discount:400,promotionGoal:null},
+      }[promotionScenario] || {}) },
       { id: 'ups-fixture', name: 'UPS Ground', amount: 1620, estimatedDays: 3 }] } }));
 
 try {
@@ -101,6 +108,8 @@ try {
   await catalog().getByLabel('Platform').selectOption('All');
   await page.getByRole('button', { name: 'Add Retro Game 0 to cart', exact: true }).click();
   await page.getByRole('complementary', { name: 'Shopping cart' }).waitFor();
+  assert.match(await page.getByRole('region',{name:'Free shipping progress'}).innerText(),/Add \$40.00/);
+  assert.equal(await catalog().locator('.shipping-eligibility').first().innerText(),'Free shipping eligible on $50+ orders');
   await page.getByRole('button', { name: 'Add one Retro Game 0', exact: true }).click();
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('pixel-page-cart'))['game-0']), 1);
   await page.getByRole('button', { name: 'Close shopping cart', exact: true }).click();
@@ -267,10 +276,62 @@ try {
   await page.getByRole('heading', { name: 'Payment confirmed', exact: true }).waitFor();
   assert.equal(checkoutActions.at(-1).shippingToken, 'signed-fixture-quote');
   assert.equal(checkoutActions.at(-1).shippingRate, 'ups-fixture');
+
+  await page.evaluate(()=>localStorage.setItem('pixel-page-cart',JSON.stringify({console:1})));
+  await page.goto(`${baseUrl}/shop/checkout`);
+  const progress=page.getByRole('region',{name:'Free shipping progress'});
+  await progress.getByRole('status').filter({hasText:'Add $5.00'}).waitFor();
+  for (const [label,value] of [['Recipient name','Guest Customer'],['Email for receipt','guest@example.invalid'],
+    ['Delivery address','1 Test St'],['City','Test'],['State (2 letters)','FL'],['ZIP code','32114']]) await page.getByLabel(label,{exact:true}).fill(value);
+  promotionScenario='threshold';
+  await page.getByRole('button',{name:'Get shipping options',exact:true}).click();
+  await progress.getByRole('status').filter({hasText:'Add $8.34'}).waitFor();
+  assert.equal(await progress.getByRole('progressbar').getAttribute('max'),'5334');
+  await page.evaluate(()=>localStorage.setItem('pixel-page-cart',JSON.stringify({console:1,'game-0':1})));
+  await page.reload();
+  await page.getByRole('heading',{name:'Item subtotal: $55.00',exact:true}).waitFor();
+  for (const [label,value] of [['Recipient name','Guest Customer'],['Email for receipt','guest@example.invalid'],
+    ['Delivery address','1 Test St'],['City','Test'],['State (2 letters)','FL'],['ZIP code','32114']]) await page.getByLabel(label,{exact:true}).fill(value);
+  promotionScenario='free';
+  await page.getByRole('button',{name:'Get shipping options',exact:true}).click();
+  await progress.getByRole('status').filter({hasText:'Free standard shipping confirmed'}).waitFor();
+  assert.match(await summary.innerText(),/Shipping savings[\s\S]*\$7.50/);
+  assert.match(await page.getByLabel('Delivery service',{exact:true}).locator('option').first().innerText(),/Free/);
+  await page.getByLabel('Delivery service',{exact:true}).selectOption('ups-fixture');
+  await progress.getByRole('status').filter({hasText:'No free-shipping offer is applied'}).waitFor();
+  await page.getByLabel('Delivery service',{exact:true}).selectOption('usps-fixture');
+  await progress.getByRole('status').filter({hasText:'Free standard shipping confirmed'}).waitFor();
+  await page.getByLabel('ZIP code',{exact:true}).fill('10001');
+  await progress.getByRole('status').filter({hasText:'You reached the free-shipping minimum'}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'Continue to Stripe checkout',exact:true}).isDisabled(),true);
+  promotionScenario='blocked';
+  await page.getByRole('button',{name:'Get shipping options',exact:true}).click();
+  await progress.getByRole('status').filter({hasText:'Standard shipping applies'}).waitFor();
+  assert.equal(await progress.getByRole('progressbar').count(),0);
+  promotionScenario='partial';
+  await page.getByRole('button',{name:'Get shipping options',exact:true}).click();
+  await progress.getByRole('status').filter({hasText:'Some items have free standard shipping'}).waitFor();
+  assert.match(await summary.innerText(),/\$6.50/);
+  promotionScenario='none';
   carrierShipping = false;
   await page.goto(`${baseUrl}/shop/checkout`);
   await page.getByRole('button', { name: 'Clear cart', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Clear cart', exact: true }).click();
+  await page.evaluate(()=>localStorage.setItem('pixel-page-cart',JSON.stringify({book:2})));
+  await page.reload();
+  await page.getByRole('region',{name:'Free shipping progress'}).getByRole('status').filter({hasText:'excluded from the whole-order'}).waitFor();
+  assert.equal(await page.getByRole('region',{name:'Free shipping progress'}).getByRole('progressbar').count(),0);
+  await page.getByRole('button',{name:'Clear cart',exact:true}).click();
+  await page.evaluate(()=>localStorage.setItem('pixel-page-cart',JSON.stringify({accessory:1})));
+  await page.reload();
+  await page.getByRole('region',{name:'Free shipping progress'}).getByText(/Individually promoted items may qualify without/).waitFor();
+  await page.getByRole('button',{name:'Clear cart',exact:true}).click();
+  await page.goto(`${baseUrl}/shop/product/accessory`);
+  await page.locator('.shipping-eligibility').filter({hasText:'Free shipping eligible'}).waitFor();
+  assert.doesNotMatch(await page.locator('.shipping-eligibility').innerText(),/\$50|\$8/);
+  await page.goto(`${baseUrl}/shop/product/book`);
+  await page.getByRole('button',{name:'Add to cart',exact:true}).waitFor();
+  assert.equal(await page.locator('.shipping-eligibility').count(),0);
 
   await page.goto(`${baseUrl}/shop`);
   await featured().locator('article').first().waitFor();

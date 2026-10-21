@@ -47,6 +47,7 @@ before(async()=>{
   await db.exec(readFileSync('supabase/migrations/20261021170000_storefront_commerce.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/20261021200000_storefront_shipping.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/20261021230000_storefront_labels.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261022000000_storefront_shipping_promotion.sql','utf8'));
 });
 after(()=>db.close());
 beforeEach(()=>db.exec('BEGIN'));
@@ -56,6 +57,24 @@ test('reserves once under idempotent retries and rejects cart-key reuse',async()
   await reserve();await reserve();
   assert.equal((await one('SELECT quantity FROM inventory_items WHERE id=$1',[item])).quantity,1);
   await assert.rejects(reserve(order,lines,'checkout',null,account,'different'),/different cart/);
+});
+test('inventory shipping modes default eligible and reject invalid values',async()=>{
+  assert.equal((await one('SELECT storefront_shipping_promotion FROM inventory_items WHERE id=$1',[item])).storefront_shipping_promotion,'eligible');
+  await db.query("UPDATE inventory_items SET storefront_shipping_promotion='free' WHERE id=$1",[item]);
+  assert.equal((await one('SELECT quantity FROM inventory_items WHERE id=$1',[item])).quantity,2);
+  await assert.rejects(db.query("UPDATE inventory_items SET storefront_shipping_promotion='always_free' WHERE id=$1",[item]));
+});
+test('zero-charge shipping snapshots reconcile payment and revenue once',async()=>{
+  const quote={customer:{name:'Test customer'},rate:{name:'USPS Ground Advantage',amount:0,carrierAmount:525,discount:525},parcels:1};
+  await db.query('SELECT storefront_reserve_shipping($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb)',
+    [order,account,'checkout',null,'free-shipping',JSON.stringify(lines),JSON.stringify(quote)]);
+  await db.query("UPDATE storefront_orders SET stripe_id='cs_test_order' WHERE id=$1",[order]);
+  await event('evt_free','paid',{total:1000});
+  await event('evt_free_again','paid',{total:1000});
+  const saved=await one('SELECT status,shipping_cents,shipping_quote FROM storefront_orders WHERE id=$1',[order]);
+  assert.equal(saved.status,'paid');assert.equal(saved.shipping_cents,0);assert.equal(saved.shipping_quote.rate.carrierAmount,525);
+  const finance=await one('SELECT count(*)::int AS count,sum(amount) AS amount FROM financial_transactions');
+  assert.equal(finance.count,1);assert.equal(Number(finance.amount),10);
 });
 const labelClaim=(index=0,owner=account)=>one('SELECT storefront_claim_label($1,$2,$3,$4::jsonb,$5::jsonb) AS result',
   [order,owner,index,JSON.stringify({id:'rate',name:'USPS Ground Advantage',amount:525}),JSON.stringify({length:8,width:6,height:2,weight:7})]);

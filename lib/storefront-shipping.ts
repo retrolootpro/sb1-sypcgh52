@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { addressSchema } from './storefront-model';
+import type { ShippingPromotionMode } from './storefront-shipping-promotion';
 
 export const shippingCustomerSchema = z.object({
   name: z.string().trim().min(2).max(100),
@@ -38,12 +39,12 @@ export const shippingSettingsSchema = z.object({
 export type ShippingCustomer = z.infer<typeof shippingCustomerSchema>;
 export type ShippingSettings = z.infer<typeof shippingSettingsSchema>;
 export type PackageProfile = z.infer<typeof packageProfileSchema>;
-export type ShippingRate = { id: string; name: string; amount: number; estimatedDays: number | null };
+export type ShippingRate = { id: string; name: string; amount: number; estimatedDays: number | null; carrierAmount?: number; discount?: number; promotionGoal?: number | null };
 export type QuotedShipping = { customer: ShippingCustomer; rate: ShippingRate; parcels: number };
-export type ShippingLine = { id: string; quantity: number; unit_amount: number; category: string; platform: string; condition: string; title: string };
+export type ShippingLine = { id: string; quantity: number; unit_amount: number; category: string; platform: string; condition: string; title: string; shippingPromotion?: ShippingPromotionMode };
 
-export function shippingParcels(lines: ShippingLine[], profiles: PackageProfile[]) {
-  const groups = new Map<string, { profile: PackageProfile; quantity: number }>();
+export function shippingPackages(lines: ShippingLine[], profiles: PackageProfile[]) {
+  const groups = new Map<string, { profile: PackageProfile; lines: ShippingLine[] }>();
   for (const line of lines) {
     const matches = profiles.filter(p => p.category.toLowerCase() === line.category.toLowerCase()
       && (!p.platform || p.platform.toLowerCase() === line.platform.toLowerCase())
@@ -54,16 +55,24 @@ export function shippingParcels(lines: ShippingLine[], profiles: PackageProfile[
     if (matches.length > 1 && score(matches[0]) === score(matches[1])) throw new Error(`Multiple package profiles match ${line.title}. Staff must resolve the overlap.`);
     const profile = matches[0];
     const group = groups.get(profile.id);
-    groups.set(profile.id, { profile, quantity: (group?.quantity || 0) + line.quantity });
+    groups.set(profile.id, { profile, lines: [...(group?.lines || []), line] });
   }
-  const parcels: { length: string; width: string; height: string; distance_unit: 'in'; weight: string; mass_unit: 'oz' }[] = [];
-  for (const { profile: p, quantity } of Array.from(groups.values())) {
-    for (let remaining = quantity; remaining > 0; remaining -= p.unitsPerParcel) {
-      const weight = p.packagingWeightOz + Math.min(remaining, p.unitsPerParcel) * p.unitWeightOz;
+  const packages: { parcel: { length: string; width: string; height: string; distance_unit: 'in'; weight: string; mass_unit: 'oz' }; value: number; mode: ShippingPromotionMode }[] = [];
+  for (const { profile: p, lines: grouped } of Array.from(groups.values())) {
+    const units = grouped.flatMap(line => Array.from({ length: line.quantity }, () => line));
+    for (let start = 0; start < units.length; start += p.unitsPerParcel) {
+      const contents = units.slice(start, start + p.unitsPerParcel);
+      const weight = p.packagingWeightOz + contents.length * p.unitWeightOz;
       if (weight > 2400) throw new Error('A package exceeds the supported 150 lb limit. Contact support for a shipping quote.');
-      parcels.push({ length: String(p.lengthIn), width: String(p.widthIn), height: String(p.heightIn), distance_unit: 'in', weight: weight.toFixed(3), mass_unit: 'oz' });
-      if (parcels.length > 10) throw new Error('This cart needs more than 10 packages. Contact support for a shipping quote.');
+      packages.push({ parcel: { length: String(p.lengthIn), width: String(p.widthIn), height: String(p.heightIn), distance_unit: 'in', weight: weight.toFixed(3), mass_unit: 'oz' },
+        value: contents.reduce((sum, line) => sum + line.unit_amount, 0),
+        mode: contents.some(line => line.shippingPromotion === 'excluded') ? 'excluded' : contents.every(line => line.shippingPromotion === 'free') ? 'free' : 'eligible' });
+      if (packages.length > 10) throw new Error('This cart needs more than 10 packages. Contact support for a shipping quote.');
     }
   }
-  return parcels;
+  return packages;
+}
+
+export function shippingParcels(lines: ShippingLine[], profiles: PackageProfile[]) {
+  return shippingPackages(lines, profiles).map(pack => pack.parcel);
 }

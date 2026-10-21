@@ -264,6 +264,12 @@
 .reference-form legend { padding: 0 8px; font-size: 16px; font-weight: 700; }
 .reference-form fieldset > p { margin: 0 0 20px; }
 .reference-full { grid-column: 1/-1; }
+.commerce-reference .shipping-eligibility { font-size: 12px; line-height: 1.5; color: #0c6875; margin: 8px 0; font-weight: 700; }
+.commerce-reference .shipping-progress { display: block; border: 1px solid #bad8d5; border-radius: 6px; background: #eff8f5; color: #092d40; padding: 14px; margin: 12px 0 20px; min-width: 0; }
+.commerce-reference .shipping-progress p { margin: 0 0 8px; font-size: 13px; line-height: 1.5; }
+.commerce-reference .shipping-progress p:last-child { font-size: 12px; margin-bottom: 0; }
+.commerce-reference .shipping-progress a { color: #0c6875; text-decoration: underline; background: none; padding: 0; display: inline; font-size: inherit; }
+.shipping-progress progress { display: block; width: 100%; height: 10px; margin: 12px 0; accent-color: #0c6875; }
 .commerce-reference .storefront-address-search { min-width: 0; margin-bottom: 16px; }
 .commerce-reference .storefront-address-search > input { width: 100%; margin-top: 8px; background: #fff !important; color: #092d40 !important; -webkit-text-fill-color: #092d40; }
 .commerce-reference .storefront-address-search > label { font-size: 14px; font-weight: 700; }

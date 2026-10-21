@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { parseSavedCart } from '@/lib/storefront-model';
+import type { ShippingPromotionMode } from '@/lib/storefront-shipping-promotion';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Check, Gamepad2, MapPin, PackageCheck, ShieldCheck, ShoppingBag } from 'lucide-react';
@@ -21,6 +22,7 @@ type Product = {
   image_url?: string | null;
   thumbnail_url?: string | null;
   brand?: string | null;
+  shippingPromotion?: ShippingPromotionMode;
 };
 
 export default function ProductPage() {
@@ -76,6 +78,7 @@ export default function ProductPage() {
           <div className="commerce-condition"><Check/>{product.condition}</div>
           <div className="commerce-price commerce-detail-price"><strong>${product.price.toFixed(2)}</strong>{product.compare_at_price && product.compare_at_price > product.price ? <del>${product.compare_at_price.toFixed(2)}</del> : null}</div>
           {savings > 0 && <p className="commerce-savings">Save ${savings.toFixed(2)}</p>}
+          {product.shippingPromotion && product.shippingPromotion!=='excluded' && <p className="shipping-eligibility">{product.shippingPromotion==='free'?'Free shipping eligible':'Free shipping eligible on $50+ orders'} · <Link href="/shop/pages/shipping">Offer details</Link></p>}
           <p className="commerce-product-detail-copy">{product.description || 'A live Pixel & Page inventory item with availability managed directly in RetroLootPro.'}</p>
           <div className="commerce-product-specs">
             <div><small>Condition</small><strong>{product.condition}</strong></div>

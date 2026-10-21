@@ -33,7 +33,7 @@ const packageProfile={id:'50000000-0000-4000-8000-000000000001',name:'Games',cat
   unitWeightOz:4,packagingWeightOz:2,lengthIn:8,widthIn:6,heightIn:2,unitsPerParcel:2};
 const shippingSettings={origin:{name:'Shop',email:'shop@example.invalid',address:{line1:'2 Test St',line2:'',city:'Test',state:'FL',postal_code:'32114',country:'US'}},profiles:[packageProfile]};
 function harness({order=null,role='admin',authenticated=true,stockError=false,paid=false,sessionStatus='open',invoicePaid=false,shippoFails=false,settings=shippingSettings,
-  purchaseFails=false,transactionStatus='SUCCESS',forgedMetadata=false,saveLabelFails=false}={}) {
+  purchaseFails=false,transactionStatus='SUCCESS',forgedMetadata=false,saveLabelFails=false,productPrice=10,productPromotion='eligible',rateOverrides}={}) {
   const calls=[],rpc=[],writes=[],shippoCalls=[];
   const labels=[],transactions=[];
   const stripeFetch=async(url,init)=>{
@@ -113,7 +113,7 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
       if(name==='stripe')return LocalStripe;
       if(name==='@/lib/server/supabase-admin')return {createSupabaseAdmin:()=>admin};
       if(name==='@/lib/server-account')return {getServerAccountContext:async()=>({accountId:account,role})};
-      if(name==='@/lib/server/storefront-catalog')return {loadStorefrontCatalog:async()=>({products:[{id:item,title:'Real game',price:10,quantity:20,category:'Games',platform:'SNES',condition:'CIB'}]})};
+      if(name==='@/lib/server/storefront-catalog')return {loadStorefrontCatalog:async()=>({products:[{id:item,title:'Real game',price:productPrice,quantity:20,category:'Games',platform:'SNES',condition:'CIB',shippingPromotion:productPromotion}]})};
       if(name.startsWith('@/'))return load(`${name.slice(2)}.ts`);
       if(name.startsWith('./'))return load(resolve(file,'..',`${name.slice(2)}.ts`));
       return require(name);
@@ -137,7 +137,7 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
       assert.equal(url,'https://api.goshippo.com/shipments/');
       shippoCalls.push(JSON.parse(options.body));
       if(shippoFails)return json({message:'carrier unavailable'},503);
-      return json({rates:[
+      return json({rates:rateOverrides||[
         {object_id:`usps_${shippoCalls.length}`,provider:'USPS',currency:'USD',amount:'5.25',servicelevel:{name:'Ground Advantage',token:'usps_ground_advantage'},estimated_days:4},
         {object_id:`ups_${shippoCalls.length}`,provider:'UPS',currency:'USD',amount:'8.10',servicelevel:{name:'Ground',token:'ups_ground'},estimated_days:3},
         {object_id:`media_${shippoCalls.length}`,provider:'USPS',currency:'USD',amount:'2.00',servicelevel:{name:'Media Mail',token:'usps_media_mail'},estimated_days:6},
@@ -426,6 +426,61 @@ test('carrier invoices use the guest request address, authoritative rate, and a 
   assert.equal(h.rpc.find(c=>c.name==='storefront_reserve_shipping').params.p_shipping.rate.amount,525);
   assert.equal(h.calls.find(c=>c.path==='/v1/shipping_rates').params.get('fixed_amount[amount]'),'525');
   assert.equal(h.calls.find(c=>c.path==='/v1/invoices').params.get('shipping_cost[shipping_rate]'),'shr_Quoted');
+});
+
+test('server promotion sends zero shipping to Stripe checkout while preserving real postage',async()=>{
+  carrierMode();
+  const h=harness({productPrice:50}),items=[{id:item,quantity:1}];
+  const service=h.load('lib/server/storefront-shipping.ts');
+  const quote=await service.shippingQuote(items,quotedCustomer());
+  assert.equal(quote.rates[0].amount,0);assert.equal(quote.rates[0].carrierAmount,525);
+  assert.equal(quote.rates[1].amount,810,'Non-selected standard services stay paid');
+  const response=await h.load('app/api/storefront/checkout/route.ts').POST(post('/api/storefront/checkout',{
+    orderId:id,items,shippingToken:quote.token,shippingRate:quote.rates[0].id,
+  }));
+  assert.equal(response.status,200);
+  const reservation=h.rpc.find(c=>c.name==='storefront_reserve_shipping');
+  assert.equal(reservation.params.p_shipping.rate.discount,525);
+  const session=h.calls.find(c=>c.path==='/v1/checkout/sessions');
+  assert.equal(session.params.get('shipping_options[0][shipping_rate_data][fixed_amount][amount]'),'0');
+});
+test('individual promotion is authoritative and invoice rate can be zero',async()=>{
+  carrierMode();
+  const h=harness({productPrice:40,productPromotion:'free'}),items=[{id:item,quantity:1}];
+  const service=h.load('lib/server/storefront-shipping.ts');
+  const quote=await service.shippingQuote(items,quotedCustomer());
+  assert.equal(quote.rates[0].amount,0);
+  const response=await h.load('app/api/storefront/manage/route.ts').POST(post('/api/storefront/manage',{
+    action:'invoice',orderId:id,requestId,items,shippingToken:quote.token,shippingRate:quote.rates[0].id,
+  },{Authorization:'Bearer staff'}));
+  assert.equal(response.status,200);
+  const rate=h.calls.find(c=>c.path==='/v1/shipping_rates');
+  assert.equal(rate.params.get('fixed_amount[amount]'),'0');
+  assert.equal(h.rpc.find(c=>c.name==='storefront_reserve_shipping').params.p_shipping.rate.carrierAmount,525);
+  const excluded=harness({productPrice:100,productPromotion:'excluded'});
+  assert.equal((await excluded.load('lib/server/storefront-shipping.ts').shippingQuote(items,quotedCustomer())).rates[0].amount,525);
+});
+test('changing inventory offer invalidates a previously signed shipping quote',async()=>{
+  carrierMode();
+  const items=[{id:item,quantity:1}];
+  const quote=await harness({productPrice:50}).load('lib/server/storefront-shipping.ts').shippingQuote(items,quotedCustomer());
+  await assert.rejects(harness({productPrice:50,productPromotion:'excluded'}).load('lib/server/storefront-shipping.ts').verifyShippingQuote(quote.token,quote.rates[0].id,items),/changed/);
+});
+test('only recognized standard services qualify and discounted service becomes the default',async()=>{
+  carrierMode();
+  const priority={object_id:'priority',provider:'USPS',currency:'USD',amount:'4.00',servicelevel:{name:'Priority Mail',token:'usps_priority'},estimated_days:2};
+  const ground={...priority,object_id:'ground',amount:'5.25',servicelevel:{name:'Ground Advantage',token:'usps_ground_advantage'}};
+  const items=[{id:item,quantity:1}];
+  const quote=await harness({productPrice:50,rateOverrides:[priority,ground]}).load('lib/server/storefront-shipping.ts').shippingQuote(items,quotedCustomer());
+  assert.deepEqual(quote.rates.map(r=>[r.name,r.amount]),[['USPS Ground Advantage',0],['USPS Priority Mail',400]]);
+  const noStandard=await harness({productPrice:50,rateOverrides:[priority]}).load('lib/server/storefront-shipping.ts').shippingQuote(items,quotedCustomer());
+  assert.equal(noStandard.rates[0].amount,400);assert.equal(noStandard.rates[0].discount,undefined);
+});
+test('free customer shipping does not waive the actual staff postage purchase',async()=>{
+  carrierMode();
+  const h=harness({order:{...paidShippingOrder,shipping_quote:{...paidShippingOrder.shipping_quote,rate:{name:'USPS Ground Advantage',amount:0,carrierAmount:525,discount:525}}}});
+  const result=await h.load('lib/server/storefront-labels.ts').quoteLabel(id,account,0,parcel);
+  assert.equal(result.rates[0].amount,525);
 });
 test('shipping profile configuration and invoice rates require a store administrator',async()=>{
   carrierMode();

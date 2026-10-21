@@ -72,7 +72,7 @@ export async function loadStorefrontCatalog() {
       const batchIds = ids.slice(offset, offset + ENRICHMENT_BATCH_SIZE);
       const { data: metadataRows, error: metadataError } = await admin
         .from('inventory_items')
-        .select('id,category,item_type,storefront_price,storefront_featured,storefront_description,storefront_category,storefront_compare_at_price')
+        .select('id,category,item_type,storefront_price,storefront_featured,storefront_description,storefront_category,storefront_compare_at_price,storefront_shipping_promotion')
         .eq('user_id', accountId)
         .in('id', batchIds);
 
@@ -119,6 +119,7 @@ export async function loadStorefrontCatalog() {
           compare_at_price: item.storefront_compare_at_price || null,
           quantity: Number(item.quantity || 0),
           featured: Boolean(item.storefront_featured),
+          shippingPromotion: item.storefront_shipping_promotion || 'eligible',
           description: item.storefront_description || null,
           image_url: item.image_url || null,
           thumbnail_url: null,

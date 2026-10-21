@@ -11,6 +11,7 @@ import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
+import type { ShippingPromotionMode } from '@/lib/storefront-shipping-promotion';
 
 type StoreItem = {
   id: string;
@@ -34,6 +35,7 @@ type StoreItem = {
   storefront_category?: string | null;
   storefront_description?: string | null;
   storefront_updated_at?: string | null;
+  storefront_shipping_promotion: ShippingPromotionMode;
 };
 
 export default function StorefrontManagerPage() {
@@ -53,7 +55,7 @@ export default function StorefrontManagerPage() {
       const rows:StoreItem[]=[];
       for(let offset=0;;offset+=500){
         const {data,error}=await supabase.from('inventory_items')
-          .select('id,product_name,console,condition,quantity,status,image_url,thumbnail_url,category,item_type,storefront_enabled,storefront_price,storefront_featured,storefront_category,storefront_description,storefront_updated_at')
+          .select('id,product_name,console,condition,quantity,status,image_url,thumbnail_url,category,item_type,storefront_enabled,storefront_price,storefront_featured,storefront_category,storefront_description,storefront_updated_at,storefront_shipping_promotion')
           .eq('user_id',accountId).order('product_name').order('id').range(offset,offset+499);
         if(error)throw error;
         rows.push(...(data||[]) as StoreItem[]);
@@ -140,7 +142,11 @@ export default function StorefrontManagerPage() {
                   <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-secondary/40">
                     {item.thumbnail_url || item.image_url ? <Image className="h-full w-full object-cover" src={item.thumbnail_url || item.image_url || ''} alt="" width={56} height={56} unoptimized/> : <div className="grid h-full w-full place-items-center"><Store className="h-5 w-5 text-muted-foreground" /></div>}
                   </div>
-                  <div className="min-w-0"><div className="truncate font-semibold">{item.product_name}</div><div className="truncate text-xs text-muted-foreground">{item.console} • {item.condition}</div><label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Switch checked={item.storefront_featured} onCheckedChange={(checked) => patchItem(item.id, { storefront_featured: checked })} />Featured</label></div>
+                  <div className="min-w-0"><div className="truncate font-semibold">{item.product_name}</div><div className="truncate text-xs text-muted-foreground">{item.console} • {item.condition}</div><label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Switch checked={item.storefront_featured} onCheckedChange={(checked) => patchItem(item.id, { storefront_featured: checked })} />Featured</label>
+                    <label className="mt-2 block text-xs">Shipping offer<select aria-label={`Shipping offer for ${item.product_name}`} className="mt-1 w-full rounded border bg-background p-2" disabled={saving===item.id} value={item.storefront_shipping_promotion} onChange={event=>{const value=event.target.value;if(value==='eligible'||value==='free'||value==='excluded')patchItem(item.id,{storefront_shipping_promotion:value});}}>
+                      <option value="eligible">Eligible on $50+ orders</option><option value="free">Individual free-shipping offer</option><option value="excluded">Excluded from free shipping</option>
+                    </select></label><p className="mt-1 text-xs text-muted-foreground">Subject to real standard postage of $8 or less and 15% of eligible merchandise value. Individual offers waive only the $50 minimum.</p>
+                  </div>
                 </div>
                 <div><div className="text-lg font-bold">{item.quantity}</div><div className="text-xs text-muted-foreground">{item.status || 'available'}</div></div>
                 <label className="relative"><span className="sr-only">Online price for {item.product_name}</span><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span><Input key={`${item.id}-${price}`} className="pl-7" type="number" min="0" max="100000" step="0.01" disabled={saving===item.id} defaultValue={price || ''} onBlur={(event) => {const value=Number(event.target.value);if(!Number.isFinite(value)||value<0||value>100000){toast.error('Enter a valid price from 0 to 100000.');return;}if(value!==price)patchItem(item.id,{storefront_price:value||null});}} /></label>

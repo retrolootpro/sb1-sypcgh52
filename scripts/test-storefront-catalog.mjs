@@ -139,9 +139,10 @@ test('uses configured account, condition pricing, product shape and positive-pri
   assert.equal(result.diagnostics.activeInventoryCount, 4);
   assert.deepEqual(Object.keys(result.products[0]).sort(), [
     'id', 'slug', 'title', 'category', 'platform', 'condition', 'price', 'compare_at_price',
-    'quantity', 'featured', 'description', 'image_url', 'thumbnail_url', 'brand', 'barcode', 'created_at',
+    'quantity', 'featured', 'description', 'image_url', 'thumbnail_url', 'brand', 'barcode', 'created_at', 'shippingPromotion',
   ].sort());
   assert.equal(result.profile.store_name, 'Pixel & Page');
+  assert.equal(result.products[0].shippingPromotion,'eligible');
 });
 
 test('empty inventory avoids enrichment queries and unpriced stock retains its warning', async () => {
@@ -188,13 +189,14 @@ test('inventory failure is explicit and stops enrichment', async () => {
 
 test('honors storefront pricing/featured overrides, filters inactive stock, and never publishes internal notes',async()=>{
   const {GET}=harness({inventory:[inventoryItem(1,{notes:'private cost notes'}),inventoryItem(2,{status:'archived'}),inventoryItem(3,{status:'sold'}),inventoryItem(4,{status:'reserved'})],
-    pricing:[pricingRow(1)],metadata:[{id:uuid(1),storefront_price:12.34,storefront_featured:true,storefront_category:'Apparel',storefront_description:'Public description'}]});
+    pricing:[pricingRow(1)],metadata:[{id:uuid(1),storefront_price:12.34,storefront_featured:true,storefront_category:'Apparel',storefront_description:'Public description',storefront_shipping_promotion:'free'}]});
   const body=await(await GET()).json();
   assert.equal(body.products.length,1);
   assert.equal(body.products[0].price,12.34);
   assert.equal(body.products[0].featured,true);
   assert.equal(body.products[0].description,'Public description');
   assert.equal(body.products[0].category,'Apparel');
+  assert.equal(body.products[0].shippingPromotion,'free');
   assert.equal(JSON.stringify(body).includes('private cost notes'),false);
 });
 

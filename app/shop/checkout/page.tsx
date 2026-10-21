@@ -5,8 +5,10 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { parseSavedCart } from '@/lib/storefront-model';
 import { ShippingQuotePicker, type ShippingSelection } from '@/components/storefront-shipping-quote';
+import { ShippingProgress } from '@/components/storefront-shipping-progress';
+import type { ShippingPromotionMode } from '@/lib/storefront-shipping-promotion';
 
-type Product = { id: string; slug: string; title: string; quantity: number; price: number };
+type Product = { id: string; slug: string; title: string; quantity: number; price: number; shippingPromotion?: ShippingPromotionMode };
 type Attempt = { orderId: string; items: { id: string; quantity: number }[]; shippingToken?: string; shippingRate?: string };
 
 export default function CheckoutPage() {
@@ -131,12 +133,15 @@ export default function CheckoutPage() {
         </div>
         <section className="commerce-page-card checkout-summary" aria-label="Order summary">
         <h2>Order summary</h2>
+        <ShippingProgress hasExcludedItems={products.some(p=>cart[p.id]&&p.shippingPromotion==='excluded')} hasIndividualOffers={products.some(p=>cart[p.id]&&p.shippingPromotion==='free')} subtotal={Object.entries(cart).reduce((sum,[id,quantity])=>{
+          const product=products.find(p=>p.id===id);return sum+(product&&product.shippingPromotion!=='excluded'?Math.round(product.price*100)*quantity:0);
+        },0)} quote={shipping?.promotion} hasQuote={!!shipping}/>
         <ul className="reference-cart-list">{Object.entries(cart).map(([id,quantity])=>{
           const product=products.find(item=>item.id===id);
           return <li key={id}><div>{product?<Link href={`/shop/product/${product.slug}`}>{product.title}</Link>:<strong>Item no longer available</strong>}<p>{product?`$${product.price.toFixed(2)} each - ${product.quantity} available`:'Remove this item or request help finding it.'}</p></div><label>Quantity<input type="number" min={1} max={Math.min(20,product?.quantity||20)} value={quantity} disabled={!!attempt} onChange={event=>update(id,Number(event.target.value))}/></label><button disabled={!!attempt} onClick={()=>update(id,0)}>Remove</button></li>;
         })}</ul>
         <h2 className="checkout-subtotal">Item subtotal: ${subtotal.toFixed(2)}</h2>
-        <dl className="checkout-totals"><div><dt>Shipping{shipping ? ` · ${shipping.name}` : ''}</dt><dd>{shipping ? `$${(shipping.amount/100).toFixed(2)}` : 'Not calculated'}</dd></div><div><dt>Sales tax</dt><dd>Calculated in Stripe</dd></div>
+        <dl className="checkout-totals"><div><dt>Shipping{shipping ? ` · ${shipping.name}` : ''}</dt><dd>{shipping ? shipping.amount===0?'Free':`$${(shipping.amount/100).toFixed(2)}` : 'Not calculated'}</dd></div>{!!shipping?.promotion?.discount&&<div><dt>Shipping savings</dt><dd>${(shipping.promotion.discount/100).toFixed(2)}</dd></div>}<div><dt>Sales tax</dt><dd>Calculated in Stripe</dd></div>
           <div className="checkout-total"><dt>Total before tax</dt><dd>${(subtotal+(shipping?.amount||0)/100).toFixed(2)}{!shipping&&carrierShipping?' + shipping':''}</dd></div></dl>
         {missing && <p role="alert">Availability changed or items are reserved by your previous checkout. Resume or cancel it, or remove unavailable items before starting a new checkout.</p>}
         <p id="checkout-next-step" className="checkout-next-step" role="status">{blockedReason}</p>

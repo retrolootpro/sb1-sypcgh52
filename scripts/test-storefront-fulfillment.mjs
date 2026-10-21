@@ -14,9 +14,9 @@ const errors=[];page.on('pageerror',e=>errors.push(e.message));
 const id='30000000-0000-4000-8000-000000000001';
 const owner='10000000-0000-4000-8000-000000000001';
 const customer={name:'Fixture Customer',email:'fixture@example.invalid',address:{line1:'1 Test Street',line2:'Suite 2',city:'Test City',state:'FL',postal_code:'32092',country:'US'}};
-const order={id,kind:'checkout',status:'paid',created_at:'2026-10-21T22:42:34Z',items:[{title:'Gran Turismo 5 Prologue',quantity:1,unit_amount:752}],
-  subtotal_cents:752,total_cents:1325,tax_cents:0,shipping_cents:573,refunded_cents:0,customer:null,tracking:null,
-  shipping_quote:{customer,rate:{name:'USPS Ground Advantage',amount:573},parcels:2}};
+const order={id,kind:'checkout',status:'paid',created_at:'2026-10-21T22:42:34Z',items:[{title:'Gran Turismo 5 Prologue',quantity:1,unit_amount:6000}],
+  subtotal_cents:6000,total_cents:6000,tax_cents:0,shipping_cents:0,refunded_cents:0,customer:null,tracking:null,
+  shipping_quote:{customer,rate:{name:'USPS Ground Advantage',amount:0,carrierAmount:573,discount:573},parcels:2}};
 const rates=[{id:'usps-label',name:'USPS Ground Advantage',amount:573,estimatedDays:4},{id:'ups-label',name:'UPS Ground',amount:900,estimatedDays:3}];
 let labels=[],buyCount=0,quoteCount=0,lastIndex=0,loseResponse=false,shipCount=0;
 const actions=[];
@@ -67,6 +67,8 @@ try {
   assert.equal(await page.locator('pre').count(),0,'No raw JSON customer details');
   assert.match(await card.innerText(),/Fixture Customer/);
   assert.match(await card.innerText(),/1 Test Street/);
+  assert.match(await card.innerText(),/Shipping promotion: \$5.73 covered by the shop/);
+  assert.match(await card.innerText(),/customer paid \$0.00 shipping; a label still must be purchased/);
   await page.getByLabel('Order status',{exact:true}).selectOption('paid');
   assert.equal(await page.getByRole('article').count(),1);
   await page.getByLabel('Find order',{exact:true}).fill('not a matching title');
