@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import './commerce.css';
 import './commerce-fixes.css';
 import './commerce-controls.css';
+import './reference-design.css';
+import ShopFrame from './shop-frame';
 
 export const metadata: Metadata = {
   title: 'Pixel & Page | Games, Books & Collectibles',
@@ -10,5 +12,5 @@ export const metadata: Metadata = {
 };
 
 export default function ShopLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <ShopFrame>{children}</ShopFrame>;
 }

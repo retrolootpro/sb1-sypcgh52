@@ -71,6 +71,7 @@ const navGroups = [
       { href: '/planning?tab=disputes', label: 'Disputes', icon: Gavel },
       { href: '/shipping', label: 'Shipping', icon: Truck },
       { href: '/storefront', label: 'Storefront Manager', icon: Store },
+      { href: '/storefront/requests', label: 'Shop Requests & Orders', icon: ShoppingBag },
       { href: '/shop', label: 'View Online Store', icon: ShoppingBag },
     ],
   },

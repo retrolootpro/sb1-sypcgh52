@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
+import { parseSavedCart } from '@/lib/storefront-model';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { ArrowLeft, Check, Gamepad2, MapPin, PackageCheck, ShieldCheck, ShoppingBag } from 'lucide-react';
@@ -31,6 +33,7 @@ export default function ProductPage() {
 
   useEffect(() => {
     const load = async () => {
+      setLoading(true); setError(''); setProduct(null); setAdded(false);
       try {
         const response = await fetch('/api/storefront/catalog', { cache: 'no-store' });
         const result = await response.json();
@@ -51,21 +54,22 @@ export default function ProductPage() {
 
   const addToCart = () => {
     if (!product) return;
-    let cart: Record<string, number> = {};
-    try { cart = JSON.parse(window.localStorage.getItem('pixel-page-cart') || '{}'); } catch { cart = {}; }
-    cart[product.id] = Math.min(product.quantity, (cart[product.id] || 0) + 1);
-    window.localStorage.setItem('pixel-page-cart', JSON.stringify(cart));
-    setAdded(true);
+    try {
+      const cart = parseSavedCart(window.localStorage.getItem('pixel-page-cart'));
+      cart[product.id] = Math.min(20, product.quantity, (cart[product.id] || 0) + 1);
+      window.localStorage.setItem('pixel-page-cart', JSON.stringify(cart));
+      setAdded(true);
+    } catch (cause) { console.error('Cart:', cause); setError('Your cart could not be saved. Enable browser storage or clear your cart on the checkout page.'); }
   };
 
   if (loading) return <main className="commerce-page"><div className="commerce-empty"><h3>Loading product...</h3></div></main>;
-  if (!product) return <main className="commerce-page"><Link href="/shop" className="commerce-breadcrumbs"><ArrowLeft/>Back to shop</Link><div className="commerce-empty"><h3>{error ? 'Product could not load' : 'This item is no longer available.'}</h3><p>{error || 'It may have sold or been removed from inventory.'}</p><Link href="/shop">Browse live inventory</Link></div></main>;
+  if (!product) return <main className="commerce-page"><Link href="/shop" className="commerce-breadcrumbs"><ArrowLeft/>Back to shop</Link><div className="commerce-empty"><h1>{error ? 'Product could not load' : 'This item is no longer available.'}</h1><p>{error || 'It may have sold or been removed from inventory.'}</p><Link href="/shop">Browse live inventory</Link><Link href="/shop/request">Request an item</Link></div></main>;
 
   return (
     <main className="commerce-product-page">
       <div className="commerce-breadcrumbs"><Link href="/shop">Shop</Link> / <Link href="/shop#catalog">{product.category}</Link> / {product.title}</div>
       <div className="commerce-product-layout">
-        <section className="commerce-product-gallery">{image ? <img src={image} alt={product.title}/> : <div className="commerce-placeholder"><Gamepad2/><span>Image coming soon</span></div>}</section>
+        <section className="commerce-product-gallery">{image ? <Image src={image} alt={product.title} width={650} height={650} unoptimized/> : <div className="commerce-placeholder"><Gamepad2/><span>Image coming soon</span></div>}</section>
         <section className="commerce-product-detail">
           <p className="commerce-kicker">{product.platform || product.category}</p>
           <h1>{product.title}</h1>
@@ -80,9 +84,10 @@ export default function ProductPage() {
             <div><small>Brand</small><strong>{product.brand || 'Pixel & Page inventory'}</strong></div>
           </div>
           <div className="commerce-add-panel"><button type="button" onClick={addToCart} disabled={product.quantity < 1}>{added ? 'Added to cart' : 'Add to cart'}</button></div>
-          <div className="commerce-product-assurances"><span><ShieldCheck/>Card payment in store</span><span><MapPin/>Store pickup</span></div>
-          <div className="commerce-page-card commerce-product-note"><h3>Live RetroLootPro inventory</h3><p><PackageCheck/>Contact the store to confirm this exact item before visiting.</p></div>
-          {added && <Link href="/shop/pages/contact" className="commerce-continue-checkout"><ShoppingBag/>Contact the store</Link>}
+          {error && <p role="alert" className="reference-error">{error}</p>}
+          <div className="commerce-product-assurances"><span><ShieldCheck/>Secure Stripe checkout</span><span><MapPin/>Shipping only</span></div>
+          <div className="commerce-page-card commerce-product-note"><h3>Live RetroLoot inventory</h3><p><PackageCheck/>Stock and pricing are checked again before checkout. Shipping and applicable tax are shown before payment.</p></div>
+          {added && <Link href="/shop/checkout" className="commerce-continue-checkout"><ShoppingBag/>Review cart & checkout</Link>}
         </section>
       </div>
     </main>

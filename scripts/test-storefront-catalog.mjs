@@ -9,7 +9,8 @@ import ts from 'typescript';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const require = createRequire(import.meta.url);
-const source = readFileSync(resolve(root, 'app/api/storefront/catalog/route.ts'), 'utf8');
+const source = readFileSync(resolve(root, 'lib/server/storefront-catalog.ts'), 'utf8');
+const routeSource = readFileSync(resolve(root, 'app/api/storefront/catalog/route.ts'), 'utf8');
 const uuid = (index) => `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
 const inventoryItem = (index, overrides = {}) => ({
   id: uuid(index), user_id: uuid(99999), product_name: `Game ${index}`, console: 'SNES',
@@ -21,7 +22,7 @@ const pricingRow = (index, overrides = {}) => ({
   new_price: 30, fetched_at: '2026-10-20T00:00:00Z', ...overrides,
 });
 
-function harness({ inventory = [], pricing = [], metadata = [], metadataError, pricingErrorAt, inventoryError } = {}, routeSource = source) {
+function harness({ inventory = [], pricing = [], metadata = [], metadataError, pricingErrorAt, inventoryError, storeError } = {}) {
   const requests = [];
   const warnings = [];
   const errors = [];
@@ -38,9 +39,13 @@ function harness({ inventory = [], pricing = [], metadata = [], metadataError, p
         requests.push({ url, method: init?.method || 'GET' });
         assert.equal(init?.method || 'GET', 'GET', 'Catalog must only read data');
         if (url.toString().length > 8192) return json({ message: 'Bad Request' }, 400);
+        if (table === 'storefront_settings') return storeError ? json({ message: storeError }, 503) : json({ user_id: uuid(99999) });
         if (table === 'inventory_items' && params.get('select').includes('user_id')) {
           if (inventoryError) return json({ message: inventoryError }, 503);
-          return json(inventory);
+          assert.equal(params.get('user_id'), `eq.${uuid(99999)}`, 'Always constrain inventory to the configured account');
+          const rows=inventory.filter(item=>item.user_id===uuid(99999)&&item.quantity>0);
+          const offset=Number(params.get('offset')||0);
+          return json(rows.slice(offset,offset+Number(params.get('limit')||500)));
         }
         const filter = params.get(table === 'pricing_data' ? 'item_id' : 'id');
         assert.ok(filter?.startsWith('in.('));
@@ -65,7 +70,7 @@ function harness({ inventory = [], pricing = [], metadata = [], metadataError, p
       },
     },
   });
-  const compiled = ts.transpileModule(routeSource, {
+  const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
   }).outputText;
   const module = { exports: {} };
@@ -74,7 +79,10 @@ function harness({ inventory = [], pricing = [], metadata = [], metadataError, p
     (name) => name === '@/lib/server/supabase-admin' ? { createSupabaseAdmin: () => client } : require(name),
     { error: (...args) => errors.push(args), warn: (...args) => warnings.push(args) },
   );
-  return { GET: module.exports.GET, requests, warnings, errors };
+  const routeModule={exports:{}};
+  const compiledRoute=ts.transpileModule(routeSource,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
+  new Function('exports','module','require','console',compiledRoute)(routeModule.exports,routeModule,name=>name==='@/lib/server/storefront-catalog'?module.exports:require(name),{error:(...args)=>errors.push(args)});
+  return { GET: routeModule.exports.GET, requests, warnings, errors };
 }
 
 test('large catalog stays under URL limits and includes every priced product', async () => {
@@ -116,7 +124,7 @@ test('pricing history is paged and latest non-null prices win without dropping o
   assert.ok(queries.every(({ url }) => url.searchParams.get('limit') === '500'));
 });
 
-test('preserves account selection, condition pricing, product shape and positive-price filter', async () => {
+test('uses configured account, condition pricing, product shape and positive-price filter', async () => {
   const inventory = [
     inventoryItem(1),
     inventoryItem(2, { condition: 'CIB' }),
@@ -128,7 +136,6 @@ test('preserves account selection, condition pricing, product shape and positive
   const response = await GET();
   const result = await response.json();
   assert.deepEqual(result.products.map((item) => item.price), [10, 20, 30]);
-  assert.equal(result.diagnostics.accountCandidates, 2);
   assert.equal(result.diagnostics.activeInventoryCount, 4);
   assert.deepEqual(Object.keys(result.products[0]).sort(), [
     'id', 'slug', 'title', 'category', 'platform', 'condition', 'price', 'compare_at_price',
@@ -141,32 +148,32 @@ test('empty inventory avoids enrichment queries and unpriced stock retains its w
   const empty = harness();
   const result = await (await empty.GET()).json();
   assert.deepEqual(result.products, []);
-  assert.equal(empty.requests.length, 1);
+  assert.equal(empty.requests.length, 2);
   const unpriced = harness({ inventory: [inventoryItem(1)] });
   const body = await (await unpriced.GET()).json();
   assert.equal(body.success, true);
   assert.match(body.warning, /1 in-stock items/);
 });
 
-test('optional metadata failure is logged and retains existing category fallback', async () => {
-  const { GET, warnings } = harness({
+test('metadata failure cannot silently ignore authoritative price overrides', async () => {
+  const { GET, errors } = harness({
     inventory: [inventoryItem(1, { product_name: 'Paperback novel' })],
     pricing: [pricingRow(1)], metadataError: 'Missing metadata columns',
   });
   const response = await GET();
-  assert.equal(response.status, 200);
-  assert.equal((await response.json()).products[0].category, 'Books');
-  assert.equal(warnings.length, 1);
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).success, false);
+  assert.equal(errors.length, 1);
 });
 
 test('pricing failure on a later batch returns an explicit failure, not a partial catalog', async () => {
   const inventory = Array.from({ length: 101 }, (_, index) => inventoryItem(index + 1));
   const { GET, errors } = harness({ inventory, pricing: inventory.map((_, index) => pricingRow(index + 1)), pricingErrorAt: 2 });
   const response = await GET();
-  assert.equal(response.status, 500);
+  assert.equal(response.status, 503);
   const result = await response.json();
   assert.equal(result.success, false);
-  assert.match(result.message, /Pricing query failed: Pricing backend unavailable/);
+  assert.match(result.message, /Inventory is temporarily unavailable/);
   assert.equal(result.products, undefined);
   assert.equal(errors.length, 1);
 });
@@ -174,7 +181,25 @@ test('pricing failure on a later batch returns an explicit failure, not a partia
 test('inventory failure is explicit and stops enrichment', async () => {
   const { GET, requests } = harness({ inventoryError: 'Inventory unavailable' });
   const response = await GET();
-  assert.equal(response.status, 500);
-  assert.match((await response.json()).message, /Inventory query failed/);
-  assert.equal(requests.length, 1);
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).message, /Inventory is temporarily unavailable/);
+  assert.equal(requests.length, 2);
+});
+
+test('honors storefront pricing/featured overrides, filters inactive stock, and never publishes internal notes',async()=>{
+  const {GET}=harness({inventory:[inventoryItem(1,{notes:'private cost notes'}),inventoryItem(2,{status:'archived'}),inventoryItem(3,{status:'sold'}),inventoryItem(4,{status:'reserved'})],
+    pricing:[pricingRow(1)],metadata:[{id:uuid(1),storefront_price:12.34,storefront_featured:true,storefront_category:'Apparel',storefront_description:'Public description'}]});
+  const body=await(await GET()).json();
+  assert.equal(body.products.length,1);
+  assert.equal(body.products[0].price,12.34);
+  assert.equal(body.products[0].featured,true);
+  assert.equal(body.products[0].description,'Public description');
+  assert.equal(body.products[0].category,'Apparel');
+  assert.equal(JSON.stringify(body).includes('private cost notes'),false);
+});
+
+test('missing store configuration never falls back to another inventory owner',async()=>{
+  const {GET,requests}=harness({storeError:'Missing configuration'});
+  assert.equal((await GET()).status,503);
+  assert.equal(requests.length,1);
 });
