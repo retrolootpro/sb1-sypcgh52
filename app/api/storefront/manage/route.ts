@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 const invoiceSchema = z.object({ action: z.literal('invoice'), orderId: z.string().uuid(), requestId: z.string().uuid(),
   items: cartSchema, shippingRate: z.string().min(1).max(100), shippingToken: z.string().max(12000).optional() });
 const actionSchema = z.object({ action: z.enum(['review','close','retry','cancel','ship']), id: z.string().uuid(),
-  tracking: z.string().trim().min(3).max(200).optional() });
+  tracking: z.string().trim().min(3).max(2000).optional() });
 
 export async function POST(request: NextRequest) {
   return commerceRoute(async () => {
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
     if (body.action === 'ship') {
       if (!body.tracking) throw new CommerceError('Enter the carrier and tracking number.');
       const { error: updateError } = await admin.rpc('storefront_ship',{p_id:order.id,p_account:accountId,p_tracking:body.tracking});
-      if (updateError) throw new CommerceError('Only paid orders can be marked shipped.', 409);
+      if (updateError) throw new CommerceError('Only paid, unrefunded orders with no unresolved package labels can be marked shipped. Complete or reconcile every label first.', 409);
       return {};
     }
     const { stripe } = paymentConfig();

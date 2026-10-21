@@ -16,6 +16,8 @@ const customer={id:requestId,account_id:account,name:'Guest Customer',email:'gue
   address:{line1:'1 Test St',line2:'',city:'Test',state:'FL',postal_code:'32114',country:'US'}};
 const secret='whsec_local_test_only';
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'Content-Type':'application/json'}});
+const parcel={length:11,width:8.5,height:2,weight:7};
+const paidShippingOrder={status:'paid',refunded_cents:0,shipping_quote:{customer,rate:{name:'USPS Ground Advantage',amount:525},parcels:1}};
 
 beforeEach(()=>{
   Object.assign(process.env,{STRIPE_SECRET_KEY:'sk_test_local_only',STRIPE_WEBHOOK_SECRET:secret,STRIPE_SHIPPING_RATE_IDS:'shr_TestRate',
@@ -30,8 +32,10 @@ beforeEach(()=>{
 const packageProfile={id:'50000000-0000-4000-8000-000000000001',name:'Games',category:'Games',platform:'',condition:'',
   unitWeightOz:4,packagingWeightOz:2,lengthIn:8,widthIn:6,heightIn:2,unitsPerParcel:2};
 const shippingSettings={origin:{name:'Shop',email:'shop@example.invalid',address:{line1:'2 Test St',line2:'',city:'Test',state:'FL',postal_code:'32114',country:'US'}},profiles:[packageProfile]};
-function harness({order=null,role='admin',authenticated=true,stockError=false,paid=false,sessionStatus='open',invoicePaid=false,shippoFails=false,settings=shippingSettings}={}) {
+function harness({order=null,role='admin',authenticated=true,stockError=false,paid=false,sessionStatus='open',invoicePaid=false,shippoFails=false,settings=shippingSettings,
+  purchaseFails=false,transactionStatus='SUCCESS',forgedMetadata=false,saveLabelFails=false}={}) {
   const calls=[],rpc=[],writes=[],shippoCalls=[];
+  const labels=[],transactions=[];
   const stripeFetch=async(url,init)=>{
     const path=new URL(String(url)).pathname;
     const params=new URLSearchParams(init.body||'');
@@ -60,11 +64,20 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
     from(table){
       let patch=null;const filters={};
       const chain={
-        select(){return chain;},eq(key,value){filters[key]=value;return chain;},in(key,value){filters[key]=value;return chain;},
+        select(){return chain;},eq(key,value){filters[key]=value;return chain;},in(key,value){filters[key]=value;return chain;},order(){return chain;},
         update(value){patch=value;return chain;},insert(value){writes.push({table,value});return Promise.resolve({error:null});},
         single(){return chain;},maybeSingle(){return chain;},
         then(resolve){
-          if(patch){writes.push({table,patch,filters});return Promise.resolve({data:null,error:null}).then(resolve);}
+          if(patch){
+            writes.push({table,patch,filters});
+            if(table==='storefront_labels'){
+              if(saveLabelFails)return Promise.resolve({error:{message:'DB unavailable after charge'}}).then(resolve);
+              const label=labels.find(l=>l.id===filters.id&&l.status===filters.status);if(label)Object.assign(label,patch);
+              return Promise.resolve({data:label,error:null}).then(resolve);
+            }
+            return Promise.resolve({data:null,error:null}).then(resolve);
+          }
+          if(table==='storefront_labels')return Promise.resolve({data:labels.filter(l=>l.order_id===filters.order_id&&l.account_id===filters.account_id),error:null}).then(resolve);
           if(table==='storefront_settings')return Promise.resolve({data:{user_id:account,shipping_config:settings},error:null}).then(resolve);
           if(table==='storefront_orders')return Promise.resolve({data:order||reserved?snapshot:null,error:null}).then(resolve);
           if(table==='storefront_requests')return Promise.resolve({data:customer,error:null}).then(resolve);
@@ -79,6 +92,13 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
       if(name==='storefront_reserve'||name==='storefront_reserve_shipping'){reserved=true;if(params.p_shipping)snapshot.shipping_quote=params.p_shipping;return {data:snapshot,error:stockError?{message:'stock changed'}:null};}
       if(name==='storefront_apply_payment')return {error:null};
       if(name==='storefront_cancel_unstarted')return {data:!order,error:null};
+      if(name==='storefront_claim_label'){
+        const existing=labels.find(l=>l.order_id===params.p_order&&l.parcel_index===params.p_index);
+        if(existing)return {data:{claimed:false,label:existing},error:null};
+        const label={id:'60000000-0000-4000-8000-000000000001',order_id:params.p_order,account_id:params.p_account,
+          parcel_index:params.p_index,status:'purchasing',rate:params.p_rate,parcel:params.p_parcel,transaction_id:null};
+        labels.push(label);return {data:{claimed:true,label},error:null};
+      }
       throw new Error(`Unexpected RPC ${name}`);
     }
   };
@@ -98,6 +118,22 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
       if(name.startsWith('./'))return load(resolve(file,'..',`${name.slice(2)}.ts`));
       return require(name);
     },{error(){},warn(){}},async(url,options)=>{
+      if(url.startsWith('https://api.goshippo.com/transactions/')){
+        const body=options.body?JSON.parse(options.body):null;
+        shippoCalls.push({url,body});
+        if(body){
+          const value={object_id:'a'.repeat(32),status:transactionStatus,metadata:forgedMetadata?'other-order':body.metadata,
+            rate:body.rate,test:!process.env.SHIPPO_API_KEY.startsWith('shippo_live_'),
+            label_url:transactionStatus==='SUCCESS'?'https://labels.goshippo.com/test.pdf':null,
+            tracking_number:transactionStatus==='SUCCESS'?'9400000000000000000000':null,
+            tracking_url_provider:transactionStatus==='SUCCESS'?'https://tools.usps.com/go/TrackConfirmAction?tLabels=9400000000000000000000':null,
+            messages:transactionStatus==='ERROR'?[{text:'Carrier rejected parcel'}]:[]};
+          transactions.push(value);
+          if(purchaseFails)throw new Error('Connection lost after provider may have charged');
+          return json(value);
+        }
+        return json(transactions[0]);
+      }
       assert.equal(url,'https://api.goshippo.com/shipments/');
       shippoCalls.push(JSON.parse(options.body));
       if(shippoFails)return json({message:'carrier unavailable'},503);
@@ -109,7 +145,7 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
     });
     modules.set(file,module.exports);return module.exports;
   }
-  return {load,calls,rpc,writes,snapshot,shippoCalls};
+  return {load,calls,rpc,writes,snapshot,shippoCalls,labels,transactions};
 }
 const post=(path,body,headers={})=>new NextRequest(`http://localhost:3218${path}`,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
 const cart={orderId:id,items:[{id:item,quantity:1,unit_amount:1}]};
@@ -408,4 +444,127 @@ test('live Stripe cannot be paired with a test Shippo key',()=>{
   assert.throws(config,/not configured/);
   process.env.SHIPPO_API_KEY='shippo_live_local_only';
   assert.equal(config().carrierShipping,true);
+});
+
+test('label endpoints require staff administrator access before calling Shippo',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  for(const opts of [{authenticated:false},{role:'member'}]){
+    const h=harness({...opts,order:paidShippingOrder});
+    const route=h.load('app/api/storefront/labels/route.ts');
+    const response=await route.POST(post('/api/storefront/labels',{action:'quote',orderId:id,index:0,parcel},{Authorization:'Bearer staff'}));
+    assert.ok([401,403].includes(response.status));assert.equal(h.shippoCalls.length,0);
+  }
+});
+test('label quote rejects unpaid, refunded, absent shipping and invalid packages',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  for(const order of [{...paidShippingOrder,status:'pending'},{...paidShippingOrder,refunded_cents:100},{...paidShippingOrder,shipping_quote:null}]){
+    const h=harness({order});
+    await assert.rejects(h.load('lib/server/storefront-labels.ts').quoteLabel(id,account,0,parcel));
+    assert.equal(h.shippoCalls.length,0);
+  }
+  const h=harness({order:paidShippingOrder});
+  await assert.rejects(h.load('lib/server/storefront-labels.ts').quoteLabel(id,account,1,parcel));
+});
+test('label quote binds paid order, measured parcel and stored address without catalog stock lookup',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  const h=harness({order:paidShippingOrder});
+  const quote=await h.load('lib/server/storefront-labels.ts').quoteLabel(id,account,0,parcel);
+  assert.equal(quote.rates.length,2);
+  assert.equal(quote.rates[0].amount,525);
+  assert.equal(h.shippoCalls[0].parcels[0].weight,'7');
+  assert.equal(h.shippoCalls[0].address_to.street1,customer.address.line1);
+  assert.equal(h.rpc.length,0);
+  assert.deepEqual(quote.destination.address,customer.address);
+});
+test('confirmed label purchase persists a single claim before charging and saves PDF and tracking',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  const h=harness({order:paidShippingOrder});
+  const labels=h.load('lib/server/storefront-labels.ts');
+  const quote=await labels.quoteLabel(id,account,0,parcel);
+  const result=await labels.buyLabel(id,account,quote.token,quote.rates[0].id);
+  assert.equal(result.status,'success');assert.equal(result.tracking_number,'9400000000000000000000');
+  assert.equal(h.rpc[0].name,'storefront_claim_label');
+  assert.equal(h.transactions.length,1);
+  assert.equal(h.shippoCalls.at(-1).body.label_file_type,'PDF_4x6');
+  await assert.rejects(labels.buyLabel(id,account,quote.token,quote.rates[0].id),/already has a purchase/);
+  assert.equal(h.transactions.length,1);
+  assert.equal(h.rpc.some(r=>r.name==='storefront_apply_payment'||r.name.startsWith('storefront_reserve')),false);
+});
+test('label quote tampering, order mismatch, stale origin and missing cost confirmation never purchase postage',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  const settings=structuredClone(shippingSettings);
+  const h=harness({order:paidShippingOrder,settings});
+  const labels=h.load('lib/server/storefront-labels.ts');
+  const quote=await labels.quoteLabel(id,account,0,parcel);
+  await assert.rejects(labels.buyLabel(id,account,quote.token+'bad',quote.rates[0].id),/Invalid/);
+  await assert.rejects(labels.buyLabel(requestId,account,quote.token,quote.rates[0].id),/another order/);
+  const route=h.load('app/api/storefront/labels/route.ts');
+  const result=await route.POST(post('/api/storefront/labels',{action:'buy',orderId:id,token:quote.token,rateId:quote.rates[0].id},{Authorization:'Bearer staff'}));
+  assert.equal(result.status,400);
+  settings.origin.address.line1='Changed origin';
+  await assert.rejects(labels.buyLabel(id,account,quote.token,quote.rates[0].id),/Shipping details changed/);
+  assert.equal(h.transactions.length,0);
+});
+test('lost charge response locks repurchase and reconciles only the matching provider transaction',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  const h=harness({order:paidShippingOrder,purchaseFails:true});
+  const labels=h.load('lib/server/storefront-labels.ts');
+  const quote=await labels.quoteLabel(id,account,0,parcel);
+  await assert.rejects(labels.buyLabel(id,account,quote.token,quote.rates[0].id),/outcome needs review/);
+  await assert.rejects(labels.buyLabel(id,account,quote.token,quote.rates[0].id),/already has a purchase/);
+  assert.equal(h.transactions.length,1);
+  const result=await labels.refreshLabel(id,account,h.labels[0].id,'a'.repeat(32));
+  assert.equal(result.status,'success');
+  assert.equal(h.transactions.length,1);
+});
+test('provider rejection, queued labels and forged transaction metadata never report usable labels',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  for(const [options,expected] of [[{transactionStatus:'ERROR'},'error'],[{transactionStatus:'QUEUED'},'pending'],[{forgedMetadata:true},'purchasing'],[{saveLabelFails:true},'purchasing']]){
+    const h=harness({order:paidShippingOrder,...options});
+    const labels=h.load('lib/server/storefront-labels.ts');
+    const quote=await labels.quoteLabel(id,account,0,parcel);
+    if(expected==='purchasing')await assert.rejects(labels.buyLabel(id,account,quote.token,quote.rates[0].id),/outcome needs review/);
+    else assert.equal((await labels.buyLabel(id,account,quote.token,quote.rates[0].id)).status,expected);
+    assert.equal(h.labels[0].status,expected);
+    await assert.rejects(labels.buyLabel(id,account,quote.token,quote.rates[0].id),/already has a purchase/);
+    assert.equal(h.transactions.length,1);
+  }
+});
+test('expired label quotes and customer checkout tokens cannot authorize postage',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  const h=harness({order:paidShippingOrder});
+  const labels=h.load('lib/server/storefront-labels.ts');
+  const quote=await labels.quoteLabel(id,account,0,parcel);
+  const now=Date.now;
+  Date.now=()=>quote.expires+1;
+  try{await assert.rejects(labels.buyLabel(id,account,quote.token,quote.rates[0].id),/expired/);}
+  finally{Date.now=now;}
+  const cartQuote=await h.load('lib/server/storefront-shipping.ts').shippingQuote([{id:item,quantity:1}],customer);
+  await assert.rejects(labels.buyLabel(id,account,cartQuote.token,cartQuote.rates[0].id),/Invalid label quote/);
+  assert.equal(h.transactions.length,0);
+});
+test('concurrent label purchases charge once and refresh does not create a new transaction',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  const h=harness({order:paidShippingOrder});
+  const labels=h.load('lib/server/storefront-labels.ts');
+  const quote=await labels.quoteLabel(id,account,0,parcel);
+  const results=await Promise.allSettled([labels.buyLabel(id,account,quote.token,quote.rates[0].id),labels.buyLabel(id,account,quote.token,quote.rates[0].id)]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+  await labels.refreshLabel(id,account,h.labels[0].id);
+  assert.equal(h.transactions.length,1);
+});
+test('reconciliation rejects another transaction metadata or rate and reflects provider refunds',async()=>{
+  process.env.SHIPPO_API_KEY='shippo_test_local';
+  const h=harness({order:paidShippingOrder});
+  const labels=h.load('lib/server/storefront-labels.ts');
+  const quote=await labels.quoteLabel(id,account,0,parcel);
+  await labels.buyLabel(id,account,quote.token,quote.rates[0].id);
+  h.transactions[0].rate='another-rate';
+  await assert.rejects(labels.refreshLabel(id,account,h.labels[0].id),/does not match/);
+  h.transactions[0].rate=quote.rates[0].id;
+  h.transactions[0].status='REFUNDED';
+  const result=await labels.refreshLabel(id,account,h.labels[0].id);
+  assert.equal(result.status,'error');
+  assert.match(result.message,/Do not use/);
+  assert.equal(h.transactions.length,1);
 });

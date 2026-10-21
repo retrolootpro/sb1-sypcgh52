@@ -46,6 +46,7 @@ before(async()=>{
   assert.deepEqual((await db.query('SELECT id,quantity,storefront_price,storefront_enabled FROM inventory_items ORDER BY id')).rows,inventoryBefore.rows);
   await db.exec(readFileSync('supabase/migrations/20261021170000_storefront_commerce.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/20261021200000_storefront_shipping.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261021230000_storefront_labels.sql','utf8'));
 });
 after(()=>db.close());
 beforeEach(()=>db.exec('BEGIN'));
@@ -55,6 +56,58 @@ test('reserves once under idempotent retries and rejects cart-key reuse',async()
   await reserve();await reserve();
   assert.equal((await one('SELECT quantity FROM inventory_items WHERE id=$1',[item])).quantity,1);
   await assert.rejects(reserve(order,lines,'checkout',null,account,'different'),/different cart/);
+});
+const labelClaim=(index=0,owner=account)=>one('SELECT storefront_claim_label($1,$2,$3,$4::jsonb,$5::jsonb) AS result',
+  [order,owner,index,JSON.stringify({id:'rate',name:'USPS Ground Advantage',amount:525}),JSON.stringify({length:8,width:6,height:2,weight:7})]);
+async function paidLabelOrder(parcels=1) {
+  await reserve();
+  await db.query("UPDATE storefront_orders SET stripe_id='cs_test_order',shipping_quote=$1::jsonb WHERE id=$2",[JSON.stringify({parcels}),order]);
+  await event('evt_paid','paid',{total:1600,tax:100,shipping:500});
+}
+test('label claim is durable and idempotent without stock or revenue changes',async()=>{
+  await paidLabelOrder();
+  const inventory=(await db.query('SELECT * FROM inventory_items ORDER BY id')).rows;
+  const finance=(await db.query('SELECT * FROM financial_transactions')).rows;
+  const first=(await labelClaim()).result;
+  const retry=(await labelClaim()).result;
+  assert.equal(first.claimed,true);assert.equal(retry.claimed,false);
+  assert.equal(first.label.id,retry.label.id);
+  assert.deepEqual((await db.query('SELECT * FROM inventory_items ORDER BY id')).rows,inventory);
+  assert.deepEqual((await db.query('SELECT * FROM financial_transactions')).rows,finance);
+});
+test('label claims reject unpaid, refunded, wrong-account and nonexistent parcels',async()=>{
+  await reserve();
+  await db.exec('SAVEPOINT label_check');
+  await assert.rejects(labelClaim(),/Only paid/);
+  await db.exec('ROLLBACK TO SAVEPOINT label_check');
+  await db.query("UPDATE storefront_orders SET status='paid',shipping_quote='{\"parcels\":1}' WHERE id=$1",[order]);
+  for(const action of [()=>labelClaim(1),()=>labelClaim(0,other),async()=>{
+    await db.query('UPDATE storefront_orders SET refunded_cents=100 WHERE id=$1',[order]);await labelClaim();
+  }]){
+    await db.exec('SAVEPOINT label_check');
+    await assert.rejects(action());
+    await db.exec('ROLLBACK TO SAVEPOINT label_check');
+  }
+});
+test('all parcel labels must finish before dispatch and tracking supports multiple packages',async()=>{
+  await paidLabelOrder(2);await labelClaim(0);
+  await db.exec('SAVEPOINT dispatch');
+  await assert.rejects(db.query('SELECT storefront_ship($1,$2,$3)',[order,account,'USPS tracking']),/Resolve and complete/);
+  await db.exec('ROLLBACK TO SAVEPOINT dispatch');
+  await db.exec("UPDATE storefront_labels SET status='success'");
+  await db.exec('SAVEPOINT dispatch');
+  await assert.rejects(db.query('SELECT storefront_ship($1,$2,$3)',[order,account,'USPS tracking']),/Resolve and complete/);
+  await db.exec('ROLLBACK TO SAVEPOINT dispatch');
+  await labelClaim(1);await db.exec("UPDATE storefront_labels SET status='success'");
+  await db.query('SELECT storefront_ship($1,$2,$3)',[order,account,'USPS tracking '.repeat(30)]);
+  assert.equal((await one('SELECT status FROM storefront_orders WHERE id=$1',[order])).status,'shipped');
+});
+test('label records and claims are not accessible to browser database roles',async()=>{
+  const result=await one(`SELECT
+    has_table_privilege('anon','storefront_labels','SELECT') AS anon_read,
+    has_table_privilege('authenticated','storefront_labels','INSERT') AS browser_write,
+    has_function_privilege('authenticated','storefront_claim_label(uuid,uuid,integer,jsonb,jsonb)','EXECUTE') AS browser_claim`);
+  assert.deepEqual(result,{anon_read:false,browser_write:false,browser_claim:false});
 });
 test('shipping reservation saves the accepted rate and address in the stock transaction',async()=>{
   const quote={customer:{name:'Test customer',address:{postal_code:'32114'}},rate:{name:'USPS Ground Advantage',amount:525},parcels:1};

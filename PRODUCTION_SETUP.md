@@ -382,10 +382,9 @@ and request new shipping options. The webhook preserves the accepted delivery
 address for staff fulfillment. Requested-item invoices use the same rate
 service, based on the saved guest-request address.
 
-No labels are purchased by this integration. Pirate Ship may still be used for
-fulfillment; its label prices can differ from the Shippo checkout quote. Staff
-record tracking on the paid order. Shipment address/rate data sent to Shippo is
-used only to provide the requested shipping service.
+Customer checkout only quotes shipping; it never purchases labels. Authorized
+staff can explicitly buy postage on paid orders using the fulfillment flow below.
+Pirate Ship remains an alternative; its prices can differ from checkout quotes.
 
 Public checkout uses a delivery/shipping panel and a separate order summary
 (stacked on mobile). The summary shows selected shipping and the total before
@@ -401,3 +400,61 @@ and cancellation/retry behavior. Prefer an isolated test database and test keys
 for complete payment acceptance. Never make test-mode purchases against real
 production stock, and never claim a successful real charge from mocked tests
 or configuration-presence checks.
+
+### Staff fulfillment and shipping labels
+
+With approval, apply `20261021230000_storefront_labels.sql` before deploying the
+label UI/API. It adds service-only fulfillment records and an atomic, order-locked
+claim for each package. It does not change existing stock, finance, or orders.
+Dispatch now rejects refunded orders and unresolved/incomplete package labels.
+
+**Shop Requests & Orders** opens on the order queue rather than an empty
+requests column. Paid orders come first, with page-scoped status/search filters,
+customer-selected shipping service, shipping collected, formatted delivery
+address/contact, and totals. Requests/invoice creation remain in a separate view.
+This screen and label purchasing retain the existing store-administrator access
+requirement; ordinary account members are not newly authorized to spend money.
+
+For a paid, unrefunded carrier-shipping order:
+
+1. Open **Manage postage & labels** and choose the package (up to the original
+   checkout's ten-package limit). Measure the actual packed dimensions in inches
+   and packed weight in ounces. No item-only weights or measurements are guessed.
+2. **Get label prices** requests fresh supported USPS/UPS/FedEx rates from Shippo
+   using the saved delivery address and current return address. It does not charge.
+   The original customer service is preferred if available. A different selected
+   service shows a warning. Staff must review any service/cost difference.
+3. Review origin, destination, packed measurements, service, and postage cost.
+   Tick the explicit purchase authorization and click **Buy label**. This makes
+   a real charge against the configured Shippo account; it is not another customer
+   Stripe charge. Quotes expire after 15 minutes and changes invalidate consent.
+4. Successful purchases save the 4x6 PDF URL, carrier tracking URL/number and
+   transaction ID. Print the PDF. Refreshing or reopening never buys another label.
+5. Repeat for each package. Once all labels succeed, their tracking pre-fills the
+   dispatch field. **Mark shipped** remains a separate action for actual dispatch.
+   Customer shipping emails and automatic carrier-delivery updates are not included.
+
+A durable database claim is saved **before** a single, non-retried Shippo
+transaction POST. Duplicate clicks and concurrent requests cannot purchase the
+same package twice. A timeout, invalid response, or database save failure leaves
+the package locked, not retryable. Known transactions can be refreshed without a
+charge. For an unknown outcome, find the transaction in Shippo by metadata
+`storefront-label:<purchase-reference>` and reconcile its transaction ID. The
+server verifies rate, metadata and live/test mode before accepting it. If there
+is no matching transaction, an administrator must investigate with Shippo; do not
+delete the claim or blindly retry. Replacements, label refunds/voids and package
+count changes are deliberately not automatic. Review these in Shippo/support.
+
+Orders without a saved carrier quote require external postage. Tracking from an
+external label can still be entered when no integrated purchase was started.
+Label cost is saved separately from customer shipping collected; this release
+does not automatically book postage expenses in Finance. Carrier billing
+adjustments for inaccurate measurements can occur later.
+
+Validate without live purchases:
+`node --test scripts/test-storefront-payments.mjs`,
+`npm exec --package=@electric-sql/pglite -- node --test scripts/test-storefront-commerce-db.mjs`,
+and `npm exec --package=playwright -- node scripts/test-storefront-fulfillment.mjs http://127.0.0.1:3218`.
+The browser fixture uses a local test Supabase build and intercepts all staff,
+auth, payment and carrier requests. A live label acceptance requires separate
+staff confirmation; a paid Stripe order alone does not mean postage was bought.

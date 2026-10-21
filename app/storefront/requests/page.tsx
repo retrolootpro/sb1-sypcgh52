@@ -7,13 +7,11 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
 import { ShippingQuotePicker, type ShippingSelection } from '@/components/storefront-shipping-quote';
+import { StorefrontOrderCard, type StorefrontOrder } from '@/components/storefront-order-card';
 
 type ItemRequest = { id:string; name:string; email:string; item:string; platform:string; notes:string; status:string;
   address:{line1:string;line2:string;city:string;state:string;postal_code:string;country:string}; created_at:string };
 type Product = {id:string;title:string;price:number;quantity:number;platform:string;condition:string};
-type Order = {id:string;request_id:string|null;kind:string;status:string;stripe_id:string|null;payment_url:string|null;email_sent:boolean;
-  items:{title:string;quantity:number;unit_amount:number}[];subtotal_cents:number;total_cents:number|null;tax_cents:number;shipping_cents:number;
-  customer:unknown;tracking:string|null;refunded_cents:number;created_at:string};
 type Rate = {id:string;name:string;amount:number};
 const money=(cents:number)=>`$${(cents/100).toFixed(2)}`;
 
@@ -30,7 +28,7 @@ async function api(path:string,body?:unknown) {
 export default function StorefrontRequestsPage() {
   const {accountId,isAdmin}=useAuth();
   const [requests,setRequests]=useState<ItemRequest[]>([]);
-  const [orders,setOrders]=useState<Order[]>([]);
+  const [orders,setOrders]=useState<StorefrontOrder[]>([]);
   const [products,setProducts]=useState<Product[]>([]);
   const [rates,setRates]=useState<Rate[]>([]);
   const [shippingRate,setShippingRate]=useState('');
@@ -45,6 +43,9 @@ export default function StorefrontRequestsPage() {
   const [notice,setNotice]=useState('');
   const [setup,setSetup]=useState('');
   const [page,setPage]=useState(0);
+  const [view,setView]=useState<'orders'|'requests'>('orders');
+  const [orderFilter,setOrderFilter]=useState('all');
+  const [orderQuery,setOrderQuery]=useState('');
   const customer=requests.find(row=>row.id===selected);
 
   const load=useCallback(async()=>{
@@ -81,15 +82,25 @@ export default function StorefrontRequestsPage() {
     await action({action:'invoice',requestId:customer.id,orderId,shippingRate:shipping?.shippingRate||shippingRate,...(shipping?{shippingToken:shipping.shippingToken}:{}),items:Object.entries(lines).map(([id,quantity])=>({id,quantity}))});
   };
   const matching=products.filter(row=>`${row.title} ${row.platform} ${row.condition}`.toLowerCase().includes(query.toLowerCase())).slice(0,40);
+  const visibleOrders=orders.filter(order=>(orderFilter==='all'||order.status===orderFilter||orderFilter==='pending'&&order.status==='creating')
+    && `${order.id} ${order.items.map(item=>item.title).join(' ')} ${order.shipping_quote?.customer.name||''}`.toLowerCase().includes(orderQuery.toLowerCase()))
+    .sort((a,b)=>Number(b.status==='paid')-Number(a.status==='paid')||b.created_at.localeCompare(a.created_at));
   return <DashboardLayout><div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-7">
-    <header className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-2xl font-bold">Shop requests & orders</h1><p className="mt-2 text-sm text-muted-foreground">Review guest requests, source items into RetroLoot, then email a Stripe invoice. All purchases ship; there is no local pickup.</p></div><div className="flex flex-wrap gap-3"><Button asChild variant="outline"><Link href="/storefront/shipping">Shipping & packages</Link></Button><Button asChild variant="outline"><Link href="/storefront">Inventory & pricing</Link></Button><Button disabled={busy||loading} onClick={load}>Refresh</Button></div></header>
+    <header className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">Pixel & Page · Fulfillment</p><h1 className="text-2xl font-bold sm:text-3xl">Shop requests & orders</h1><p className="mt-2 max-w-2xl text-sm text-muted-foreground">Review paid orders, prepare the customer-selected shipping service, and purchase postage when the package is ready. Online only; no local pickup.</p></div><div className="flex flex-wrap gap-3"><Button asChild variant="outline"><Link href="/storefront/shipping">Shipping & packages</Link></Button><Button asChild variant="outline"><Link href="/storefront">Inventory & pricing</Link></Button><Button disabled={busy||loading} onClick={load}>Refresh</Button></div></header>
     {!isAdmin?<p role="alert">Store administrator access is required.</p>:<>
       {error&&<p role="alert" className="rounded-lg border border-red-500 p-4 text-red-500">{error}</p>}
       {notice&&<p role="status" className="rounded-lg border p-4">{notice}</p>}
       {setup&&<p className="rounded-lg border border-amber-500 p-4">Payments are not ready: {setup} Requests can still be reviewed. No live payments are enabled by this screen.</p>}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Current page overview">{[
+        ['Ready to ship',orders.filter(o=>o.status==='paid').length],
+        ['Awaiting payment',orders.filter(o=>['pending','creating'].includes(o.status)).length],
+        ['Shipped',orders.filter(o=>o.status==='shipped').length],
+        ['Open requests',requests.filter(r=>['new','reviewing'].includes(r.status)).length],
+      ].map(([label,count])=><div className="rounded-xl border bg-card p-4" key={label}><p className="text-xs text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-bold">{count}</p></div>)}</div>
+      <div className="flex flex-wrap gap-2 border-b pb-3" aria-label="Fulfillment views"><Button variant={view==='orders'?'default':'outline'} aria-pressed={view==='orders'} onClick={()=>setView('orders')}>Orders & invoices ({orders.length})</Button><Button variant={view==='requests'?'default':'outline'} aria-pressed={view==='requests'} onClick={()=>setView('requests')}>Customer requests ({requests.length})</Button></div>
       <div className="flex flex-wrap items-center gap-3"><Button variant="outline" disabled={page===0||loading||busy} onClick={()=>setPage(value=>value-1)}>Previous</Button><span>Page {page+1} · up to 50 requests and 50 orders</span><Button variant="outline" disabled={loading||busy||(requests.length<50&&orders.length<50)} onClick={()=>setPage(value=>value+1)}>Next</Button></div>
-      {loading?<p role="status">Loading requests and orders...</p>:<div className="grid gap-6 lg:grid-cols-2">
-        <section className="space-y-4"><h2 className="text-xl font-semibold">Customer requests</h2>{!requests.length&&<p>No requests on this page.</p>}
+      {loading?<p role="status">Loading requests and orders...</p>:<div>
+        {view==='requests'&&<section className="space-y-4"><h2 className="text-xl font-semibold">Customer requests</h2>{!requests.length&&<div className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">No requests on this page. Requests submitted by shoppers will appear here for review.</div>}
           {requests.map(row=><article key={row.id} className="space-y-3 rounded-xl border bg-card p-5">
             <div className="flex flex-wrap justify-between gap-2"><h3 className="font-bold">{row.item}</h3><span>{row.status}</span></div>
             <p className="break-words text-sm">{row.name} · <a className="underline" href={`mailto:${row.email}`}>{row.email}</a> · {row.platform}</p><p className="whitespace-pre-wrap break-words text-sm">{row.notes}</p>
@@ -100,21 +111,13 @@ export default function StorefrontRequestsPage() {
               <Button disabled={busy} variant="outline" onClick={()=>action({action:'close',id:row.id})}>Close request</Button>
             </div>}
           </article>)}
-        </section>
-        <section className="space-y-4"><h2 className="text-xl font-semibold">Orders & invoices</h2>{!orders.length&&<p>No orders on this page.</p>}
-          {orders.map(order=><article className="space-y-3 rounded-xl border bg-card p-5" key={order.id}>
-            <h3 className="break-all font-bold">{order.kind} · {order.status} · {order.id.slice(0,8)}</h3>
-            <ul className="text-sm">{order.items.map((item,index)=><li key={index}>{item.quantity} × {item.title} · {money(item.quantity*item.unit_amount)}</li>)}</ul>
-            <p className="text-sm">Item subtotal {money(order.subtotal_cents)}{order.total_cents!==null?` · Paid total ${money(order.total_cents)} · Tax ${money(order.tax_cents)} · Shipping ${money(order.shipping_cents)}`:''}</p>
-            {order.refunded_cents>0&&<p>Refunded: {money(order.refunded_cents)}. Inspect returned items before manually restocking.</p>}
-            {order.customer!=null&&<details><summary className="cursor-pointer text-sm">Shipping / contact details</summary><pre className="whitespace-pre-wrap break-words text-xs">{JSON.stringify(order.customer,null,2)}</pre></details>}
-            {order.tracking&&<p className="break-words text-sm">Tracking: {order.tracking}</p>}
-            {order.payment_url&&<div className="flex flex-wrap gap-3"><a href={order.payment_url} target="_blank" rel="noreferrer" className="underline">Open Stripe payment page</a><Button variant="outline" onClick={async()=>{try{await navigator.clipboard.writeText(order.payment_url!);setNotice('Payment link copied.');}catch{setError('Could not copy. Open the Stripe link and copy its address.');}}}>Copy payment link</Button></div>}
-            {order.kind==='invoice'&&<p className="text-sm">{order.email_sent?'Invoice email sent by Stripe.':'Invoice email not yet sent. Use Retry if creation was interrupted.'}</p>}
-            {['creating','pending'].includes(order.status)&&<div className="flex flex-wrap gap-2"><Button disabled={busy||!!setup} onClick={()=>action({action:'retry',id:order.id})}>Retry / recover payment</Button><Button variant="outline" disabled={busy} onClick={()=>action({action:'cancel',id:order.id})}>Cancel unpaid order & release stock</Button></div>}
-            {order.status==='paid'&&<form className="flex flex-wrap gap-2" onSubmit={event=>{event.preventDefault();const tracking=String(new FormData(event.currentTarget).get('tracking')||'');action({action:'ship',id:order.id,tracking});}}><label className="min-w-0 flex-1 text-sm">Carrier and tracking number<input name="tracking" required minLength={3} maxLength={200} className="mt-1 w-full rounded-md border bg-background p-2"/></label><Button disabled={busy} type="submit">Mark shipped</Button></form>}
-          </article>)}
-        </section>
+        </section>}
+        {view==='orders'&&<section className="space-y-5" aria-label="Orders and invoices">
+          <div className="flex flex-wrap items-end gap-3"><label className="min-w-0 flex-1 text-sm">Find order<input className="mt-1 w-full rounded-md border bg-background p-3" value={orderQuery} onChange={e=>setOrderQuery(e.target.value)} placeholder="Item, customer, or order reference"/></label><label className="text-sm">Order status<select aria-label="Order status" className="mt-1 w-full rounded-md border bg-background p-3" value={orderFilter} onChange={e=>setOrderFilter(e.target.value)}><option value="all">All orders</option><option value="paid">Ready to ship</option><option value="pending">Awaiting payment</option><option value="shipped">Shipped</option><option value="cancelled">Cancelled</option></select></label></div>
+          <p className="text-xs text-muted-foreground">Counts, search and filters apply to this page. Paid orders are shown first.</p>
+          {!visibleOrders.length&&<p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">No matching orders on this page.</p>}
+          <div className={`grid items-start gap-5 ${visibleOrders.length>1?'xl:grid-cols-2':''}`}>{visibleOrders.map(order=><StorefrontOrderCard key={order.id} order={order} api={api} action={action} busy={busy} setup={setup}/>)}</div>
+        </section>}
       </div>}
       {customer&&<section className="space-y-4 rounded-xl border bg-card p-5" aria-label="Create invoice">
         <h2 className="text-xl font-bold">Invoice for {customer.name}: {customer.item}</h2><p>Only in-stock, priced inventory can be invoiced. Update the price in Storefront Manager before selecting an item. Shipping and automatic tax are added by Stripe. The invoice is emailed immediately.</p>

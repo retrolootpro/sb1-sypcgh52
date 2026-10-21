@@ -38,13 +38,13 @@ export async function pricedShippingLines(items: z.infer<typeof cartSchema>) {
   });
 }
 
-function quoteSignature(payload: string) {
+export function quoteSignature(payload: string, purpose = 'storefront-shipping-v1') {
   const key = process.env.SHIPPO_API_KEY;
   if (!key) throw new CommerceError('Carrier shipping is not configured. Contact support.', 503);
-  return createHmac('sha256', key).update(`storefront-shipping-v1:${payload}`).digest();
+  return createHmac('sha256', key).update(`${purpose}:${payload}`).digest();
 }
 
-async function shippoShipment(origin: ShippingCustomer, destination: ShippingCustomer, parcel: ReturnType<typeof shippingParcels>[number]) {
+export async function shippoShipment(origin: ShippingCustomer, destination: ShippingCustomer, parcel: ReturnType<typeof shippingParcels>[number]) {
   const key = process.env.SHIPPO_API_KEY;
   if (!key) throw new CommerceError('Carrier shipping is not configured. Contact support.', 503);
   const address = (customer: ShippingCustomer) => ({
