@@ -4,12 +4,14 @@ import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { requestSchema } from '@/lib/storefront-model';
+import { StorefrontAddressSearch } from '@/components/storefront-address-search';
 
 export default function ItemRequestPage() {
   const params = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [address, setAddress] = useState({ line1: '', line2: '', city: '', state: '', postal_code: '', country: '' });
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -38,13 +40,16 @@ export default function ItemRequestPage() {
           <label className="reference-full">Preferences and notes<textarea name="notes" rows={4} maxLength={2000} placeholder="Condition, edition, budget, or other details. Do not include payment details."/></label>
         </div>
         <fieldset><legend>Shipping address for a possible invoice</legend><p>We ship orders only. This lets us prepare the correct shipping and tax if we find your item.</p>
+          <StorefrontAddressSearch disabled={busy} onSelect={result => setAddress(current => ({
+            line1: result.line1, line2: current.line2, city: result.city, state: result.state, postal_code: result.postal_code, country: result.country,
+          }))}/>
           <div className="reference-form-grid">
-            <label className="reference-full">Address line 1<input name="line1" autoComplete="shipping address-line1" required maxLength={150}/></label>
-            <label className="reference-full">Address line 2 (optional)<input name="line2" autoComplete="shipping address-line2" maxLength={150}/></label>
-            <label>City<input name="city" autoComplete="shipping address-level2" required maxLength={100}/></label>
-            <label>State / province<input name="state" autoComplete="shipping address-level1" required maxLength={100}/></label>
-            <label>Postal code<input name="postal_code" autoComplete="shipping postal-code" required maxLength={20}/></label>
-            <label>Country code<input name="country" autoComplete="shipping country" placeholder="US" required pattern="[A-Za-z]{2}" maxLength={2}/></label>
+            <label className="reference-full">Address line 1<input name="line1" value={address.line1} onChange={e=>setAddress({...address,line1:e.target.value})} autoComplete="shipping address-line1" required maxLength={150}/></label>
+            <label className="reference-full">Address line 2 (optional)<input name="line2" value={address.line2} onChange={e=>setAddress({...address,line2:e.target.value})} autoComplete="shipping address-line2" maxLength={150}/></label>
+            <label>City<input name="city" value={address.city} onChange={e=>setAddress({...address,city:e.target.value})} autoComplete="shipping address-level2" required maxLength={100}/></label>
+            <label>State / province<input name="state" value={address.state} onChange={e=>setAddress({...address,state:e.target.value})} autoComplete="shipping address-level1" required maxLength={100}/></label>
+            <label>Postal code<input name="postal_code" value={address.postal_code} onChange={e=>setAddress({...address,postal_code:e.target.value})} autoComplete="shipping postal-code" required maxLength={20}/></label>
+            <label>Country code<input name="country" value={address.country} onChange={e=>setAddress({...address,country:e.target.value})} autoComplete="shipping country" placeholder="US" required pattern="[A-Za-z]{2}" maxLength={2}/></label>
           </div>
         </fieldset>
         <label className="reference-honeypot" aria-hidden="true">Website<input name="website" tabIndex={-1} autoComplete="off"/></label>

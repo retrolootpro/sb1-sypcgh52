@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { type ShippingCustomer, type ShippingRate } from '@/lib/storefront-shipping';
+import { StorefrontAddressSearch } from '@/components/storefront-address-search';
 
 export type ShippingSelection = { shippingToken: string; shippingRate: string; expires: number; amount: number; name: string };
 type Quote = { token: string; rates: ShippingRate[]; parcels: number; expires: number };
@@ -51,6 +52,9 @@ export function ShippingQuotePicker({ items, requestId, onSelect, disabled = fal
     <fieldset disabled={disabled || busy} className="space-y-4">
       {!requestId && <div className="grid gap-4 sm:grid-cols-2">
         {(['name', 'email'] as const).map(key => <label key={key} className="block">{key === 'name' ? 'Recipient name' : 'Email for receipt'}<input required autoComplete={key === 'name' ? 'shipping name' : 'email'} type={key === 'email' ? 'email' : 'text'} value={customer[key]} onChange={e => setCustomer({ ...customer, [key]: e.target.value })} className="mt-1 w-full rounded border bg-background p-3"/></label>)}
+        <div className="sm:col-span-2"><StorefrontAddressSearch disabled={disabled || busy} onSelect={address => setCustomer(current => ({ ...current, address: {
+          line1: address.line1, line2: current.address.line2, city: address.city, state: address.state, postal_code: address.postal_code, country: address.country,
+        } }))}/></div>
         {(['line1', 'line2', 'city', 'state', 'postal_code'] as const).map(key => <label className="block" key={key}>{({ line1: 'Delivery address', line2: 'Apartment / suite (optional)', city: 'City', state: 'State (2 letters)', postal_code: 'ZIP code' })[key]}<input autoComplete={({ line1: 'shipping address-line1', line2: 'shipping address-line2', city: 'shipping address-level2', state: 'shipping address-level1', postal_code: 'shipping postal-code' })[key]} value={customer.address[key]} onChange={e => setCustomer({ ...customer, address: { ...customer.address, [key]: e.target.value } })} className="mt-1 w-full rounded border bg-background p-3"/></label>)}
         <p className="self-end p-3">Country: United States</p>
       </div>}

@@ -264,6 +264,14 @@
 .reference-form legend { padding: 0 8px; font-size: 16px; font-weight: 700; }
 .reference-form fieldset > p { margin: 0 0 20px; }
 .reference-full { grid-column: 1/-1; }
+.commerce-reference .storefront-address-search { min-width: 0; margin-bottom: 16px; }
+.commerce-reference .storefront-address-search > input { width: 100%; margin-top: 8px; background: #fff !important; color: #092d40 !important; -webkit-text-fill-color: #092d40; }
+.commerce-reference .storefront-address-search > label { font-size: 14px; font-weight: 700; }
+.commerce-reference .storefront-address-search :is(.address-search-help,.address-search-status,.address-search-attribution) { font-size: 12px; line-height: 1.5; margin: 8px 0; color: #456171; }
+.commerce-reference .storefront-address-search a { text-decoration: underline; }
+.commerce-reference .storefront-address-search [role="listbox"] { margin: 8px 0; padding: 0; list-style: none; border: 1px solid #8499a3; border-radius: 5px; background: #fff; color: #092d40; max-height: 280px; overflow-y: auto; }
+.commerce-reference .storefront-address-search [role="option"] { padding: 12px; min-height: 44px; border-bottom: 1px solid #dce1e3; cursor: pointer; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.commerce-reference .storefront-address-search [role="option"]:is(:hover,[aria-selected="true"]) { background: #e8f2f4; }
 .reference-form .reference-honeypot { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .reference-error { background: #fff0e9; border: 1px solid #c44b29; padding: 16px; margin: 16px 0; color: #8a2510; line-height: 1.6; overflow-wrap: anywhere; }
 .reference-cart-list { list-style: none; padding: 0; margin: 0 0 24px; }

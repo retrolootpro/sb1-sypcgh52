@@ -41,6 +41,7 @@ const pages: Record<string, Page> = {
   privacy: { title: 'Privacy', intro: 'We use customer information to review requests, process purchases, ship orders, and provide support.', sections: [
     { title: 'Information you provide', body: 'Item requests collect your name, email, shipping address, and request details. Orders contain item, shipping, contact, and payment-status information. Please do not include sensitive information in request notes.' },
     { title: 'Service providers', body: 'Our hosting and database providers process information needed to operate the store. Stripe securely handles payment information, invoices, tax calculations, and configured shipping charges. Card details are not stored in RetroLoot.' },
+    { title: 'Optional address search', body: 'When you type in the optional address-search box, the search text is sent to Geoapify to suggest US addresses. You may skip search and enter your address manually. Suggestions are not a guarantee of postal delivery. Shippo processes delivery and package details to quote shipping and purchase postage when authorized by staff.' },
     { title: 'Questions and deletion requests', body: 'Email support@pixelandpagellc.com with privacy questions or requests. Records needed for accounting, legal, or order obligations may need to be retained.' },
   ] },
   terms: { title: 'Website terms', intro: 'Review the exact item, shipping address, and final total before paying.', sections: [

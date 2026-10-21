@@ -458,3 +458,26 @@ and `npm exec --package=playwright -- node scripts/test-storefront-fulfillment.m
 The browser fixture uses a local test Supabase build and intercepts all staff,
 auth, payment and carrier requests. A live label acceptance requires separate
 staff confirmation; a paid Stripe order alone does not mean postage was bought.
+
+### Optional address search
+
+Set `NEXT_PUBLIC_GEOAPIFY_API_KEY` in Netlify Production (including Builds scope)
+and rebuild. This browser key is intentionally public; restrict allowed website
+origins in Geoapify and monitor the Free plan quota. No Google billing setup is
+needed. Without the key, only normal manual/browser-autofill address fields appear.
+
+Checkout and guest item requests share an optional US address search. After at
+least four characters and a 450ms typing pause, the browser sends search text to
+Geoapify; names, email and apartment/suite are not included automatically. No
+lookup is made on focus alone. Results require street number, street, city,
+two-letter state and ZIP; incomplete or non-US results are not used to guess
+missing fields. Selection fills editable address fields and preserves the
+separately entered apartment/suite. At checkout, changing address fields clears
+the old shipping choice and requires a new shipping quote.
+
+The control supports keyboard selection, Escape, screen-reader status, touch/click
+and manual entry. Requests are aborted on changes/blur; late responses cannot
+replace newer results. Provider/network errors are visible and never prevent
+manual entry. No address history is stored by the lookup component. Geoapify and
+OpenStreetMap attribution is displayed beside the search, with disclosure in the
+privacy page. Suggestions are not postal deliverability validation.
