@@ -22,7 +22,7 @@ beforeEach(()=>{
     STRIPE_SHIPPING_COUNTRIES:'US',STOREFRONT_SITE_URL:'http://localhost:3218',NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',
     NEXT_PUBLIC_SUPABASE_ANON_KEY:'test',SUPABASE_SERVICE_ROLE_KEY:'test-only'});
   delete process.env.STRIPE_LIVE_PAYMENTS_ENABLED;
-  delete process.env.STOREFRONT_PAYMENTS_ENABLED;
+  process.env.STOREFRONT_PAYMENTS_ENABLED='true';
 });
 
 function harness({order=null,role='admin',authenticated=true,stockError=false,paid=false,sessionStatus='open',invoicePaid=false}={}) {
@@ -119,6 +119,14 @@ test('production payment switch blocks checkout and invoicing before stock or St
   assert.equal(h.rpc.some(call=>call.name==='storefront_reserve'),false);
   assert.equal(h.calls.length,0);
   assert.equal(h.writes.length,0);
+});
+test('new payments require explicit runtime enablement rather than relying on build-only environment variables',async()=>{
+  delete process.env.STOREFRONT_PAYMENTS_ENABLED;
+  const h=harness();
+  const readiness=await h.load('app/api/storefront/checkout/route.ts').GET(new NextRequest('http://localhost:3218/api/storefront/checkout'));
+  assert.equal((await readiness.json()).paymentReady,false);
+  await assert.rejects(h.load('lib/server/storefront-payments.ts').createCheckout(h.snapshot),/not enabled/);
+  assert.equal(h.calls.length,0);
 });
 test('disabled new payments do not block guest requests or cancellation of unstarted checkout',async()=>{
   process.env.STOREFRONT_PAYMENTS_ENABLED='false';

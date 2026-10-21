@@ -262,6 +262,9 @@ or sharing. Do not send payment-card details through request notes or email.
    payments. Existing payment status checks, signed webhook reconciliation, and
    unpaid-order cancellation remain available when their Stripe configuration
    is present.
+   The runtime also defaults to disabled if `STOREFRONT_PAYMENTS_ENABLED` is
+   absent; enabling payments requires the explicit string `true` in the
+   Functions runtime environment, not just the build environment.
 8. Run acceptance in a preview/test environment with test-only credentials and
    `STOREFRONT_PAYMENTS_ENABLED=true`. Never expose test-mode purchases against
    real production stock. Keep `STRIPE_LIVE_PAYMENTS_ENABLED=false` until the

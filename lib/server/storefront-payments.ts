@@ -13,7 +13,7 @@ export type Order = {
 };
 
 export function requirePaymentsEnabled() {
-  if (process.env.STOREFRONT_PAYMENTS_ENABLED === 'false') {
+  if (process.env.STOREFRONT_PAYMENTS_ENABLED !== 'true') {
     throw new CommerceError('Online payments are not enabled yet. Please submit an item request or email support.', 503);
   }
 }
