@@ -4,6 +4,8 @@ import { cartSchema, addressSchema } from '@/lib/storefront-model';
 import { commerceRoute, CommerceError, readCommerceBody, requireStoreAdmin, fingerprint } from '@/lib/server/storefront-http';
 import { createRequestInvoice, createCheckout, saveOrder, paymentConfig, requirePaymentsEnabled, type Order } from '@/lib/server/storefront-payments';
 import { loadStorefrontCatalog } from '@/lib/server/storefront-catalog';
+import { loadShippingSettings, verifyShippingQuote } from '@/lib/server/storefront-shipping';
+import { shippingCustomerSchema } from '@/lib/storefront-shipping';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +23,8 @@ export async function GET(request: NextRequest) {
     let paymentReady = false;
     let setupMessage = '';
     try {
-      const { stripe, rates } = paymentConfig();
+      const { stripe, rates, carrierShipping } = paymentConfig();
+      if (carrierShipping) await loadShippingSettings(accountId);
       shippingRates = await Promise.all(rates.map(async (id) => {
         const rate = await stripe.shippingRates.retrieve(id);
         if (!rate.active || rate.type !== 'fixed_amount' || rate.fixed_amount?.currency !== 'usd') throw new Error('Configure active USD fixed-amount Stripe shipping rates.');
@@ -33,12 +36,12 @@ export async function GET(request: NextRequest) {
       setupMessage = error instanceof Error ? error.message : 'Stripe configuration unavailable.';
       console.warn('Storefront payment configuration:', setupMessage);
     }
-    return { requests: requests.data, orders: orders.data, shippingRates, paymentReady, setupMessage };
+    return { requests: requests.data, orders: orders.data, shippingRates, paymentReady, setupMessage, carrierShipping: process.env.STOREFRONT_SHIPPING_PROVIDER === 'shippo' };
   });
 }
 
 const invoiceSchema = z.object({ action: z.literal('invoice'), orderId: z.string().uuid(), requestId: z.string().uuid(),
-  items: cartSchema, shippingRate: z.string().regex(/^shr_[a-zA-Z0-9]+$/) });
+  items: cartSchema, shippingRate: z.string().min(1).max(100), shippingToken: z.string().max(12000).optional() });
 const actionSchema = z.object({ action: z.enum(['review','close','retry','cancel','ship']), id: z.string().uuid(),
   tracking: z.string().trim().min(3).max(200).optional() });
 
@@ -54,31 +57,34 @@ export async function POST(request: NextRequest) {
     }
     if (body.action === 'invoice') {
       requirePaymentsEnabled();
-      const { rates, countries } = paymentConfig();
-      if (!rates.includes(body.shippingRate)) throw new CommerceError('Choose a configured shipping rate.');
+      const { rates, countries, carrierShipping } = paymentConfig();
+      if (!carrierShipping && !rates.includes(body.shippingRate)) throw new CommerceError('Choose a configured shipping rate.');
+      if (carrierShipping && !body.shippingToken) throw new CommerceError('Get a shipping quote before creating an invoice.');
       const { data: customer, error } = await admin.from('storefront_requests').select('*').eq('id', body.requestId).eq('account_id', accountId).single();
       if (error || !customer) throw new CommerceError('Request not found.', 404);
       const address = addressSchema.parse(customer.address);
       if (!countries.includes(address.country)) throw new CommerceError('Address is outside your shipping regions.');
       const items = [...body.items].sort((a,b) => a.id.localeCompare(b.id));
-      const hash = fingerprint({ kind: 'invoice', requestId: body.requestId, items, rate: body.shippingRate });
+      const hash = fingerprint({ kind: 'invoice', requestId: body.requestId, items, rate: body.shippingRate, ...(body.shippingToken ? { shippingToken: body.shippingToken } : {}) });
       const { data: existing, error: existingError } = await admin.from('storefront_orders').select('*').eq('id', body.orderId).maybeSingle();
       if (existingError) throw existingError;
       let order = existing as Order | null;
       if (order && (order.account_id !== accountId || order.fingerprint !== hash)) throw new CommerceError('Invoice key already used.', 409);
       if (!order) {
-        const catalog = await loadStorefrontCatalog();
-        const lines = items.map((line) => {
-          const item = catalog.products.find((row) => row.id === line.id);
+        const quoted = carrierShipping ? await verifyShippingQuote(body.shippingToken!, body.shippingRate, items, shippingCustomerSchema.parse(customer)) : null;
+        const catalog = quoted ? null : await loadStorefrontCatalog();
+        const lines = quoted?.lines || items.map((line) => {
+          const item = catalog!.products.find((row) => row.id === line.id);
           if (!item || item.quantity < line.quantity) throw new CommerceError('Select in-stock, priced RetroLoot inventory.', 409);
           return { ...line, unit_amount: Math.round(item.price * 100) };
         });
-        const reserved = await admin.rpc('storefront_reserve', {
+        const reserved = await admin.rpc(quoted ? 'storefront_reserve_shipping' : 'storefront_reserve', {
           p_id: body.orderId, p_account: accountId, p_kind: 'invoice', p_request: body.requestId, p_fingerprint: hash, p_items: lines,
+          ...(quoted ? { p_shipping: quoted.shipping } : {}),
         });
         if (reserved.error) throw new CommerceError('Request already has an invoice, or stock changed. Refresh before trying again.', 409);
         order = reserved.data as Order;
-        await saveOrder(order.id, { shipping_rate: body.shippingRate });
+        if (!quoted) await saveOrder(order.id, { shipping_rate: body.shippingRate });
       }
       const url = await createRequestInvoice(order, { ...customer, address }, body.shippingRate);
       const { error: statusError } = await admin.from('storefront_requests').update({ status: 'invoiced' })
@@ -99,8 +105,8 @@ export async function POST(request: NextRequest) {
     if (body.action === 'retry') {
       if (order.kind === 'checkout') return { url: await createCheckout(order) };
       const customer = await admin.from('storefront_requests').select('*').eq('id',order.request_id).eq('account_id',accountId).single();
-      if (customer.error || !customer.data || !order.shipping_rate) throw new CommerceError('Invoice needs reconciliation. Verify the shipping rate and customer details.', 409);
-      const url = await createRequestInvoice(order, { ...customer.data, address: addressSchema.parse(customer.data.address) }, order.shipping_rate);
+      if (customer.error || !customer.data || (!order.shipping_rate && !order.shipping_quote)) throw new CommerceError('Invoice needs reconciliation. Verify the shipping rate and customer details.', 409);
+      const url = await createRequestInvoice(order, { ...customer.data, address: addressSchema.parse(customer.data.address) }, order.shipping_rate || order.shipping_quote!.rate.id);
       const update = await admin.from('storefront_requests').update({ status: 'invoiced' }).eq('id',order.request_id).in('status',['new','reviewing']);
       if (update.error) throw update.error;
       return { url };

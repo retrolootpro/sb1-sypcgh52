@@ -4,9 +4,10 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { parseSavedCart } from '@/lib/storefront-model';
+import { ShippingQuotePicker, type ShippingSelection } from '@/components/storefront-shipping-quote';
 
 type Product = { id: string; slug: string; title: string; quantity: number; price: number };
-type Attempt = { orderId: string; items: { id: string; quantity: number }[] };
+type Attempt = { orderId: string; items: { id: string; quantity: number }[]; shippingToken?: string; shippingRate?: string };
 
 export default function CheckoutPage() {
   const params = useSearchParams();
@@ -20,6 +21,8 @@ export default function CheckoutPage() {
   const [status, setStatus] = useState('');
   const [ready, setReady] = useState(false);
   const [setupMessage, setSetupMessage] = useState('');
+  const [carrierShipping, setCarrierShipping] = useState(false);
+  const [shipping, setShipping] = useState<ShippingSelection | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,7 +52,7 @@ export default function CheckoutPage() {
           const configuration=await fetch('/api/storefront/checkout',{cache:'no-store'});
           const setup=await configuration.json();
           if (!configuration.ok) throw new Error(setup.message||'Checkout configuration could not load.');
-          if (!cancelled) {setReady(setup.paymentReady);setSetupMessage(setup.message||'');}
+          if (!cancelled) {setReady(setup.paymentReady);setSetupMessage(setup.message||'');setCarrierShipping(!!setup.carrierShipping);}
           const saved = parseSavedCart(localStorage.getItem('pixel-page-cart'));
           const previous = sessionStorage.getItem('pixel-page-checkout');
           if (previous) {
@@ -80,7 +83,8 @@ export default function CheckoutPage() {
     setBusy(true);setError('');
     try {
       const items=Object.entries(cart).map(([id,quantity])=>({id,quantity}));
-      const input=resume && attempt ? attempt : {orderId:crypto.randomUUID(),items};
+      if (!resume && carrierShipping && (!shipping || shipping.expires <= Date.now())) throw new Error('Get fresh shipping options before continuing.');
+      const input=resume && attempt ? attempt : {orderId:crypto.randomUUID(),items,...(shipping ? { shippingToken: shipping.shippingToken, shippingRate: shipping.shippingRate } : {})};
       sessionStorage.setItem('pixel-page-checkout',JSON.stringify(input));setAttempt(input);
       const response=await fetch('/api/storefront/checkout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(input)});
       const result=await response.json();
@@ -103,7 +107,7 @@ export default function CheckoutPage() {
   const missing=Object.entries(cart).some(([id,quantity])=>!products.some(product=>product.id===id&&product.quantity>=quantity));
   const subtotal=Object.entries(cart).reduce((sum,[id,quantity])=>sum+(products.find(product=>product.id===id)?.price||0)*quantity,0);
   return <main className="commerce-page">
-    <header className="commerce-page-header"><p className="commerce-kicker">SECURE ONLINE SHOPPING</p><h1>{sessionId?'Payment confirmation':'Your cart'}</h1><p>Shipping only. Review your items, then continue to Stripe for your shipping address, delivery options, automatic tax, and payment.</p></header>
+    <header className="commerce-page-header"><p className="commerce-kicker">SECURE ONLINE SHOPPING</p><h1>{sessionId?'Payment confirmation':'Your cart'}</h1><p>Shipping only. Review your items{carrierShipping ? ', enter your delivery address and choose a carrier service here' : ''}, then continue to Stripe for {carrierShipping ? 'automatic tax and secure payment' : 'your shipping address, delivery options, automatic tax, and payment'}.</p></header>
     {error && <div role="alert" className="reference-error">{error} <a href="mailto:support@pixelandpagellc.com">Contact support</a></div>}
     {!sessionId && setupMessage && <p role="status">{setupMessage} <Link href="/shop/request">Request an item</Link></p>}
     {loading?<p role="status">Loading checkout...</p>: sessionId ? <section className="commerce-page-card" role="status">
@@ -119,7 +123,8 @@ export default function CheckoutPage() {
         })}</ul>
         <h2>Item subtotal: ${subtotal.toFixed(2)}</h2><p>Shipping and tax are added in Stripe before payment. A cart does not reserve stock. Current prices are rechecked by the server.</p>
         {missing && <p role="alert">Availability changed or items are reserved by your previous checkout. Resume or cancel it, or remove unavailable items before starting a new checkout.</p>}
-        <button className="reference-primary" disabled={busy||missing||!!attempt||!ready} onClick={()=>pay()}>{busy?'Connecting to Stripe...':'Continue to Stripe checkout'}</button>
+        {carrierShipping && !attempt && <ShippingQuotePicker items={Object.entries(cart).map(([id,quantity])=>({id,quantity}))} onSelect={setShipping} disabled={busy||missing}/>}
+        <button className="reference-primary" disabled={busy||missing||!!attempt||!ready||(carrierShipping&&!shipping)} onClick={()=>pay()}>{busy?'Connecting to Stripe...':'Continue to Stripe checkout'}</button>
       </section>}
       <div className="reference-page-actions"><Link href="/shop#catalog">Continue shopping</Link><Link href="/shop/request">Request an item</Link><button disabled={busy||!!attempt} onClick={()=>{try{localStorage.removeItem('pixel-page-cart');setCart({});setError('');}catch{setError('Browser storage is unavailable.');}}}>Clear cart</button></div>
     </>}

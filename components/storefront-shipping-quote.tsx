@@ -1,0 +1,68 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase';
+import { type ShippingCustomer, type ShippingRate } from '@/lib/storefront-shipping';
+
+export type ShippingSelection = { shippingToken: string; shippingRate: string; expires: number };
+type Quote = { token: string; rates: ShippingRate[]; parcels: number; expires: number };
+const emptyCustomer: ShippingCustomer = { name: '', email: '', address: { line1: '', line2: '', city: '', state: '', postal_code: '', country: 'US' } };
+
+export function ShippingQuotePicker({ items, requestId, onSelect, disabled = false }: {
+  items: { id: string; quantity: number }[]; requestId?: string;
+  onSelect: (selection: ShippingSelection | null) => void; disabled?: boolean;
+}) {
+  const [customer, setCustomer] = useState(emptyCustomer);
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [rate, setRate] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [expired, setExpired] = useState(false);
+  const cartKey = JSON.stringify(items);
+  const customerKey = JSON.stringify(customer);
+  useEffect(() => { setQuote(null); setRate(''); setError(''); setExpired(false); onSelect(null); }, [cartKey, customerKey, requestId, onSelect]);
+  useEffect(() => {
+    if (!quote) return;
+    const timer = setTimeout(() => { setExpired(true); onSelect(null); }, Math.max(0, quote.expires - Date.now()));
+    return () => clearTimeout(timer);
+  }, [quote, onSelect]);
+  const getRates = async () => {
+    setBusy(true); setError(''); setExpired(false); setQuote(null); onSelect(null);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (requestId) {
+        const { data: { session }, error } = await supabase.auth.getSession();
+        if (error || !session) throw new Error('Sign in again before requesting invoice shipping.');
+        headers.Authorization = `Bearer ${session.access_token}`;
+      }
+      const response = await fetch('/api/storefront/shipping', { method: 'POST', headers,
+        body: JSON.stringify(requestId ? { action: 'invoice-quote', requestId, items } : { action: 'quote', customer, items }) });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || 'Shipping rates could not load.');
+      if (!Array.isArray(result.rates) || !result.rates.length) throw new Error('No shipping services returned. Contact support.');
+      setQuote(result); setRate(result.rates[0].id);
+      onSelect({ shippingToken: result.token, shippingRate: result.rates[0].id, expires: result.expires });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Shipping quote failed. Contact support.'); }
+    finally { setBusy(false); }
+  };
+  return <section className="space-y-4 rounded-lg border p-4" aria-label="Delivery and carrier rates">
+    <h2 className="text-xl font-bold">Delivery & shipping options</h2>
+    <p>USPS, UPS and FedEx services are quoted for your address and packages, subject to carrier availability. Quotes last 15 minutes; delivery times are estimates. No label is purchased.</p>
+    <fieldset disabled={disabled || busy} className="space-y-4">
+      {!requestId && <div className="grid gap-4 sm:grid-cols-2">
+        {(['name', 'email'] as const).map(key => <label key={key} className="block">{key === 'name' ? 'Recipient name' : 'Email for receipt'}<input autoComplete={key} type={key === 'email' ? 'email' : 'text'} value={customer[key]} onChange={e => setCustomer({ ...customer, [key]: e.target.value })} className="mt-1 w-full rounded border bg-background p-3"/></label>)}
+        {(['line1', 'line2', 'city', 'state', 'postal_code'] as const).map(key => <label className="block" key={key}>{({ line1: 'Delivery address', line2: 'Apartment / suite (optional)', city: 'City', state: 'State (2 letters)', postal_code: 'ZIP code' })[key]}<input autoComplete={({ line1: 'shipping address-line1', line2: 'shipping address-line2', city: 'shipping address-level2', state: 'shipping address-level1', postal_code: 'shipping postal-code' })[key]} value={customer.address[key]} onChange={e => setCustomer({ ...customer, address: { ...customer.address, [key]: e.target.value } })} className="mt-1 w-full rounded border bg-background p-3"/></label>)}
+        <p className="self-end p-3">Country: United States</p>
+      </div>}
+      {requestId && <p>Rates use the customer address saved on this request.</p>}
+      <button type="button" className="rounded border px-4 py-3 font-semibold" disabled={!items.length} onClick={getRates}>{busy ? 'Getting carrier rates...' : 'Get shipping options'}</button>
+      {error && <p role="alert" className="reference-error text-red-500">{error}</p>}
+      {expired && <p role="alert">This shipping quote expired. Get new shipping options before continuing.</p>}
+      {quote && <><p>{quote.parcels} package{quote.parcels === 1 ? '' : 's'}. Shipping amounts below cover all packages in this cart. Tax is calculated in Stripe.</p>
+        <label className="block">Delivery service<select aria-label="Delivery service" value={rate} disabled={expired} className="mt-1 w-full rounded border bg-background p-3" onChange={e => {
+          setRate(e.target.value); onSelect({ shippingToken: quote.token, shippingRate: e.target.value, expires: quote.expires });
+        }}>{quote.rates.map(r => <option value={r.id} key={r.id}>{r.name} · ${(r.amount / 100).toFixed(2)}{r.estimatedDays === null ? '' : ` · estimated ${r.estimatedDays} business days`}</option>)}</select></label>
+        <p className="text-sm">The delivery address is locked for this quote. To change it, update the address here and get new rates before paying.</p></>}
+    </fieldset>
+  </section>;
+}

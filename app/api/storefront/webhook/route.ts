@@ -35,7 +35,10 @@ export async function POST(request: NextRequest) {
         if (session.currency !== 'usd') throw new Error('Unexpected payment currency.');
         action = 'paid'; total = session.amount_total || 0; tax = session.total_details?.amount_tax || 0;
         shipping = session.shipping_cost?.amount_subtotal || 0;
-        customer = { contact: session.customer_details, shipping: session.collected_information?.shipping_details };
+        const saved = await admin.from('storefront_orders').select('shipping_quote').eq('stripe_id', session.id).maybeSingle();
+        if (saved.error) throw saved.error;
+        customer = { contact: session.customer_details, shipping: session.collected_information?.shipping_details
+          || (saved.data?.shipping_quote ? { name: saved.data.shipping_quote.customer.name, address: saved.data.shipping_quote.customer.address } : null) };
         intent = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null;
       } else if (session.status === 'expired') action = 'cancel';
       else return NextResponse.json({ received: true });

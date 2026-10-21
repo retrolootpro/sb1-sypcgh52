@@ -22,16 +22,22 @@ beforeEach(()=>{
     STRIPE_SHIPPING_COUNTRIES:'US',STOREFRONT_SITE_URL:'http://localhost:3218',NEXT_PUBLIC_SUPABASE_URL:'https://test.invalid',
     NEXT_PUBLIC_SUPABASE_ANON_KEY:'test',SUPABASE_SERVICE_ROLE_KEY:'test-only'});
   delete process.env.STRIPE_LIVE_PAYMENTS_ENABLED;
+  delete process.env.STOREFRONT_SHIPPING_PROVIDER;
+  delete process.env.SHIPPO_API_KEY;
   process.env.STOREFRONT_PAYMENTS_ENABLED='true';
 });
 
-function harness({order=null,role='admin',authenticated=true,stockError=false,paid=false,sessionStatus='open',invoicePaid=false}={}) {
-  const calls=[],rpc=[],writes=[];
+const packageProfile={id:'50000000-0000-4000-8000-000000000001',name:'Games',category:'Games',platform:'',condition:'',
+  unitWeightOz:4,packagingWeightOz:2,lengthIn:8,widthIn:6,heightIn:2,unitsPerParcel:2};
+const shippingSettings={origin:{name:'Shop',email:'shop@example.invalid',address:{line1:'2 Test St',line2:'',city:'Test',state:'FL',postal_code:'32114',country:'US'}},profiles:[packageProfile]};
+function harness({order=null,role='admin',authenticated=true,stockError=false,paid=false,sessionStatus='open',invoicePaid=false,shippoFails=false,settings=shippingSettings}={}) {
+  const calls=[],rpc=[],writes=[],shippoCalls=[];
   const stripeFetch=async(url,init)=>{
     const path=new URL(String(url)).pathname;
     const params=new URLSearchParams(init.body||'');
     calls.push({path,method:init.method,params,key:new Headers(init.headers).get('idempotency-key')});
     if(path==='/v1/customers')return json({id:'cus_Test'});
+    if(path==='/v1/shipping_rates')return json({id:'shr_Quoted'});
     if(path==='/v1/checkout/sessions')return json({id:'cs_test_order',url:'https://checkout.stripe.com/c/pay/test',status:'open'});
     if(path==='/v1/checkout/sessions/cs_test_order/expire')return json({id:'cs_test_order',status:'expired'});
     if(path==='/v1/checkout/sessions/cs_test_order')return json({id:'cs_test_order',status:sessionStatus,payment_status:paid?'paid':'unpaid',
@@ -59,7 +65,7 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
         single(){return chain;},maybeSingle(){return chain;},
         then(resolve){
           if(patch){writes.push({table,patch,filters});return Promise.resolve({data:null,error:null}).then(resolve);}
-          if(table==='storefront_settings')return Promise.resolve({data:{user_id:account},error:null}).then(resolve);
+          if(table==='storefront_settings')return Promise.resolve({data:{user_id:account,shipping_config:settings},error:null}).then(resolve);
           if(table==='storefront_orders')return Promise.resolve({data:order||reserved?snapshot:null,error:null}).then(resolve);
           if(table==='storefront_requests')return Promise.resolve({data:customer,error:null}).then(resolve);
           throw new Error(`Unexpected table ${table}`);
@@ -70,7 +76,7 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
     async rpc(name,params){
       rpc.push({name,params});
       if(name==='storefront_rate_limit')return {data:true,error:null};
-      if(name==='storefront_reserve'){reserved=true;return {data:snapshot,error:stockError?{message:'stock changed'}:null};}
+      if(name==='storefront_reserve'||name==='storefront_reserve_shipping'){reserved=true;if(params.p_shipping)snapshot.shipping_quote=params.p_shipping;return {data:snapshot,error:stockError?{message:'stock changed'}:null};}
       if(name==='storefront_apply_payment')return {error:null};
       if(name==='storefront_cancel_unstarted')return {data:!order,error:null};
       throw new Error(`Unexpected RPC ${name}`);
@@ -83,18 +89,27 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
     if(modules.has(file))return modules.get(file);
     const module={exports:{}};
     const output=ts.transpileModule(readFileSync(resolve(file),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020,esModuleInterop:true}}).outputText;
-    new Function('module','exports','require','console',output)(module,module.exports,name=>{
+    new Function('module','exports','require','console','fetch',output)(module,module.exports,name=>{
       if(name==='stripe')return LocalStripe;
       if(name==='@/lib/server/supabase-admin')return {createSupabaseAdmin:()=>admin};
       if(name==='@/lib/server-account')return {getServerAccountContext:async()=>({accountId:account,role})};
-      if(name==='@/lib/server/storefront-catalog')return {loadStorefrontCatalog:async()=>({products:[{id:item,title:'Real game',price:10,quantity:1}]})};
+      if(name==='@/lib/server/storefront-catalog')return {loadStorefrontCatalog:async()=>({products:[{id:item,title:'Real game',price:10,quantity:20,category:'Games',platform:'SNES',condition:'CIB'}]})};
       if(name.startsWith('@/'))return load(`${name.slice(2)}.ts`);
       if(name.startsWith('./'))return load(resolve(file,'..',`${name.slice(2)}.ts`));
       return require(name);
-    },{error(){},warn(){}});
+    },{error(){},warn(){}},async(url,options)=>{
+      assert.equal(url,'https://api.goshippo.com/shipments/');
+      shippoCalls.push(JSON.parse(options.body));
+      if(shippoFails)return json({message:'carrier unavailable'},503);
+      return json({rates:[
+        {object_id:`usps_${shippoCalls.length}`,provider:'USPS',currency:'USD',amount:'5.25',servicelevel:{name:'Ground Advantage',token:'usps_ground_advantage'},estimated_days:4},
+        {object_id:`ups_${shippoCalls.length}`,provider:'UPS',currency:'USD',amount:'8.10',servicelevel:{name:'Ground',token:'ups_ground'},estimated_days:3},
+        {object_id:`media_${shippoCalls.length}`,provider:'USPS',currency:'USD',amount:'2.00',servicelevel:{name:'Media Mail',token:'usps_media_mail'},estimated_days:6},
+      ],messages:[]});
+    });
     modules.set(file,module.exports);return module.exports;
   }
-  return {load,calls,rpc,writes,snapshot};
+  return {load,calls,rpc,writes,snapshot,shippoCalls};
 }
 const post=(path,body,headers={})=>new NextRequest(`http://localhost:3218${path}`,{method:'POST',headers:{'Content-Type':'application/json',...headers},body:JSON.stringify(body)});
 const cart={orderId:id,items:[{id:item,quantity:1,unit_amount:1}]};
@@ -281,4 +296,116 @@ test('invoice payment webhook verifies Stripe totals and the card payment before
   assert.equal(apply.p_shipping,500);
   assert.equal(apply.p_intent,'pi_Test');
   assert.ok(h.calls.some(call=>call.path==='/v1/payment_intents/pi_Test'&&call.method==='GET'));
+});
+
+function carrierMode() {
+  process.env.STOREFRONT_SHIPPING_PROVIDER='shippo';
+  process.env.SHIPPO_API_KEY='shippo_test_local_only';
+}
+const quotedCustomer=()=>({name:customer.name,email:customer.email,address:customer.address});
+test('package profiles pack by configured capacity and weight, never invent missing measurements',()=>{
+  const h=harness();
+  const {shippingParcels,shippingSettingsSchema}=h.load('lib/storefront-shipping.ts');
+  const lines=[{id:item,title:'Game',category:'Games',platform:'SNES',condition:'CIB',quantity:3,unit_amount:1000}];
+  const parcels=shippingParcels(lines,[packageProfile]);
+  assert.deepEqual(parcels.map(p=>p.weight),['10.000','6.000']);
+  assert.equal(parcels.length,2);
+  assert.throws(()=>shippingParcels(lines,[]),/not configured/);
+  assert.throws(()=>shippingParcels(lines,[{...packageProfile,platform:'SNES'},{...packageProfile,id:'other',condition:'CIB'}]),/Multiple package profiles/);
+  assert.throws(()=>shippingParcels([{...lines[0],quantity:30}],[{...packageProfile,unitsPerParcel:1}]),/more than 10/);
+  assert.equal(shippingSettingsSchema.safeParse({...shippingSettings,profiles:[]}).success,false);
+  assert.equal(shippingSettingsSchema.safeParse({...shippingSettings,profiles:[{...packageProfile,unitWeightOz:0}]}).success,false);
+});
+test('Shippo quotes aggregate matching services across parcels, exclude restricted mail, and never buy labels',async()=>{
+  carrierMode();
+  const h=harness();
+  const quote=await h.load('lib/server/storefront-shipping.ts').shippingQuote([{id:item,quantity:3}],quotedCustomer());
+  assert.equal(quote.parcels,2);
+  assert.deepEqual(quote.rates.map(r=>[r.name,r.amount]),[['USPS Ground Advantage',1050],['UPS Ground',1620]]);
+  assert.equal(h.shippoCalls.length,2);
+  assert.ok(h.shippoCalls.every(call=>call.async===false&&call.parcels.length===1));
+  assert.equal(h.calls.length,0);
+  assert.equal(h.rpc.length,0);
+});
+test('signed carrier quotes reject tampering, changed quantities, changed customer addresses, and stale settings',async()=>{
+  carrierMode();
+  const h=harness(),service=h.load('lib/server/storefront-shipping.ts');
+  const items=[{id:item,quantity:1}];
+  const quote=await service.shippingQuote(items,quotedCustomer());
+  const verified=await service.verifyShippingQuote(quote.token,quote.rates[0].id,items);
+  assert.equal(verified.shipping.rate.amount,525);
+  await assert.rejects(service.verifyShippingQuote(`${quote.token}x`,quote.rates[0].id,items),/invalid/);
+  await assert.rejects(service.verifyShippingQuote(quote.token,quote.rates[0].id,[{id:item,quantity:2}]),/changed/);
+  await assert.rejects(service.verifyShippingQuote(quote.token,'made-up-rate',items),/Select a quoted/);
+  await assert.rejects(service.verifyShippingQuote(quote.token,quote.rates[0].id,items,{...quotedCustomer(),address:{...customer.address,postal_code:'10001'}}),/changed/);
+  const other=harness({settings:{...shippingSettings,profiles:[{...packageProfile,unitWeightOz:8}]}}).load('lib/server/storefront-shipping.ts');
+  await assert.rejects(other.verifyShippingQuote(quote.token,quote.rates[0].id,items),/changed/);
+  const savedNow=Date.now;
+  try {Date.now=()=>quote.expires+1;await assert.rejects(service.verifyShippingQuote(quote.token,quote.rates[0].id,items),/expired/);}
+  finally {Date.now=savedNow;}
+});
+test('carrier failure and missing profiles never create a reservation or Stripe payment',async()=>{
+  carrierMode();
+  const h=harness({shippoFails:true});
+  await assert.rejects(h.load('lib/server/storefront-shipping.ts').shippingQuote([{id:item,quantity:1}],quotedCustomer()),/could not be retrieved/);
+  assert.equal(h.rpc.length,0);assert.equal(h.calls.length,0);
+  const missing=harness({settings:null});
+  const status=await missing.load('app/api/storefront/checkout/route.ts').GET(new NextRequest('http://localhost:3218/api/storefront/checkout'));
+  const result=await status.json();
+  assert.equal(result.paymentReady,false);assert.match(result.message,/not configured/);
+});
+test('carrier checkout persists the quote atomically and locks its delivery address and price in Stripe',async()=>{
+  carrierMode();
+  const h=harness(),items=[{id:item,quantity:1}];
+  const quote=await h.load('lib/server/storefront-shipping.ts').shippingQuote(items,quotedCustomer());
+  const route=h.load('app/api/storefront/checkout/route.ts');
+  const response=await route.POST(post('/api/storefront/checkout',{orderId:id,items,shippingToken:quote.token,shippingRate:quote.rates[0].id}));
+  assert.equal(response.status,200);
+  const reserve=h.rpc.find(c=>c.name==='storefront_reserve_shipping');
+  assert.equal(reserve.params.p_shipping.rate.amount,525);
+  assert.equal(reserve.params.p_shipping.customer.address.postal_code,'32114');
+  const checkout=h.calls.find(c=>c.path==='/v1/checkout/sessions');
+  assert.equal(checkout.params.get('shipping_options[0][shipping_rate_data][fixed_amount][amount]'),'525');
+  assert.equal(checkout.params.get('customer'),'cus_Test');
+  assert.equal(checkout.params.has('shipping_address_collection[allowed_countries][0]'),false);
+  assert.match(checkout.params.get('custom_text[submit][message]'),/1 Test St/);
+  const customerCall=h.calls.find(c=>c.path==='/v1/customers');
+  assert.equal(customerCall.params.get('shipping[address][postal_code]'),'32114');
+  const noQuote=harness();
+  assert.equal((await noQuote.load('app/api/storefront/checkout/route.ts').POST(post('/api/storefront/checkout',cart))).status,409);
+  assert.equal(noQuote.rpc.some(c=>c.name==='storefront_reserve_shipping'),false);
+});
+test('carrier invoices use the guest request address, authoritative rate, and a dedicated Stripe shipping rate',async()=>{
+  carrierMode();
+  const h=harness();
+  const shipping=h.load('app/api/storefront/shipping/route.ts');
+  const items=[{id:item,quantity:1}];
+  const response=await shipping.POST(post('/api/storefront/shipping',{action:'invoice-quote',requestId,items},{Authorization:'Bearer test'}));
+  assert.equal(response.status,200);
+  const quote=await response.json();
+  const invoice=await h.load('app/api/storefront/manage/route.ts').POST(post('/api/storefront/manage',{
+    action:'invoice',orderId:id,requestId,items,shippingToken:quote.token,shippingRate:quote.rates[0].id,
+  },{Authorization:'Bearer test'}));
+  assert.equal(invoice.status,200);
+  assert.equal(h.rpc.find(c=>c.name==='storefront_reserve_shipping').params.p_shipping.rate.amount,525);
+  assert.equal(h.calls.find(c=>c.path==='/v1/shipping_rates').params.get('fixed_amount[amount]'),'525');
+  assert.equal(h.calls.find(c=>c.path==='/v1/invoices').params.get('shipping_cost[shipping_rate]'),'shr_Quoted');
+});
+test('shipping profile configuration and invoice rates require a store administrator',async()=>{
+  carrierMode();
+  for(const options of [{role:'member'},{authenticated:false}]) {
+    const h=harness(options),route=h.load('app/api/storefront/shipping/route.ts');
+    const response=await route.POST(post('/api/storefront/shipping',{action:'save',settings:shippingSettings},{Authorization:'Bearer test'}));
+    assert.equal(response.status,options.authenticated===false?401:403);
+    assert.equal(h.writes.length,0);
+  }
+});
+test('live Stripe cannot be paired with a test Shippo key',()=>{
+  carrierMode();
+  process.env.STRIPE_SECRET_KEY='sk_live_local_only';
+  process.env.STRIPE_LIVE_PAYMENTS_ENABLED='true';
+  const config=harness().load('lib/server/storefront-payments.ts').paymentConfig;
+  assert.throws(config,/not configured/);
+  process.env.SHIPPO_API_KEY='shippo_live_local_only';
+  assert.equal(config().carrierShipping,true);
 });

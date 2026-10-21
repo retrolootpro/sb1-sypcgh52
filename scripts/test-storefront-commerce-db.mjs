@@ -45,6 +45,7 @@ before(async()=>{
   await db.exec(readFileSync('supabase/migrations/20261021164500_storefront_catalog_settings.sql','utf8'));
   assert.deepEqual((await db.query('SELECT id,quantity,storefront_price,storefront_enabled FROM inventory_items ORDER BY id')).rows,inventoryBefore.rows);
   await db.exec(readFileSync('supabase/migrations/20261021170000_storefront_commerce.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261021200000_storefront_shipping.sql','utf8'));
 });
 after(()=>db.close());
 beforeEach(()=>db.exec('BEGIN'));
@@ -54,6 +55,16 @@ test('reserves once under idempotent retries and rejects cart-key reuse',async()
   await reserve();await reserve();
   assert.equal((await one('SELECT quantity FROM inventory_items WHERE id=$1',[item])).quantity,1);
   await assert.rejects(reserve(order,lines,'checkout',null,account,'different'),/different cart/);
+});
+test('shipping reservation saves the accepted rate and address in the stock transaction',async()=>{
+  const quote={customer:{name:'Test customer',address:{postal_code:'32114'}},rate:{name:'USPS Ground Advantage',amount:525},parcels:1};
+  const sql='SELECT storefront_reserve_shipping($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb) AS result';
+  const params=[order,account,'checkout',null,'quoted-cart',JSON.stringify(lines),JSON.stringify(quote)];
+  const first=await one(sql,params);
+  assert.deepEqual(first.result.shipping_quote,quote);
+  await one(sql,params);
+  assert.equal((await one('SELECT quantity FROM inventory_items WHERE id=$1',[item])).quantity,1);
+  assert.deepEqual((await one('SELECT shipping_quote FROM storefront_orders WHERE id=$1',[order])).shipping_quote,quote);
 });
 test('concurrent last-item attempts cannot oversell',async()=>{
   await db.query('UPDATE inventory_items SET quantity=1 WHERE id=$1',[item]);

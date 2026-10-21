@@ -30,6 +30,8 @@ const largeCatalog = Array.from({ length: 73 }, (_, index) => ({
 let mode = 'success';
 let paymentStatus = 'paid';
 let paymentReady = true;
+let carrierShipping = false;
+let shippingFails = false;
 let requestFails = false;
 const submissions = [];
 const checkoutActions = [];
@@ -52,12 +54,17 @@ await page.route('**/api/storefront/checkout*', (route) => {
     checkoutActions.push(input);
     return route.fulfill({ json: input.action === 'cancel'
       ? { success: true, cancelled: true }
-      : { success: true, url: `${baseUrl}/shop/checkout?session_id=cs_test_preview` } });
+      : { success: true, url: `${baseUrl}/shop/checkout?session_id=cs_test_preview${checkoutActions.length}` } });
   }
   return route.fulfill({ json: new URL(route.request().url()).searchParams.has('session_id')
     ? { success: true, status: paymentStatus, paymentStatus: 'paid', purchased: paymentStatus === 'paid' ? [{ id: 'game-0', quantity: 1 }] : [] }
-    : { success: true, paymentReady, ...(!paymentReady ? { message: 'Online payment is not configured yet.' } : {}) } });
+    : { success: true, paymentReady, carrierShipping, ...(!paymentReady ? { message: 'Online payment is not configured yet.' } : {}) } });
 });
+await page.route('**/api/storefront/shipping', route => route.fulfill(shippingFails
+  ? { status: 503, json: { success: false, message: 'Carrier rates unavailable. Please retry.' } }
+  : { json: { success: true, token: 'signed-fixture-quote', expires: Date.now() + 900000, parcels: 2,
+    rates: [{ id: 'usps-fixture', name: 'USPS Ground Advantage', amount: 1050, estimatedDays: 4 },
+      { id: 'ups-fixture', name: 'UPS Ground', amount: 1620, estimatedDays: 3 }] } }));
 
 try {
   await page.goto(`${baseUrl}/shop`);
@@ -214,6 +221,36 @@ try {
   await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).waitFor({ state: 'visible' });
   assert.equal(await page.evaluate(() => sessionStorage.getItem('pixel-page-checkout')), null);
   assert.equal(checkoutActions.at(-1).action, 'cancel');
+  carrierShipping = true;
+  await page.reload();
+  await page.getByRole('region', { name: 'Delivery and carrier rates' }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).isDisabled(), true);
+  for (const [label, value] of [['Recipient name', 'Guest Customer'], ['Email for receipt', 'guest@example.invalid'],
+    ['Delivery address', '1 Test St'], ['City', 'Test'], ['State (2 letters)', 'FL'], ['ZIP code', '32114']]) {
+    await page.getByLabel(label, { exact: true }).fill(value);
+  }
+  shippingFails = true;
+  await page.getByRole('button', { name: 'Get shipping options', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'Carrier rates unavailable' }).waitFor();
+  shippingFails = false;
+  await page.getByRole('button', { name: 'Get shipping options', exact: true }).click();
+  await page.getByLabel('Delivery service', { exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).isDisabled(), false);
+  await page.getByLabel('ZIP code', { exact: true }).fill('10001');
+  assert.equal(await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).isDisabled(), true, 'Changing delivery address invalidates shipping');
+  await page.getByRole('button', { name: 'Get shipping options', exact: true }).click();
+  await page.getByLabel('Delivery service', { exact: true }).selectOption('ups-fixture');
+  for (const width of [1448, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Carrier quote fits ${width}px`);
+  }
+  await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).click();
+  await page.getByRole('heading', { name: 'Payment confirmed', exact: true }).waitFor();
+  assert.equal(checkoutActions.at(-1).shippingToken, 'signed-fixture-quote');
+  assert.equal(checkoutActions.at(-1).shippingRate, 'ups-fixture');
+  carrierShipping = false;
+  await page.goto(`${baseUrl}/shop/checkout`);
+  await page.getByRole('button', { name: 'Clear cart', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Clear cart', exact: true }).click();
 
   await page.goto(`${baseUrl}/shop`);

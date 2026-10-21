@@ -6,6 +6,7 @@ import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
 import { supabase } from '@/lib/supabase';
+import { ShippingQuotePicker, type ShippingSelection } from '@/components/storefront-shipping-quote';
 
 type ItemRequest = { id:string; name:string; email:string; item:string; platform:string; notes:string; status:string;
   address:{line1:string;line2:string;city:string;state:string;postal_code:string;country:string}; created_at:string };
@@ -33,6 +34,8 @@ export default function StorefrontRequestsPage() {
   const [products,setProducts]=useState<Product[]>([]);
   const [rates,setRates]=useState<Rate[]>([]);
   const [shippingRate,setShippingRate]=useState('');
+  const [carrierShipping,setCarrierShipping]=useState(false);
+  const [shipping,setShipping]=useState<ShippingSelection|null>(null);
   const [selected,setSelected]=useState('');
   const [lines,setLines]=useState<Record<string,number>>({});
   const [query,setQuery]=useState('');
@@ -55,6 +58,7 @@ export default function StorefrontRequestsPage() {
       setRequests(result.requests);setOrders(result.orders);setProducts(catalog.products);setRates(result.shippingRates);
       setShippingRate(current=>result.shippingRates.some((rate:Rate)=>rate.id===current)?current:result.shippingRates[0]?.id||'');
       setSetup(result.setupMessage);
+      setCarrierShipping(!!result.carrierShipping);
     } catch(cause) {console.error('Storefront manager:',cause);setError(cause instanceof Error?cause.message:'Could not load requests.');}
     finally {setLoading(false);}
   },[accountId,isAdmin,page]);
@@ -67,17 +71,18 @@ export default function StorefrontRequestsPage() {
   };
   const invoice=async()=>{
     if (!customer) return;
+    if (carrierShipping && (!shipping || shipping.expires <= Date.now())) {setError('Get fresh shipping options before creating an invoice.');return;}
     let orderId:string;
     try {
       const key=`storefront-invoice-${customer.id}`;
       orderId=sessionStorage.getItem(key)||crypto.randomUUID();
       sessionStorage.setItem(key,orderId);
     } catch {setError('Enable browser storage before creating an invoice.');return;}
-    await action({action:'invoice',requestId:customer.id,orderId,shippingRate,items:Object.entries(lines).map(([id,quantity])=>({id,quantity}))});
+    await action({action:'invoice',requestId:customer.id,orderId,shippingRate:shipping?.shippingRate||shippingRate,...(shipping?{shippingToken:shipping.shippingToken}:{}),items:Object.entries(lines).map(([id,quantity])=>({id,quantity}))});
   };
   const matching=products.filter(row=>`${row.title} ${row.platform} ${row.condition}`.toLowerCase().includes(query.toLowerCase())).slice(0,40);
   return <DashboardLayout><div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-7">
-    <header className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-2xl font-bold">Shop requests & orders</h1><p className="mt-2 text-sm text-muted-foreground">Review guest requests, source items into RetroLoot, then email a Stripe invoice. All purchases ship; there is no local pickup.</p></div><div className="flex gap-3"><Button asChild variant="outline"><Link href="/storefront">Inventory & pricing</Link></Button><Button disabled={busy||loading} onClick={load}>Refresh</Button></div></header>
+    <header className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-2xl font-bold">Shop requests & orders</h1><p className="mt-2 text-sm text-muted-foreground">Review guest requests, source items into RetroLoot, then email a Stripe invoice. All purchases ship; there is no local pickup.</p></div><div className="flex flex-wrap gap-3"><Button asChild variant="outline"><Link href="/storefront/shipping">Shipping & packages</Link></Button><Button asChild variant="outline"><Link href="/storefront">Inventory & pricing</Link></Button><Button disabled={busy||loading} onClick={load}>Refresh</Button></div></header>
     {!isAdmin?<p role="alert">Store administrator access is required.</p>:<>
       {error&&<p role="alert" className="rounded-lg border border-red-500 p-4 text-red-500">{error}</p>}
       {notice&&<p role="status" className="rounded-lg border p-4">{notice}</p>}
@@ -106,7 +111,7 @@ export default function StorefrontRequestsPage() {
             {order.tracking&&<p className="break-words text-sm">Tracking: {order.tracking}</p>}
             {order.payment_url&&<div className="flex flex-wrap gap-3"><a href={order.payment_url} target="_blank" rel="noreferrer" className="underline">Open Stripe payment page</a><Button variant="outline" onClick={async()=>{try{await navigator.clipboard.writeText(order.payment_url!);setNotice('Payment link copied.');}catch{setError('Could not copy. Open the Stripe link and copy its address.');}}}>Copy payment link</Button></div>}
             {order.kind==='invoice'&&<p className="text-sm">{order.email_sent?'Invoice email sent by Stripe.':'Invoice email not yet sent. Use Retry if creation was interrupted.'}</p>}
-            {['creating','pending'].includes(order.status)&&<div className="flex flex-wrap gap-2"><Button disabled={busy||!!setup} onClick={()=>action({action:'retry',id:order.id})}>Retry / recover payment</Button><Button variant="outline" disabled={busy||!rates.length} onClick={()=>action({action:'cancel',id:order.id})}>Cancel unpaid order & release stock</Button></div>}
+            {['creating','pending'].includes(order.status)&&<div className="flex flex-wrap gap-2"><Button disabled={busy||!!setup} onClick={()=>action({action:'retry',id:order.id})}>Retry / recover payment</Button><Button variant="outline" disabled={busy} onClick={()=>action({action:'cancel',id:order.id})}>Cancel unpaid order & release stock</Button></div>}
             {order.status==='paid'&&<form className="flex flex-wrap gap-2" onSubmit={event=>{event.preventDefault();const tracking=String(new FormData(event.currentTarget).get('tracking')||'');action({action:'ship',id:order.id,tracking});}}><label className="min-w-0 flex-1 text-sm">Carrier and tracking number<input name="tracking" required minLength={3} maxLength={200} className="mt-1 w-full rounded-md border bg-background p-2"/></label><Button disabled={busy} type="submit">Mark shipped</Button></form>}
           </article>)}
         </section>
@@ -116,8 +121,9 @@ export default function StorefrontRequestsPage() {
         <label className="block">Search inventory<input value={query} onChange={event=>setQuery(event.target.value)} className="mt-2 w-full rounded-md border bg-background p-3"/></label>
         <div className="max-h-80 space-y-2 overflow-y-auto">{matching.map(item=><label key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"><span className="flex-1">{item.title} · {item.platform} · {item.condition} · ${item.price.toFixed(2)} · {item.quantity} available</span><input type="number" aria-label={`Invoice quantity for ${item.title}`} min={0} max={Math.min(20,item.quantity)} value={lines[item.id]||0} className="w-20 rounded border bg-background p-2" onChange={event=>{const quantity=Number(event.target.value);setLines(current=>{const next={...current};if(quantity>0)next[item.id]=quantity;else delete next[item.id];return next;});}}/></label>)}</div>
         <p>{Object.keys(lines).length} selected item(s). Item subtotal ${Object.entries(lines).reduce((sum,[id,quantity])=>sum+(products.find(item=>item.id===id)?.price||0)*quantity,0).toFixed(2)}.</p>
-        <label className="block">Stripe shipping rate<select value={shippingRate} onChange={event=>setShippingRate(event.target.value)} className="mt-2 w-full rounded border bg-background p-3">{rates.map(rate=><option key={rate.id} value={rate.id}>{rate.name} · {money(rate.amount)}</option>)}</select></label>
-        <div className="flex flex-wrap gap-3"><Button disabled={busy||!!setup||!shippingRate||!Object.keys(lines).length} onClick={invoice}>{busy?'Creating invoice...':'Create & email Stripe invoice'}</Button><Button variant="outline" onClick={()=>setSelected('')} disabled={busy}>Close editor</Button></div>
+        {carrierShipping ? <ShippingQuotePicker items={Object.entries(lines).map(([id,quantity])=>({id,quantity}))} requestId={customer.id} onSelect={setShipping} disabled={busy}/>
+          : <label className="block">Stripe shipping rate<select value={shippingRate} onChange={event=>setShippingRate(event.target.value)} className="mt-2 w-full rounded border bg-background p-3">{rates.map(rate=><option key={rate.id} value={rate.id}>{rate.name} · {money(rate.amount)}</option>)}</select></label>}
+        <div className="flex flex-wrap gap-3"><Button disabled={busy||!!setup||!(carrierShipping?shipping:shippingRate)||!Object.keys(lines).length} onClick={invoice}>{busy?'Creating invoice...':'Create & email Stripe invoice'}</Button><Button variant="outline" onClick={()=>setSelected('')} disabled={busy}>Close editor</Button></div>
       </section>}
     </>}
   </div></DashboardLayout>;

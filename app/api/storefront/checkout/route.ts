@@ -5,9 +5,11 @@ import { commerceRoute, CommerceError, readCommerceBody, storeAccount, limitComm
 import { paymentConfig, requirePaymentsEnabled, createCheckout, type Order } from '@/lib/server/storefront-payments';
 import { loadStorefrontCatalog } from '@/lib/server/storefront-catalog';
 import { createSupabaseAdmin } from '@/lib/server/supabase-admin';
+import { loadShippingSettings, verifyShippingQuote } from '@/lib/server/storefront-shipping';
 
 export const dynamic = 'force-dynamic';
-const schema = z.object({ orderId: z.string().uuid(), items: cartSchema, action: z.literal('cancel').optional() });
+const schema = z.object({ orderId: z.string().uuid(), items: cartSchema, action: z.literal('cancel').optional(),
+  shippingToken: z.string().max(12000).optional(), shippingRate: z.string().max(100).optional() });
 
 export async function POST(request: NextRequest) {
   return commerceRoute(async () => {
@@ -16,7 +18,8 @@ export async function POST(request: NextRequest) {
     const admin = createSupabaseAdmin();
     const accountId = await storeAccount();
     const items = [...body.items].sort((a, b) => a.id.localeCompare(b.id));
-    const hash = fingerprint({ kind: 'checkout', items });
+    const carrierShipping = process.env.STOREFRONT_SHIPPING_PROVIDER === 'shippo';
+    const hash = fingerprint({ kind: 'checkout', items, ...(body.shippingToken ? { shippingToken: body.shippingToken, shippingRate: body.shippingRate } : {}) });
     if (body.action === 'cancel') {
       const absent = await admin.rpc('storefront_cancel_unstarted', { p_id:body.orderId });
       if (absent.error) throw absent.error;
@@ -42,14 +45,17 @@ export async function POST(request: NextRequest) {
     }
     requirePaymentsEnabled();
     paymentConfig();
-    const catalog = await loadStorefrontCatalog();
-    const lines = items.map((line) => {
-      const item = catalog.products.find((product) => product.id === line.id);
+    if (carrierShipping && (!body.shippingToken || !body.shippingRate)) throw new CommerceError('Choose a shipping service before checkout.', 409);
+    const quoted = carrierShipping ? await verifyShippingQuote(body.shippingToken!, body.shippingRate!, items) : null;
+    const catalog = quoted ? null : await loadStorefrontCatalog();
+    const lines = quoted?.lines || items.map((line) => {
+      const item = catalog!.products.find((product) => product.id === line.id);
       if (!item || item.quantity < line.quantity) throw new CommerceError('An item sold out or its quantity changed. Refresh your cart before checkout.', 409);
       return { ...line, unit_amount: Math.round(item.price * 100) };
     });
-    const { data: order, error } = await admin.rpc('storefront_reserve', {
+    const { data: order, error } = await admin.rpc(quoted ? 'storefront_reserve_shipping' : 'storefront_reserve', {
       p_id: body.orderId, p_account: accountId, p_kind: 'checkout', p_request: null, p_fingerprint: hash, p_items: lines,
+      ...(quoted ? { p_shipping: quoted.shipping } : {}),
     });
     if (error) throw new CommerceError('Stock changed or checkout could not be reserved. Refresh your cart or contact support.', 409);
     return { url: await createCheckout(order as Order) };
@@ -59,10 +65,15 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   return commerceRoute(async () => {
     if (!request.nextUrl.searchParams.has('session_id')) {
-      try { requirePaymentsEnabled(); paymentConfig(); return {paymentReady:true}; }
+      try {
+        requirePaymentsEnabled();
+        const { carrierShipping } = paymentConfig();
+        if (carrierShipping) await loadShippingSettings(await storeAccount());
+        return { paymentReady: true, carrierShipping };
+      }
       catch (error) {
         if (!(error instanceof CommerceError)) throw error;
-        return {paymentReady:false,message:error.message};
+        return {paymentReady:false,message:error.message,carrierShipping:process.env.STOREFRONT_SHIPPING_PROVIDER === 'shippo'};
       }
     }
     const { stripe } = paymentConfig();

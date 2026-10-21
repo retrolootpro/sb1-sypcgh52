@@ -108,6 +108,7 @@ export default function StorefrontManagerPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline"><Link href="/storefront/shipping">Shipping & packages</Link></Button>
             <Button asChild variant="outline"><Link href="/storefront/requests">Requests & invoices</Link></Button>
             <Button asChild variant="outline">
               <Link href="/shop" target="_blank"><ExternalLink className="mr-2 h-4 w-4" />View Store</Link>

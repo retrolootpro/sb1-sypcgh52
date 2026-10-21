@@ -77,7 +77,7 @@ Recommended Netlify settings:
 ```text
 Build command: npm run build
 Publish directory: .next
-Production branch: main
+Production branch: dev
 ```
 
 In Netlify environment variables, set production values:
@@ -262,7 +262,8 @@ or sharing. Do not send payment-card details through request notes or email.
 3. Configure the server-only `SUPABASE_SERVICE_ROLE_KEY` in Netlify for the same
    Supabase project as the public URL. Never expose it through `NEXT_PUBLIC_`.
 4. Set `STOREFRONT_SITE_URL` to the canonical HTTPS shop origin, without a path.
-5. In Stripe test mode, configure Tax and create active USD fixed-amount shipping
+5. For the Shippo carrier-rate integration, follow **Live carrier shipping**
+   below. For legacy fixed-rate shipping, in Stripe test mode configure Tax and create active USD fixed-amount shipping
    rates. Set `STRIPE_SECRET_KEY`, `STRIPE_SHIPPING_RATE_IDS` (comma-separated
    `shr_...` IDs), and `STRIPE_SHIPPING_COUNTRIES` (comma-separated ISO country
    codes matching your supported destinations). Rates must belong to the same
@@ -324,3 +325,66 @@ npm run build
 The route tests use mocked Stripe/Supabase responses; the database tests run the
 commerce migration in an isolated local PostgreSQL-compatible database. Neither
 replaces an actual Stripe test-mode acceptance run.
+
+### Live carrier shipping
+
+Set `STOREFRONT_SHIPPING_PROVIDER=shippo`, `SHIPPO_API_KEY`,
+`STRIPE_SHIPPING_COUNTRIES=US`, the canonical `STOREFRONT_SITE_URL`, and the
+Stripe key/webhook secret in Netlify's **Production Functions** environment.
+Store secrets directly in Netlify, never in source or chat. Live Stripe requires
+a live Shippo key. No `STRIPE_SHIPPING_RATE_IDS` are needed in Shippo mode.
+Keep both payment gates disabled during configuration and validation.
+
+With approval, apply `20261021200000_storefront_shipping.sql` once. It adds
+shipping configuration and accepted-order snapshots, plus a service-only
+reservation wrapper that saves the shipping snapshot atomically with stock
+reservation. It does not backfill profiles or change existing stock/prices.
+
+In **Storefront Manager → Shipping & packages** (`/storefront/shipping`):
+
+- Check service connections to verify key access, Stripe mode/Tax readiness,
+  and enabled Shippo carriers without creating payments or labels. This does
+  not prove signed webhook delivery or assess tax-registration obligations.
+- Enter the real dispatch/return address and measured package profiles.
+  Profiles select an exact catalog category with optional platform/condition
+  refinements. The most-specific match wins; ambiguous matches fail explicitly.
+- Each profile defines per-item weight, empty packaging weight, packed
+  dimensions, and items-per-package capacity. Items sharing a profile are
+  grouped up to that capacity; different profiles ship separately. Start with
+  capacity one unless staff have measured a suitable multi-item package.
+- No defaults are guessed. Missing profiles, invalid measurements, carts
+  requiring more than ten packages, or unavailable services block quotes.
+
+Buyers enter their address before Stripe and choose an available USPS, UPS or
+FedEx service. Shippo rates are requested per package, then summed only for
+services available across every package. Media Mail and other restricted
+printed-matter services are excluded because catalog classification does not
+prove eligibility. Carrier setup, negotiated rates and supported destinations
+determine which services appear; all three carriers are not guaranteed.
+
+Quotes are server-signed and bound to the store, current item prices/quantities,
+customer address and settings, and expire after 15 minutes. Changes require
+a new quote. The accepted shipping snapshot is stored on the reserved order.
+Retries use the snapshot, not a fresh rate or a new customer address.
+
+The existing Stripe-hosted page does not dynamically recalculate rates after
+address changes. The app therefore passes the selected shipping charge and an
+existing Stripe Customer with the **locked quoted shipping address**, displays
+that address in Checkout, and does not collect an editable shipping address in
+Stripe. Stripe uses that saved shipping address for automatic tax; the billing
+address can still differ. To change delivery details, cancel the unpaid order
+and request new shipping options. The webhook preserves the accepted delivery
+address for staff fulfillment. Requested-item invoices use the same rate
+service, based on the saved guest-request address.
+
+No labels are purchased by this integration. Pirate Ship may still be used for
+fulfillment; its label prices can differ from the Shippo checkout quote. Staff
+record tracking on the paid order. Shipment address/rate data sent to Shippo is
+used only to provide the requested shipping service.
+
+Before enabling payments, verify actual profiles and carrier quotes, Stripe
+Tax settings, hosted checkout totals/address, signed webhook reconciliation,
+and cancellation/retry behavior. Prefer an isolated test database and test keys
+for complete payment acceptance. Never make test-mode purchases against real
+production stock, and never claim a successful real charge from mocked tests
+or configuration-presence checks.
