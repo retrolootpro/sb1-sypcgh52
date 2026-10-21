@@ -133,3 +133,50 @@ After deployment:
 
 Do not import real ledgers or connect real bank accounts until the production database and Auth URL are confirmed.
 
+## Storefront API And Scanner Lab
+
+### Storefront catalog requests
+
+The existing `/api/storefront/catalog` API enriches inventory in batches of 100
+IDs so Supabase REST URLs stay below common request-size limits. Pricing history
+is paged in groups of 500, ordered newest first with a stable ID tie-breaker.
+Items keep their latest dated pricing row; undated rows sort last. Pricing
+failures return an explicit error rather than a partial successful catalog.
+Category enrichment remains optional and logs failures before using the existing
+title/platform fallback. Run `node --test scripts/test-storefront-catalog.mjs`
+to verify request lengths, history pagination, and the storefront response shape.
+
+### Isolated scanner
+
+Scanner Lab is a separate authenticated page at `/scanner-lab`, under **Experimental**
+in the sidebar. It does not replace Scan Intake, Deal Check, or the Whatnot scanners.
+
+Apply `supabase/migrations/20261020060000_add_scanner_lab_sessions.sql` to the
+target database before deploying Scanner Lab. The migration adds only
+`scanner_lab_sessions` and `scanner_lab_entries`, with row-level policies scoped
+to the current account and the signed-in session creator. It adds no inventory
+or finance triggers. Test in a preview environment first, and obtain approval
+before applying the migration or deploying to production.
+
+Start a named session, then scan a barcode or SKU using the camera, keyboard, or
+a USB scanner that sends Enter. Camera scanning continues until stopped.
+Repeated camera reads are suppressed for five seconds; intentional typed or USB
+rescans are saved separately. All matching inventory rows (up to 50) are saved as
+snapshots, including quantity, condition, status, cost, and sale price. No match
+is saved as an empty result, not converted into a new inventory item. Lookup or
+save errors are shown explicitly and do not produce successful scan entries.
+
+Only Scanner Lab tables are written. No stock, sale, listing, or finance record
+is changed. Sessions can be reopened for viewing; closing a session makes it
+read-only. Session history is private to its creator, including within a shared
+account. Inventory snapshots are historical, not live stock counts.
+
+The **Sell** sidebar group links to **Storefront Manager** (`/storefront`) and
+**View Online Store** (`/shop`). These expose the existing Pixel & Page ecommerce
+screens; the navigation change does not publish inventory or alter checkout.
+
+Before release, verify session creation, exact barcode/SKU lookup, duplicate
+inventory matches, no-match and database-error states, reload persistence,
+closed-session restrictions, and isolation between users/accounts. Confirm
+inventory quantities and finance records remain unchanged. Run the focused
+checks with `node --test scripts/test-scanner-lab.mjs` and `npm run typecheck`.

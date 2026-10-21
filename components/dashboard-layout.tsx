@@ -33,6 +33,9 @@ import {
   Search,
   Sparkles,
   Palette,
+  FlaskConical,
+  Store,
+  ShoppingBag,
 } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
@@ -67,6 +70,8 @@ const navGroups = [
       { href: '/planning?tab=bundles', label: 'Bundles', icon: Boxes },
       { href: '/planning?tab=disputes', label: 'Disputes', icon: Gavel },
       { href: '/shipping', label: 'Shipping', icon: Truck },
+      { href: '/storefront', label: 'Storefront Manager', icon: Store },
+      { href: '/shop', label: 'View Online Store', icon: ShoppingBag },
     ],
   },
   {
@@ -83,6 +88,12 @@ const navGroups = [
     items: [
       { href: '/settings?appearance=1', label: 'Appearance', icon: Palette },
       { href: '/employees', label: 'Team', icon: Users },
+    ],
+  },
+  {
+    label: 'Experimental',
+    items: [
+      { href: '/scanner-lab', label: 'Scanner Lab', icon: FlaskConical },
     ],
   },
   {
