@@ -7,8 +7,6 @@ package = "@netlify/plugin-nextjs"
 
 [context.production.environment]
 NODE_VERSION = "20"
-STOREFRONT_PAYMENTS_ENABLED = "false"
-STRIPE_LIVE_PAYMENTS_ENABLED = "false"
 
 [[headers]]
 for = "/*"

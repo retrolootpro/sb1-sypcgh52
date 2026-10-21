@@ -274,9 +274,10 @@ or sharing. Do not send payment-card details through request notes or email.
    `checkout.session.async_payment_failed`, `invoice.paid`, `invoice.voided`,
    `invoice.marked_uncollectible`, and `charge.refunded`. Store that endpoint's
    signing secret as `STRIPE_WEBHOOK_SECRET`.
-7. The checked-in Netlify production context sets
-   `STOREFRONT_PAYMENTS_ENABLED=false` and `STRIPE_LIVE_PAYMENTS_ENABLED=false`.
-   Keep them disabled for the initial production release. Guest requests remain
+7. Payment switches are managed in Netlify's environment-variable settings,
+   not the checked-in build context, so they can also reach Functions runtime.
+   Start with `STOREFRONT_PAYMENTS_ENABLED=false` and
+   `STRIPE_LIVE_PAYMENTS_ENABLED=false`. Guest requests remain
    available, but checkout/invoice creation cannot reserve stock or create new
    payments. Existing payment status checks, signed webhook reconciliation, and
    unpaid-order cancellation remain available when their Stripe configuration
@@ -292,6 +293,10 @@ or sharing. Do not send payment-card details through request notes or email.
    `STOREFRONT_PAYMENTS_ENABLED=true` and `STRIPE_LIVE_PAYMENTS_ENABLED=true`.
    Change the production gates only with explicit approval. Netlify environment
    overrides must not accidentally enable payments. Do not commit credentials.
+   The owner explicitly approved production live activation for a supervised
+   acceptance checkout on October 21, 2026. This approval is not evidence that
+   an actual charge or signed payment reconciliation has passed. Keep other
+   deploy contexts disabled; use the Production-only runtime switches.
 
 Checkout remains disabled when required configuration is missing. A readiness
 response only validates configuration presence/shape; it does not prove that a
@@ -381,6 +386,14 @@ No labels are purchased by this integration. Pirate Ship may still be used for
 fulfillment; its label prices can differ from the Shippo checkout quote. Staff
 record tracking on the paid order. Shipment address/rate data sent to Shippo is
 used only to provide the requested shipping service.
+
+Public checkout uses a delivery/shipping panel and a separate order summary
+(stacked on mobile). The summary shows selected shipping and the total before
+tax; Stripe calculates the final tax-inclusive total. Public form controls use
+explicit light colors independent of the business app's dark/light/Apple theme.
+When payment creation is disabled, a prominent notice and disabled
+**Online payments unavailable** button explain why Stripe cannot open. Saving
+a shipping address or receiving carrier quotes does not enable payments.
 
 Before enabling payments, verify actual profiles and carrier quotes, Stripe
 Tax settings, hosted checkout totals/address, signed webhook reconciliation,

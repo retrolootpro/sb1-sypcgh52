@@ -198,7 +198,8 @@ try {
   paymentReady = false;
   await page.goto(`${baseUrl}/shop/checkout`);
   await page.getByRole('heading', { name: 'Item subtotal: $26.00', exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Online payments unavailable', exact: true }).isDisabled(), true);
+  await page.getByRole('status').filter({ hasText: 'Online checkout is not open yet' }).waitFor();
   paymentReady = true;
   await page.reload();
   await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).click();
@@ -240,9 +241,27 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).isDisabled(), true, 'Changing delivery address invalidates shipping');
   await page.getByRole('button', { name: 'Get shipping options', exact: true }).click();
   await page.getByLabel('Delivery service', { exact: true }).selectOption('ups-fixture');
+  const summary = page.getByRole('region', { name: 'Order summary', exact: true });
+  assert.match(await summary.innerText(), /\$16\.20/);
+  assert.match(await summary.innerText(), /\$32\.20/);
+  for (const theme of ['dark', 'light', 'apple']) {
+    await page.evaluate(theme => {
+      document.documentElement.classList.toggle('light', theme === 'light');
+      document.documentElement.classList.toggle('apple', theme === 'apple');
+      document.documentElement.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+    }, theme);
+    for (const control of await page.locator('.shipping-quote input,.shipping-quote select').all()) {
+      const styles = await control.evaluate(e => {
+        const s = getComputedStyle(e);
+        return { background: s.backgroundColor, color: s.color, fill: s.webkitTextFillColor, scheme: s.colorScheme };
+      });
+      assert.deepEqual(styles, { background: 'rgb(255, 255, 255)', color: 'rgb(9, 45, 64)', fill: 'rgb(9, 45, 64)', scheme: 'light' }, `Readable checkout fields in ${theme} theme`);
+    }
+  }
   for (const width of [1448, 768, 390, 320]) {
     await page.setViewportSize({ width, height: 900 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Carrier quote fits ${width}px`);
+    if (process.argv[4] && [1448, 390].includes(width)) await page.screenshot({ path: `${process.argv[4]}-checkout-${width}.png`, fullPage: true, animations: 'disabled' });
   }
   await page.getByRole('button', { name: 'Continue to Stripe checkout', exact: true }).click();
   await page.getByRole('heading', { name: 'Payment confirmed', exact: true }).waitFor();

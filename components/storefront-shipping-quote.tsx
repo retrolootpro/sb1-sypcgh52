@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { type ShippingCustomer, type ShippingRate } from '@/lib/storefront-shipping';
 
-export type ShippingSelection = { shippingToken: string; shippingRate: string; expires: number };
+export type ShippingSelection = { shippingToken: string; shippingRate: string; expires: number; amount: number; name: string };
 type Quote = { token: string; rates: ShippingRate[]; parcels: number; expires: number };
 const emptyCustomer: ShippingCustomer = { name: '', email: '', address: { line1: '', line2: '', city: '', state: '', postal_code: '', country: 'US' } };
 
@@ -41,26 +41,28 @@ export function ShippingQuotePicker({ items, requestId, onSelect, disabled = fal
       if (!response.ok || !result.success) throw new Error(result.message || 'Shipping rates could not load.');
       if (!Array.isArray(result.rates) || !result.rates.length) throw new Error('No shipping services returned. Contact support.');
       setQuote(result); setRate(result.rates[0].id);
-      onSelect({ shippingToken: result.token, shippingRate: result.rates[0].id, expires: result.expires });
+      onSelect({ shippingToken: result.token, shippingRate: result.rates[0].id, expires: result.expires, amount: result.rates[0].amount, name: result.rates[0].name });
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Shipping quote failed. Contact support.'); }
     finally { setBusy(false); }
   };
-  return <section className="space-y-4 rounded-lg border p-4" aria-label="Delivery and carrier rates">
+  return <section className="shipping-quote space-y-4 rounded-lg border p-4" aria-label="Delivery and carrier rates">
     <h2 className="text-xl font-bold">Delivery & shipping options</h2>
-    <p>USPS, UPS and FedEx services are quoted for your address and packages, subject to carrier availability. Quotes last 15 minutes; delivery times are estimates. No label is purchased.</p>
+    <p>Enter your delivery details to see available shipping services and prices. United States delivery only.</p>
     <fieldset disabled={disabled || busy} className="space-y-4">
       {!requestId && <div className="grid gap-4 sm:grid-cols-2">
-        {(['name', 'email'] as const).map(key => <label key={key} className="block">{key === 'name' ? 'Recipient name' : 'Email for receipt'}<input autoComplete={key} type={key === 'email' ? 'email' : 'text'} value={customer[key]} onChange={e => setCustomer({ ...customer, [key]: e.target.value })} className="mt-1 w-full rounded border bg-background p-3"/></label>)}
+        {(['name', 'email'] as const).map(key => <label key={key} className="block">{key === 'name' ? 'Recipient name' : 'Email for receipt'}<input required autoComplete={key === 'name' ? 'shipping name' : 'email'} type={key === 'email' ? 'email' : 'text'} value={customer[key]} onChange={e => setCustomer({ ...customer, [key]: e.target.value })} className="mt-1 w-full rounded border bg-background p-3"/></label>)}
         {(['line1', 'line2', 'city', 'state', 'postal_code'] as const).map(key => <label className="block" key={key}>{({ line1: 'Delivery address', line2: 'Apartment / suite (optional)', city: 'City', state: 'State (2 letters)', postal_code: 'ZIP code' })[key]}<input autoComplete={({ line1: 'shipping address-line1', line2: 'shipping address-line2', city: 'shipping address-level2', state: 'shipping address-level1', postal_code: 'shipping postal-code' })[key]} value={customer.address[key]} onChange={e => setCustomer({ ...customer, address: { ...customer.address, [key]: e.target.value } })} className="mt-1 w-full rounded border bg-background p-3"/></label>)}
         <p className="self-end p-3">Country: United States</p>
       </div>}
       {requestId && <p>Rates use the customer address saved on this request.</p>}
-      <button type="button" className="rounded border px-4 py-3 font-semibold" disabled={!items.length} onClick={getRates}>{busy ? 'Getting carrier rates...' : 'Get shipping options'}</button>
+      <button type="button" className="shipping-quote-button rounded border px-4 py-3 font-semibold" disabled={!items.length} onClick={getRates}>{busy ? 'Getting carrier rates...' : 'Get shipping options'}</button>
       {error && <p role="alert" className="reference-error text-red-500">{error}</p>}
       {expired && <p role="alert">This shipping quote expired. Get new shipping options before continuing.</p>}
-      {quote && <><p>{quote.parcels} package{quote.parcels === 1 ? '' : 's'}. Shipping amounts below cover all packages in this cart. Tax is calculated in Stripe.</p>
+      {quote && <><p>{quote.parcels} package{quote.parcels === 1 ? '' : 's'}. Prices include shipping for every package. Delivery times are estimates; quotes are valid for 15 minutes.</p>
         <label className="block">Delivery service<select aria-label="Delivery service" value={rate} disabled={expired} className="mt-1 w-full rounded border bg-background p-3" onChange={e => {
-          setRate(e.target.value); onSelect({ shippingToken: quote.token, shippingRate: e.target.value, expires: quote.expires });
+          const selected = quote.rates.find(r => r.id === e.target.value);
+          if (!selected) { onSelect(null); return; }
+          setRate(selected.id); onSelect({ shippingToken: quote.token, shippingRate: selected.id, expires: quote.expires, amount: selected.amount, name: selected.name });
         }}>{quote.rates.map(r => <option value={r.id} key={r.id}>{r.name} · ${(r.amount / 100).toFixed(2)}{r.estimatedDays === null ? '' : ` · estimated ${r.estimatedDays} business days`}</option>)}</select></label>
         <p className="text-sm">The delivery address is locked for this quote. To change it, update the address here and get new rates before paying.</p></>}
     </fieldset>
