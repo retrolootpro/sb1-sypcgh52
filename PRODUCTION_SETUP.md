@@ -196,6 +196,24 @@ product cards always use catalog inventory, never mockup merchandise.
 The full catalog opens through search, category buttons, **View All**, or the
 existing `/shop#catalog` links. Search, platform/category filters, sorting,
 product-detail links, cart persistence, and quantity limits remain available.
+The catalog uses numbered pages starting at 24 products, with 48 and 96 options.
+Category, platform/book format, condition, inclusive minimum/maximum price, and
+sale-only filters combine with search. Active filters can be removed individually
+or cleared together. Filter/sort/page-size changes reset to page one; catalog
+refreshes clamp unavailable pages. All available platforms are listed, without
+the former 16-platform cap.
+
+The default **Newest & deals** order puts genuine discounts (compare-at price
+greater than current price) first, then sorts by inventory creation date, title,
+and ID for predictable browsing. Missing dates sort last within each group.
+Price, name, and staff-pick sorting are also available. Homepage staff picks
+remain a separate six-item preview. Filter, sort, page, and page-size selections
+are encoded in shop URLs and restored on reload/back navigation.
+
+Run `node --test scripts/test-storefront-browse.mjs` for sorting, combined-filter,
+pagination, and URL-state regressions. The browser suite also exercises a
+73-product catalog, first/middle/last pages, quantity selectors, product/back
+navigation, all 20 fixture platforms, filter resets, and narrow mobile layouts.
 Accessories and Apparel also match descriptive product names when the existing
 catalog classifies them under a broader category. Missing categories show an
 empty result rather than placeholder products.

@@ -110,6 +110,44 @@
 .commerce-reference .commerce-catalog .commerce-product-image { height: 180px; }
 .commerce-reference .commerce-toolbar { padding: 14px; margin-bottom: 16px; }
 .commerce-reference .commerce-empty { padding: 35px 20px; }
+.reference-browse-intro { margin: 0 0 18px; font-size: 14px; line-height: 1.6; color: #425b66; }
+.reference-catalog-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding: 20px; border: 1px solid var(--line); border-radius: 6px; background: #f3f6f5; }
+.reference-catalog-filters label, .reference-results-toolbar label { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 13px; font-weight: 700; color: var(--ink); }
+.reference-catalog-filters :is(select, input[type="number"]), .reference-results-toolbar select { width: 100%; min-width: 0; min-height: 44px; padding: 10px; border: 1px solid #9babb2; border-radius: 4px; color: var(--ink); background: white; font-size: 16px; }
+.reference-catalog-filters .reference-sale-filter { flex-direction: row; align-items: center; align-self: end; gap: 10px; min-height: 44px; cursor: pointer; }
+.reference-sale-filter input { width: 20px; height: 20px; accent-color: var(--rust); }
+.reference-active-filters { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 16px; }
+.reference-active-filters button { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; overflow-wrap: anywhere; border: 1px solid #b7c7cd; border-radius: 20px; padding: 8px 12px; min-height: 44px; background: white; color: var(--ink); font-size: 13px; cursor: pointer; }
+.reference-active-filters button:last-child { color: #b33118; text-decoration: underline; }
+.reference-active-filters svg { width: 15px; height: 15px; }
+.reference-results-toolbar { display: flex; align-items: end; justify-content: flex-end; flex-wrap: wrap; gap: 16px; padding: 20px 0; }
+.reference-results-toolbar p { margin: 0 auto 12px 0; font-size: 14px; font-weight: 700; }
+.reference-results-toolbar label { min-width: 130px; }
+.commerce-reference .commerce-catalog .commerce-product-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.commerce-reference .commerce-catalog .commerce-product-image { height: 200px; }
+.commerce-reference .commerce-catalog .commerce-product-copy { padding: 12px 14px 18px; }
+.commerce-reference .commerce-catalog .commerce-product-title { font-size: 15px; line-height: 1.4; }
+.reference-pagination, .reference-pagination > div, .reference-pagination > div > span { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.reference-pagination { margin: 24px 0 0; padding-top: 20px; border-top: 1px solid var(--line); }
+.reference-pagination button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 44px; min-height: 44px; padding: 8px 10px; border: 1px solid #afc0c8; border-radius: 4px; background: white; color: var(--ink); cursor: pointer; }
+.reference-pagination button[aria-current="page"] { background: var(--navy); border-color: var(--navy); color: white; }
+.reference-pagination p { width: 100%; text-align: center; margin: 8px 0 0; font-size: 13px; }
+.reference-page-gap { padding: 0 3px; }
+@media (max-width: 1100px) {
+  .commerce-reference .commerce-catalog .commerce-product-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 700px) {
+  .reference-catalog-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 14px; gap: 14px; }
+  .reference-results-toolbar { gap: 12px; }
+  .reference-results-toolbar p { width: 100%; margin: 0; }
+  .reference-results-toolbar label { flex: 1; min-width: 0; }
+  .commerce-reference .commerce-catalog .commerce-product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .reference-pagination > div { order: 3; flex-basis: 100%; margin-top: 8px; }
+  .reference-pagination > button { flex: 1; }
+}
+@media (max-width: 360px) {
+  .reference-catalog-filters { grid-template-columns: minmax(0, 1fr); }
+}
 
 @media (min-width: 1600px) {
   .commerce-reference .commerce-hero h1 { font-size: 45px; }

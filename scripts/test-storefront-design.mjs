@@ -20,6 +20,13 @@ const products = [
   { id: 'accessory', title: 'Wireless Controller', category: 'Collectibles', platform: 'SNES', price: 22, quantity: 3, art: 'accessories' },
   { id: 'apparel', title: 'Pixel Hoodie', category: 'Games', platform: 'Apparel', price: 35, quantity: 1, art: 'apparel' },
 ].map((item) => ({ ...item, quantity: item.id === 'game-1' ? 25 : item.quantity, slug: item.id, condition: 'Good', featured: item.id === 'game-0', image_url: `/storefront/category-${item.art}.png` }));
+const largeCatalog = Array.from({ length: 73 }, (_, index) => ({
+  ...products[0], id: `large-${index}`, slug: `large-${index}`,
+  title: `Catalog Game ${String(index).padStart(2, '0')}`,
+  platform: `Platform ${index % 20}`, condition: index % 2 ? 'CIB' : 'Loose',
+  price: index + 1, compare_at_price: index === 2 ? 100 : null,
+  created_at: new Date(Date.UTC(2026, 0, index + 1)).toISOString(), featured: false,
+}));
 let mode = 'success';
 let paymentStatus = 'paid';
 let paymentReady = true;
@@ -31,7 +38,7 @@ const catalog = () => page.locator('#catalog');
 const featured = () => page.getByRole('region', { name: 'Featured finds' });
 await page.route('**/api/storefront/catalog', (route) => {
   if (mode === 'error') return route.fulfill({ status: 503, json: { success: false, message: 'Preview catalog unavailable' } });
-  return route.fulfill({ json: { success: true, products: mode === 'empty' ? [] : products } });
+  return route.fulfill({ json: { success: true, products: mode === 'empty' ? [] : mode === 'large' ? largeCatalog : products } });
 });
 await page.route('**/api/storefront/requests', (route) => {
   submissions.push(route.request().postDataJSON());
@@ -218,6 +225,80 @@ try {
     await page.screenshot({ path: process.argv[3], fullPage: true, animations: 'disabled' });
   }
 
+  mode = 'large';
+  await page.goto(`${baseUrl}/shop#catalog`);
+  await page.reload();
+  await catalog().locator('article').first().waitFor();
+  assert.equal(await catalog().locator('article').count(), 24);
+  assert.match(await catalog().getByRole('status').innerText(), /Showing 1-24 of 73 items/);
+  assert.equal(await catalog().locator('.commerce-product-title').first().innerText(), 'Catalog Game 02', 'Discounted products lead the default order');
+  assert.equal(await catalog().locator('.commerce-product-title').nth(1).innerText(), 'Catalog Game 72', 'Newest arrivals follow discounted products');
+  assert.equal(await catalog().getByLabel('Platform', { exact: true }).locator('option').count(), 21, 'All platforms remain filterable beyond the old 16-platform limit');
+  await page.getByRole('navigation', { name: 'Inventory pages' }).getByRole('button', { name: 'Next', exact: true }).click();
+  assert.equal(await catalog().locator('article').count(), 24);
+  assert.match(page.url(), /page=2/);
+  assert.match(await catalog().getByRole('status').innerText(), /Showing 25-48 of 73 items/);
+  const secondPageFirst = await catalog().locator('.commerce-product-title').first().innerText();
+  await page.reload();
+  await catalog().locator('article').first().waitFor();
+  assert.equal(await catalog().locator('.commerce-product-title').first().innerText(), secondPageFirst);
+  const productLink = catalog().locator('.commerce-product-title').first();
+  await productLink.click();
+  await page.getByRole('button', { name: 'Add to cart', exact: true }).waitFor();
+  await page.goBack();
+  await catalog().locator('article').first().waitFor();
+  assert.match(page.url(), /page=2/);
+  assert.equal(await catalog().locator('.commerce-product-title').first().innerText(), secondPageFirst, 'Back from a product keeps the current page');
+  await page.getByRole('button', { name: 'Page 4', exact: true }).click();
+  assert.equal(await catalog().locator('article').count(), 1);
+  assert.equal(await page.getByRole('navigation', { name: 'Inventory pages' }).getByRole('button', { name: 'Next', exact: true }).isDisabled(), true);
+  await catalog().getByLabel('Items per page', { exact: true }).selectOption('48');
+  assert.equal(await catalog().locator('article').count(), 48);
+  assert.doesNotMatch(page.url(), /page=/, 'Changing page size returns to page one');
+  await catalog().getByLabel('Items per page', { exact: true }).selectOption('96');
+  assert.equal(await catalog().locator('article').count(), 73);
+  await catalog().getByLabel('Items per page', { exact: true }).selectOption('24');
+  await catalog().getByLabel('Category', { exact: true }).selectOption('Games');
+  await catalog().getByLabel('Platform', { exact: true }).selectOption('Platform 2');
+  await catalog().getByLabel('Condition', { exact: true }).selectOption('Loose');
+  await catalog().getByLabel('Minimum price ($)', { exact: true }).fill('3');
+  await catalog().getByLabel('Maximum price ($)', { exact: true }).fill('3');
+  await catalog().getByLabel('On sale only', { exact: true }).check();
+  assert.equal(await catalog().locator('article').count(), 1);
+  assert.equal(await catalog().locator('.commerce-product-title').innerText(), 'Catalog Game 02');
+  await page.reload();
+  await catalog().locator('article').first().waitFor();
+  assert.equal(await catalog().getByLabel('On sale only', { exact: true }).isChecked(), true);
+  assert.equal(await catalog().getByLabel('Platform', { exact: true }).inputValue(), 'Platform 2');
+  await catalog().getByLabel('Minimum price ($)', { exact: true }).fill('10');
+  await catalog().getByRole('alert').filter({ hasText: 'Minimum price' }).waitFor();
+  await page.getByRole('heading', { name: 'No matching inventory', exact: true }).waitFor();
+  await catalog().getByRole('button', { name: 'Clear filters', exact: true }).click();
+  assert.equal(await catalog().locator('article').count(), 24);
+  assert.equal(await catalog().getByLabel('Condition', { exact: true }).inputValue(), 'All');
+  assert.equal(await catalog().getByLabel('On sale only', { exact: true }).isChecked(), false);
+  await catalog().getByLabel('Condition', { exact: true }).selectOption('CIB');
+  await catalog().getByRole('button', { name: 'Remove filter: CIB', exact: true }).click();
+  assert.equal(await catalog().getByLabel('Condition', { exact: true }).inputValue(), 'All');
+  await page.goto(`${baseUrl}/shop?category=Games&q=Catalog%20Game%2002&page=999#catalog`);
+  await catalog().locator('article').first().waitFor();
+  assert.equal(await catalog().locator('article').count(), 1, 'Category and search combine in shared links');
+  assert.doesNotMatch(page.url(), /page=999/, 'Out-of-range page is corrected after inventory loads');
+  await catalog().getByRole('button', { name: 'Clear filters', exact: true }).click();
+  for (const width of [1448, 1024, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `Filtered catalog fits ${width}px`);
+    for (const select of await catalog().locator('select').all()) {
+      const box = await select.boundingBox();
+      assert.ok(box && box.width >= 80 && box.height >= 44, `Filter controls stay usable at ${width}px`);
+    }
+    if (process.argv[4] && [1448, 390].includes(width)) {
+      await catalog().evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }));
+      await page.screenshot({ path: `${process.argv[4]}-${width}.png`, animations: 'disabled' });
+    }
+  }
+  await page.goto(`${baseUrl}/shop`);
+  await featured().locator('article').first().waitFor();
   mode = 'error';
   await page.reload();
   await page.getByRole('alert').filter({ hasText: 'Preview catalog unavailable' }).waitFor();
@@ -228,7 +309,10 @@ try {
   await page.reload();
   await page.getByRole('heading', { name: 'The shelves are being refreshed.' }).waitFor();
   assert.deepEqual(errors, []);
-  console.log('Storefront browser checks passed: homepage controls, all linked shop pages at desktop/tablet/mobile widths, product-to-cart navigation, guest request errors/retry/submission, checkout availability, payment confirmation, receipt idempotency, cancellation, catalog errors/retry, and empty inventory. Stripe/API responses use local fixtures; no live payments or production data are changed.');
+  console.log('Storefront browser checks passed: homepage controls, all linked shop pages, 73-product pagination at 24/48/96, newest/deal ordering, every platform, combined filters, URL/reload/product-back state, removable filters, mobile control sizes and overflow, cart, guest requests, checkout confirmation/cancellation, and catalog errors/retry. Stripe/API responses use local fixtures; no live payments or production data are changed.');
+} catch (error) {
+  console.error('Browser failure context:', { url: page.url(), errors, text: (await page.locator('body').innerText()).slice(-2500) });
+  throw error;
 } finally {
   await browser.close();
 }

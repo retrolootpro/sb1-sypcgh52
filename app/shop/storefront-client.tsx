@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { parseSavedCart } from '@/lib/storefront-model';
+import { browseProducts, browseUrl, catalogSorts, defaultBrowse, isOnSale, matchesCategory, pageSizes, readBrowse, type BrowseState } from '@/lib/storefront-browse';
 import {
   ArrowRight,
   Check,
@@ -41,6 +42,7 @@ type Product = {
   image_url?: string | null;
   thumbnail_url?: string | null;
   brand?: string | null;
+  created_at?: string | null;
 };
 
 type Profile = {
@@ -84,10 +86,9 @@ export default function StorefrontClient() {
   const [profile, setProfile] = useState<Profile>(fallbackProfile);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [category, setCategory] = useState('All');
-  const [platform, setPlatform] = useState('All');
-  const [sort, setSort] = useState('featured');
-  const [query, setQuery] = useState('');
+  const [browse, setBrowse] = useState<BrowseState>(defaultBrowse);
+  const { category, platform, condition, sort, query, minPrice, maxPrice, saleOnly, pageSize } = browse;
+  const [browseLoaded, setBrowseLoaded] = useState(false);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [cartLoaded, setCartLoaded] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
@@ -98,17 +99,25 @@ export default function StorefrontClient() {
   useEffect(() => {
     const syncCatalog = () => {
       const params = new URLSearchParams(window.location.search);
-      if (params.has('q')) { setQuery(params.get('q') || ''); setCategory('All'); setCatalogOpen(true); }
-      if (categories.some((item) => item.key === params.get('category'))) {
-        setCategory(params.get('category')!); setQuery(''); setCatalogOpen(true);
-      }
-      if (window.location.hash === '#catalog') setCatalogOpen(true);
+      setBrowse(readBrowse(params));
+      setCatalogOpen(params.size > 0 || window.location.hash === '#catalog');
+      setBrowseLoaded(true);
     };
     syncCatalog();
     window.addEventListener('hashchange', syncCatalog);
     window.addEventListener('popstate', syncCatalog);
     return () => { window.removeEventListener('hashchange', syncCatalog); window.removeEventListener('popstate', syncCatalog); };
   }, []);
+
+  useEffect(() => {
+    if (!browseLoaded) return;
+    window.history.replaceState(window.history.state, '', catalogOpen ? browseUrl(browse) : '/shop');
+  }, [browse, browseLoaded, catalogOpen]);
+
+  const updateBrowse = (patch: Partial<BrowseState>) => {
+    setBrowse(current => ({ ...current, ...patch, page: 1 }));
+  };
+  const clearFilters = () => setBrowse(current => ({ ...defaultBrowse, sort: current.sort, pageSize: current.pageSize }));
 
   useEffect(() => {
     try {
@@ -156,24 +165,33 @@ export default function StorefrontClient() {
     return () => { window.clearInterval(interval); window.removeEventListener('focus', refresh); };
   }, [loadCatalog]);
 
-  const platformOptions = useMemo(() => ['All', ...Array.from(new Set(products.map((item) => item.platform).filter(Boolean))).slice(0, 16)], [products]);
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const rows = products.filter((item) => {
-      const categoryMatch = category === 'All' || item.category === category
-        || (category === 'Accessories' && /accessor|controller|headset|cable|adapter|charger|memory card/i.test(`${item.title} ${item.category}`))
-        || (category === 'Apparel' && /apparel|hoodie|t-shirt|tee shirt|sweatshirt|clothing/i.test(`${item.title} ${item.category}`));
-      const platformMatch = platform === 'All' || item.platform === platform;
-      const searchMatch = !q || `${item.title} ${item.platform} ${item.condition} ${item.brand || ''}`.toLowerCase().includes(q);
-      return categoryMatch && platformMatch && searchMatch;
-    });
-    return [...rows].sort((a, b) => {
-      if (sort === 'price-low') return a.price - b.price;
-      if (sort === 'price-high') return b.price - a.price;
-      if (sort === 'name') return a.title.localeCompare(b.title);
-      return Number(b.featured) - Number(a.featured);
-    });
-  }, [products, category, platform, query, sort]);
+  const platformOptions = useMemo(() => ['All', ...Array.from(new Set(products.filter(item => matchesCategory(item, category)).map(item => item.platform).filter(Boolean))).sort()], [products, category]);
+  const conditionOptions = useMemo(() => ['All', ...Array.from(new Set(products.map(item => item.condition).filter(Boolean))).sort()], [products]);
+  const categoryOptions = useMemo(() => Array.from(new Set([...categories.map(item => item.key), ...products.map(item => item.category), category])).filter(value => value !== 'All'), [products, category]);
+  const results = useMemo(() => browseProducts(products, browse), [products, browse]);
+  const featuredProducts = useMemo(() => browseProducts(products, { ...defaultBrowse, sort: 'featured' }).items.slice(0, 6), [products]);
+  const activeFilters = [
+    ...(category !== 'All' ? [{ label: category, patch: { category: 'All', platform: 'All' } }] : []),
+    ...(platform !== 'All' ? [{ label: platform, patch: { platform: 'All' } }] : []),
+    ...(condition !== 'All' ? [{ label: condition, patch: { condition: 'All' } }] : []),
+    ...(query ? [{ label: `Search: ${query}`, patch: { query: '' } }] : []),
+    ...(minPrice ? [{ label: `Min $${minPrice}`, patch: { minPrice: '' } }] : []),
+    ...(maxPrice ? [{ label: `Max $${maxPrice}`, patch: { maxPrice: '' } }] : []),
+    ...(saleOnly ? [{ label: 'On sale', patch: { saleOnly: false } }] : []),
+  ];
+  const invalidPriceRange = !!minPrice && !!maxPrice && Number(minPrice) > Number(maxPrice);
+
+  useEffect(() => {
+    if (!loading && !loadError && browse.page !== results.page) {
+      setBrowse(current => ({ ...current, page: results.page }));
+    }
+  }, [loading, loadError, browse.page, results.page]);
+
+  const goToPage = (page: number) => {
+    setBrowse(current => ({ ...current, page }));
+    document.getElementById('catalog')?.focus({ preventScroll: true });
+    document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   const cartItems = products.filter((item) => cart[item.id]);
   const cartCount = Object.values(cart).reduce((sum, qty) => sum + qty, 0);
@@ -189,19 +207,16 @@ export default function StorefrontClient() {
   };
 
   const showCategory = (value: string, platformValue = 'All') => {
-    setCategory(value);
-    setPlatform(platformValue);
+    setBrowse(current => ({ ...defaultBrowse, category: value, platform: platformValue, sort: current.sort, pageSize: current.pageSize }));
     setMenuOpen(false);
-    setQuery('');
     setCatalogOpen(true);
-    window.history.replaceState(null, '', `/shop?category=${encodeURIComponent(value)}#catalog`);
     window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
 
   const ProductCard = ({ item }: { item: Product }) => (
     <article className="commerce-product-card">
       <Link href={`/shop/product/${item.slug}`} className="commerce-product-image">
-        {item.featured && <span className="commerce-badge">Staff pick</span>}
+        {(isOnSale(item) || item.featured) && <span className="commerce-badge">{isOnSale(item) ? 'Sale' : 'Staff pick'}</span>}
         {item.image_url || item.thumbnail_url
           ? <Image src={item.image_url || item.thumbnail_url || ''} alt={item.title} width={220} height={160} unoptimized/>
           : <div className="commerce-placeholder"><Gamepad2/><span>{item.category}</span></div>}
@@ -230,7 +245,7 @@ export default function StorefrontClient() {
         <div className="commerce-header-main">
           <button type="button" className="commerce-menu-button" onClick={() => setMenuOpen((open) => !open)} aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} aria-controls="shop-navigation"><Menu/></button>
           <Link href="/shop" className="commerce-logo"><Image src="/storefront/pixel-page-wordmark.png" width={265} height={53} alt={`${profile.store_name} - ${profile.tagline}`} priority unoptimized/></Link>
-          <form className="commerce-search" role="search" onSubmit={(event) => { event.preventDefault(); setCatalogOpen(true); setMenuOpen(false); window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }), 0); }}><Search/><input aria-label="Search products" value={query} onChange={(event) => { setQuery(event.target.value); if (event.target.value) setCatalogOpen(true); }} placeholder="Search games, books, collectibles and more..."/><button type="submit" aria-label="Search"><Search/></button></form>
+          <form className="commerce-search" role="search" onSubmit={(event) => { event.preventDefault(); setCatalogOpen(true); setMenuOpen(false); window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }), 0); }}><Search/><input aria-label="Search products" value={query} onChange={(event) => { updateBrowse({ query: event.target.value }); if (event.target.value) setCatalogOpen(true); }} placeholder="Search games, books, collectibles and more..."/><button type="submit" aria-label="Search"><Search/></button></form>
           <div className="commerce-header-actions">
             <Link href="/shop/account" aria-label="Account"><UserRound/><span>Account</span></Link>
             <Link href="/shop/pages/help" aria-label="Customer care"><Heart/><span>Customer care</span></Link>
@@ -238,7 +253,7 @@ export default function StorefrontClient() {
           </div>
         </div>
         <nav id="shop-navigation" aria-label="Shop categories" className={menuOpen ? 'commerce-nav open' : 'commerce-nav'}>
-          <button type="button" className="reference-home" onClick={() => { setCatalogOpen(false); setQuery(''); setMenuOpen(false); window.history.replaceState(null, '', '/shop'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Home</button>
+          <button type="button" className="reference-home" onClick={() => { setCatalogOpen(false); setBrowse(defaultBrowse); setMenuOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Home</button>
           {categories.map((item) => <button type="button" key={item.key} onClick={() => showCategory(item.key)}>{item.key === 'Games' ? 'Games' : item.label}<ChevronDown/></button>)}
           <Link className="reference-trade-link" href="/shop/request" onClick={() => setMenuOpen(false)}>Request an item</Link>
         </nav>
@@ -268,7 +283,7 @@ export default function StorefrontClient() {
         <div className="commerce-section-heading"><h2>Featured Finds</h2><span className="reference-heading-rule"/><button type="button" onClick={() => showCategory('All')}>View All <ArrowRight/></button></div>
         {loading ? <div className="commerce-empty" role="status"><Clock3 className="commerce-spin"/><h3>Loading the shelves...</h3></div>
           : loadError ? <div className="commerce-empty commerce-error" role="alert"><h3>Inventory could not load</h3><p>{loadError}</p><button type="button" onClick={loadCatalog}>Try again</button></div>
-          : products.length ? <div className="commerce-product-grid">{[...products].sort((a, b) => Number(b.featured) - Number(a.featured)).slice(0, 6).map((item) => <ProductCard item={item} key={item.id}/>)}</div>
+          : products.length ? <div className="commerce-product-grid">{featuredProducts.map((item) => <ProductCard item={item} key={item.id}/>)}</div>
           : <div className="commerce-empty"><h3>The shelves are being refreshed.</h3><p>Please check back or contact the store for availability.</p></div>}
       </section>}
 
@@ -280,18 +295,33 @@ export default function StorefrontClient() {
       </section>
 
       {catalogOpen && <section className="commerce-section commerce-catalog" id="catalog" tabIndex={-1}>
-        <div className="commerce-section-heading"><div><p className="commerce-kicker">LIVE INVENTORY</p><h2>{category === 'All' ? 'Shop everything' : categories.find((item) => item.key === category)?.label || category}</h2></div><p>{filtered.length} item{filtered.length === 1 ? '' : 's'} available now</p></div>
-        <div className="commerce-toolbar">
-          <div className="commerce-filter-group">
-            <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="All">All</option>{categories.filter((item) => item.key !== 'All').map((item) => <option value={item.key} key={item.key}>{item.label}</option>)}</select><ChevronDown/></label>
-            <label>Platform<select value={platform} onChange={(event) => setPlatform(event.target.value)}>{platformOptions.map((item) => <option key={item}>{item}</option>)}</select><ChevronDown/></label>
-          </div>
-          <label className="commerce-sort">Sort by<select value={sort} onChange={(event) => setSort(event.target.value)}><option value="featured">Featured</option><option value="price-low">Price: Low to high</option><option value="price-high">Price: High to low</option><option value="name">Name</option></select><ChevronDown/></label>
+        <div className="commerce-section-heading"><div><p className="commerce-kicker">LIVE INVENTORY</p><h2>{category === 'All' ? 'Shop everything' : categories.find((item) => item.key === category)?.label || category}</h2></div></div>
+        <p className="reference-browse-intro">Browse by category, platform, condition, or budget. Newest &amp; deals puts discounted finds first, then the latest arrivals.</p>
+        <div className="reference-catalog-filters" role="group" aria-label="Inventory filters">
+          <label>Category<select aria-label="Category" value={category} onChange={event => updateBrowse({ category: event.target.value, platform: 'All' })}><option value="All">All categories</option>{categoryOptions.map(value => <option key={value} value={value}>{categories.find(item => item.key === value)?.label || value}</option>)}</select></label>
+          <label>Platform / book format<select aria-label="Platform" value={platform} onChange={event => updateBrowse({ platform: event.target.value })}>{Array.from(new Set([...platformOptions, platform])).map(value => <option key={value} value={value}>{value === 'All' ? 'All platforms / formats' : value}</option>)}</select></label>
+          <label>Condition<select aria-label="Condition" value={condition} onChange={event => updateBrowse({ condition: event.target.value })}>{Array.from(new Set([...conditionOptions, condition])).map(value => <option key={value} value={value}>{value === 'All' ? 'All conditions' : value}</option>)}</select></label>
+          <label>Minimum price ($)<input type="number" min="0" step="0.01" inputMode="decimal" placeholder="No minimum" value={minPrice} aria-invalid={invalidPriceRange} onChange={event => updateBrowse({ minPrice: event.target.value })}/></label>
+          <label>Maximum price ($)<input type="number" min="0" step="0.01" inputMode="decimal" placeholder="No maximum" value={maxPrice} aria-invalid={invalidPriceRange} onChange={event => updateBrowse({ maxPrice: event.target.value })}/></label>
+          <label className="reference-sale-filter"><input type="checkbox" checked={saleOnly} onChange={event => updateBrowse({ saleOnly: event.target.checked })}/>On sale only</label>
+        </div>
+        {invalidPriceRange && <p className="reference-error" role="alert">Minimum price must not exceed maximum price.</p>}
+        {activeFilters.length > 0 && <div className="reference-active-filters" aria-label="Active filters">{activeFilters.map(filter => <button type="button" key={filter.label} aria-label={`Remove filter: ${filter.label}`} onClick={() => updateBrowse(filter.patch)}>{filter.label}<X/></button>)}<button type="button" onClick={clearFilters}>Clear filters</button></div>}
+        <div className="reference-results-toolbar">
+          <p role="status" aria-live="polite">{loading ? 'Loading inventory...' : loadError ? 'Inventory unavailable' : `Showing ${results.total ? results.start + 1 : 0}-${Math.min(results.start + pageSize, results.total)} of ${results.total} items`}</p>
+          <label>Sort by<select aria-label="Sort by" value={sort} onChange={event => { const value = catalogSorts.find(value => value === event.target.value); if (value) updateBrowse({ sort: value }); }}><option value="newest">Newest &amp; deals</option><option value="price-low">Price: Low to high</option><option value="price-high">Price: High to low</option><option value="name">Name: A-Z</option><option value="featured">Staff picks</option></select></label>
+          <label>Items per page<select aria-label="Items per page" value={pageSize} onChange={event => updateBrowse({ pageSize: Number(event.target.value) })}>{pageSizes.map(size => <option key={size} value={size}>{size}</option>)}</select></label>
         </div>
         {loading ? <div className="commerce-empty"><Clock3 className="commerce-spin"/><h3>Loading the shelves...</h3></div>
           : loadError ? <div className="commerce-empty commerce-error"><h3>Inventory could not load</h3><p>{loadError}</p><button type="button" onClick={loadCatalog}>Try again</button></div>
-          : filtered.length ? <div className="commerce-product-grid">{filtered.map((item) => <ProductCard item={item} key={item.id}/>)}</div>
-          : <div className="commerce-empty"><Search/><h3>No matching inventory</h3><p>Try clearing the filters, or let us help find your item.</p><Link href={`/shop/request?item=${encodeURIComponent(query)}`}>Request this item</Link><button type="button" onClick={() => { setCategory('All'); setPlatform('All'); setQuery(''); }}>Clear filters</button></div>}
+          : results.total ? <><div className="commerce-product-grid">{results.items.map((item) => <ProductCard item={item} key={item.id}/>)}</div>
+            <nav className="reference-pagination" aria-label="Inventory pages">
+              <button type="button" disabled={results.page === 1} onClick={() => goToPage(results.page - 1)}><ChevronLeft/>Previous</button>
+              <div>{Array.from(new Set([1, results.page - 1, results.page, results.page + 1, results.pageCount])).filter(page => page >= 1 && page <= results.pageCount).sort((a, b) => a - b).map((page, index, pages) => <span key={page}>{index > 0 && page - pages[index - 1] > 1 && <span className="reference-page-gap" aria-hidden="true">...</span>}<button type="button" aria-label={`Page ${page}`} aria-current={page === results.page ? 'page' : undefined} onClick={() => goToPage(page)}>{page}</button></span>)}</div>
+              <button type="button" disabled={results.page === results.pageCount} onClick={() => goToPage(results.page + 1)}>Next<ChevronRight/></button>
+              <p>Page {results.page} of {results.pageCount}</p>
+            </nav></>
+          : <div className="commerce-empty"><Search/><h3>No matching inventory</h3><p>Try clearing the filters, or let us help find your item.</p><Link href={`/shop/request?item=${encodeURIComponent(query)}`}>Request this item</Link>{!activeFilters.length && <button type="button" onClick={clearFilters}>Clear filters</button>}</div>}
       </section>}
 
       <section className="reference-promos" aria-label="Explore the shelves">
