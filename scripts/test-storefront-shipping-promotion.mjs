@@ -18,7 +18,11 @@ const {shippingPromotion,shippingAllowance}=load('lib/storefront-shipping-promot
 const {shippingPackages,shippingParcels}=load('lib/storefront-shipping.ts');
 const pack=(value,mode='eligible')=>({value,mode});
 test('enforces exact subtotal, dollar cap and percentage boundaries',()=>{
-  assert.equal(shippingPromotion([525],[pack(4999)]).amount,525);
+  assert.equal(shippingPromotion([525],[pack(4999)]).amount,0);
+  assert.equal(shippingPromotion([573],[pack(4407)]).amount,0);
+  assert.equal(shippingPromotion([573],[pack(3488)]).amount,573);
+  assert.equal(shippingPromotion([573],[pack(3819)]).amount,573);
+  assert.equal(shippingPromotion([573],[pack(3820)]).amount,0);
   assert.equal(shippingPromotion([750],[pack(5000)]).amount,0);
   assert.equal(shippingPromotion([751],[pack(5000)]).amount,751);
   assert.equal(shippingPromotion([800],[pack(6000)]).amount,0);
@@ -26,10 +30,11 @@ test('enforces exact subtotal, dollar cap and percentage boundaries',()=>{
   assert.equal(shippingAllowance(5333),799);
   assert.equal(shippingAllowance(5334),800);
 });
-test('quoted goal reflects both minimum spend and percentage cap without promising unchanged postage',()=>{
+test('quoted goal reflects percentage cap with no minimum spend',()=>{
   assert.equal(shippingPromotion([800],[pack(4000)]).goal,5334);
   assert.equal(shippingPromotion([750],[pack(4000)]).goal,5000);
   assert.equal(shippingPromotion([801],[pack(4000)]).goal,null);
+  assert.equal(shippingPromotion([573],[pack(3488)]).goal,3820);
 });
 test('individual free offers waive only the minimum and protect low-priced items',()=>{
   assert.equal(shippingPromotion([500],[pack(1000,'free')]).amount,500);
@@ -38,7 +43,8 @@ test('individual free offers waive only the minimum and protect low-priced items
 });
 test('mixed carts cover only exclusively promoted packages and cap the combined subsidy',()=>{
   const mixed=shippingPromotion([400,500],[pack(3000,'free'),pack(2000)]);
-  assert.equal(mixed.discount,400);assert.equal(mixed.amount,500);
+  assert.equal(mixed.discount,0);assert.equal(mixed.amount,900);
+  assert.equal(shippingPromotion([400,200],[pack(3000),pack(6000,'excluded')]).amount,200);
   assert.equal(shippingPromotion([500,500],[pack(5000,'free'),pack(5000,'free')]).amount,1000,'No per-parcel cap loophole');
   assert.equal(shippingPromotion([400,200],[pack(3000,'free'),pack(6000,'excluded')]).amount,200);
   assert.equal(shippingPromotion([400],[pack(6000,'excluded')]).amount,400);

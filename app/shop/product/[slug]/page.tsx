@@ -78,7 +78,7 @@ export default function ProductPage() {
           <div className="commerce-condition"><Check/>{product.condition}</div>
           <div className="commerce-price commerce-detail-price"><strong>${product.price.toFixed(2)}</strong>{product.compare_at_price && product.compare_at_price > product.price ? <del>${product.compare_at_price.toFixed(2)}</del> : null}</div>
           {savings > 0 && <p className="commerce-savings">Save ${savings.toFixed(2)}</p>}
-          {product.shippingPromotion && product.shippingPromotion!=='excluded' && <p className="shipping-eligibility">{product.shippingPromotion==='free'?'Free shipping eligible':'Free shipping eligible on $50+ orders'} · <Link href="/shop/pages/shipping">Offer details</Link></p>}
+          {product.shippingPromotion && product.shippingPromotion!=='excluded' && <p className="shipping-eligibility">Free shipping eligible · <Link href="/shop/pages/shipping">Offer details</Link></p>}
           <p className="commerce-product-detail-copy">{product.description || 'A live Pixel & Page inventory item with availability managed directly in RetroLootPro.'}</p>
           <div className="commerce-product-specs">
             <div><small>Condition</small><strong>{product.condition}</strong></div>

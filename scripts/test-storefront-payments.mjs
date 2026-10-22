@@ -476,6 +476,22 @@ test('only recognized standard services qualify and discounted service becomes t
   const noStandard=await harness({productPrice:50,rateOverrides:[priority]}).load('lib/server/storefront-shipping.ts').shippingQuote(items,quotedCustomer());
   assert.equal(noStandard.rates[0].amount,400);assert.equal(noStandard.rates[0].discount,undefined);
 });
+test('ordinary items automatically qualify below $50 using real postage and merchandise value',async()=>{
+  carrierMode();
+  const rate={object_id:'actual-ground',provider:'USPS',currency:'USD',amount:'5.73',servicelevel:{name:'Ground Advantage',token:'usps_ground_advantage'},estimated_days:2};
+  const items=[{id:item,quantity:1}];
+  const h=harness({productPrice:44.07,rateOverrides:[rate]});
+  const quote=await h.load('lib/server/storefront-shipping.ts').shippingQuote(items,quotedCustomer());
+  assert.equal(quote.rates[0].amount,0);
+  assert.equal(quote.rates[0].discount,573);
+  const response=await h.load('app/api/storefront/checkout/route.ts').POST(post('/api/storefront/checkout',{
+    orderId:id,items,shippingToken:quote.token,shippingRate:quote.rates[0].id,
+  }));
+  assert.equal(response.status,200);
+  assert.equal(h.calls.find(c=>c.path==='/v1/checkout/sessions').params.get('shipping_options[0][shipping_rate_data][fixed_amount][amount]'),'0');
+  const below=await harness({productPrice:34.88,rateOverrides:[rate]}).load('lib/server/storefront-shipping.ts').shippingQuote(items,quotedCustomer());
+  assert.equal(below.rates[0].amount,573);assert.equal(below.rates[0].promotionGoal,3820);
+});
 test('free customer shipping does not waive the actual staff postage purchase',async()=>{
   carrierMode();
   const h=harness({order:{...paidShippingOrder,shipping_quote:{...paidShippingOrder.shipping_quote,rate:{name:'USPS Ground Advantage',amount:0,carrierAmount:525,discount:525}}}});

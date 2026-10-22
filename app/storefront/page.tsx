@@ -144,8 +144,8 @@ export default function StorefrontManagerPage() {
                   </div>
                   <div className="min-w-0"><div className="truncate font-semibold">{item.product_name}</div><div className="truncate text-xs text-muted-foreground">{item.console} • {item.condition}</div><label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Switch checked={item.storefront_featured} onCheckedChange={(checked) => patchItem(item.id, { storefront_featured: checked })} />Featured</label>
                     <label className="mt-2 block text-xs">Shipping offer<select aria-label={`Shipping offer for ${item.product_name}`} className="mt-1 w-full rounded border bg-background p-2" disabled={saving===item.id} value={item.storefront_shipping_promotion} onChange={event=>{const value=event.target.value;if(value==='eligible'||value==='free'||value==='excluded')patchItem(item.id,{storefront_shipping_promotion:value});}}>
-                      <option value="eligible">Eligible on $50+ orders</option><option value="free">Individual free-shipping offer</option><option value="excluded">Excluded from free shipping</option>
-                    </select></label><p className="mt-1 text-xs text-muted-foreground">Subject to real standard postage of $8 or less and 15% of eligible merchandise value. Individual offers waive only the $50 minimum.</p>
+                      <option value="eligible">Automatically eligible - no minimum</option><option value="free">Individual offer (same postage limits)</option><option value="excluded">Excluded from free shipping</option>
+                    </select></label><p className="mt-1 text-xs text-muted-foreground">No minimum purchase. Combined covered standard postage must be $8 or less and no more than 15% of covered merchandise value. Excluded packages are charged normally.</p>
                   </div>
                 </div>
                 <div><div className="text-lg font-bold">{item.quantity}</div><div className="text-xs text-muted-foreground">{item.status || 'available'}</div></div>

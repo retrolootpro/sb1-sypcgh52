@@ -492,16 +492,17 @@ in Storefront Manager. It does not change prices, quantities, orders or finance.
 The server discounts only the cheapest supported standard service available for
 every parcel: USPS Ground Advantage, UPS Ground, FedEx Ground or Home Delivery.
 All other services remain full-price options; no standard service means no offer.
-The $50 minimum uses eligible merchandise at current selling prices, before tax
-or shipping. Whole-order free shipping requires no excluded packages, at least
-$50, and combined standard postage no more than both $8 and 15% of eligible value.
-At $50 the effective postage cap is $7.50; $8 requires at least $53.34.
+There is no minimum purchase. All non-excluded merchandise automatically
+qualifies when combined covered postage is no more than both $8 and 15% of
+covered merchandise value, at current selling prices before tax or shipping.
+For example, $44.07 with $5.73 postage qualifies; $34.88 with $5.73 does not.
+Postage of $8 requires at least $53.34 in covered merchandise value.
 
-Individual `free` items waive only the $50 minimum. In mixed orders, only parcels
-containing exclusively such items qualify; their combined postage must fit both
-the $8 cap and 15% of their combined merchandise value. Mixed-content parcels
-do not inherit individual free shipping. The cap is not applied separately per
-parcel (which could accidentally multiply the subsidy).
+Existing `free` metadata remains compatible and uses the same rules as
+`eligible`. In mixed orders, parcels containing any `excluded` items are charged
+normally. Only other parcels' merchandise contributes to the covered allowance.
+Combined covered postage must fit both limits; otherwise those packages are
+charged in full. The cap is not applied separately per parcel.
 
 The signed shipping quote stores customer amount, original carrier amount,
 subsidy and the current quote's spend target. Quotes bind current item modes,
@@ -509,13 +510,17 @@ prices/quantities and parcel contents. The same server path handles checkout and
 requested-item invoices. A zero shipping charge goes to Stripe; the staff order
 still shows the selected service, real quoted postage and shop subsidy. Label
 purchase remains separate at its fresh actual price.
+The shipping signature domain is now `storefront-shipping-v2`: unused older
+quotes require refreshing after this policy change. Saved pending and paid order
+snapshots keep their original amounts; label quote signatures remain separate.
 
-Product badges are conditional (“Free shipping eligible on $50+ orders” or “Free
-shipping eligible”), with no numeric shipping-cap comment on the badge. The
+Product badges are conditional (“Free shipping eligible”), with no numeric
+shipping-cap comment on the badge. The
 shipping-policy page discloses all conditions. Cart and checkout progress show
-remaining eligible spend, not a guaranteed unlock. Before a quote, the target is
-$50. After a standard quote, it also accounts for the 15% limit (rounded up to a
-cent). Quotes over $8 or containing excluded packages do not promise that adding
+remaining eligible spend, not a guaranteed unlock. Before a quote, show the
+conditional no-minimum offer without an invented spend target. After a standard
+quote, the target uses the 15% limit (rounded up to a cent). Quotes over $8 or
+containing excluded packages do not promise that adding
 money will unlock the offer. Cart/address changes require re-quoting; extra items
 can add parcels and change the result. Excluded products never count toward
 progress. Eligibility is destination-dependent, not inferred from an item price.

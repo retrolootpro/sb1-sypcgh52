@@ -228,7 +228,7 @@ export default function StorefrontClient() {
         <div className="commerce-price"><strong>${item.price.toFixed(2)}</strong>{item.compare_at_price && item.compare_at_price > item.price ? <del>${item.compare_at_price.toFixed(2)}</del> : null}</div>
         <div className="commerce-product-meta">{item.platform || item.category}</div>
         <Link href={`/shop/product/${item.slug}`} className="commerce-product-title">{item.title}</Link>
-        {item.shippingPromotion && item.shippingPromotion!=='excluded' && <p className="shipping-eligibility">{item.shippingPromotion==='free'?'Free shipping eligible':'Free shipping eligible on $50+ orders'}</p>}
+        {item.shippingPromotion && item.shippingPromotion!=='excluded' && <p className="shipping-eligibility">Free shipping eligible</p>}
         <div className="commerce-condition"><Check/>{item.condition}</div>
         <div className="commerce-product-footer">
           <button type="button" aria-label={`Add ${item.title} to cart`} onClick={() => { updateCart(item, 1); setCartOpen(true); }} disabled={!item.quantity}><ShoppingCart/></button>

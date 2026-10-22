@@ -108,8 +108,8 @@ try {
   await catalog().getByLabel('Platform').selectOption('All');
   await page.getByRole('button', { name: 'Add Retro Game 0 to cart', exact: true }).click();
   await page.getByRole('complementary', { name: 'Shopping cart' }).waitFor();
-  assert.match(await page.getByRole('region',{name:'Free shipping progress'}).innerText(),/Add \$40.00/);
-  assert.equal(await catalog().locator('.shipping-eligibility').first().innerText(),'Free shipping eligible on $50+ orders');
+  assert.match(await page.getByRole('region',{name:'Free shipping progress'}).innerText(),/no minimum purchase/);
+  assert.equal(await catalog().locator('.shipping-eligibility').first().innerText(),'Free shipping eligible');
   await page.getByRole('button', { name: 'Add one Retro Game 0', exact: true }).click();
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('pixel-page-cart'))['game-0']), 1);
   await page.getByRole('button', { name: 'Close shopping cart', exact: true }).click();
@@ -280,7 +280,7 @@ try {
   await page.evaluate(()=>localStorage.setItem('pixel-page-cart',JSON.stringify({console:1})));
   await page.goto(`${baseUrl}/shop/checkout`);
   const progress=page.getByRole('region',{name:'Free shipping progress'});
-  await progress.getByRole('status').filter({hasText:'Add $5.00'}).waitFor();
+  await progress.getByRole('status').filter({hasText:'no minimum purchase'}).waitFor();
   for (const [label,value] of [['Recipient name','Guest Customer'],['Email for receipt','guest@example.invalid'],
     ['Delivery address','1 Test St'],['City','Test'],['State (2 letters)','FL'],['ZIP code','32114']]) await page.getByLabel(label,{exact:true}).fill(value);
   promotionScenario='threshold';
@@ -302,7 +302,7 @@ try {
   await page.getByLabel('Delivery service',{exact:true}).selectOption('usps-fixture');
   await progress.getByRole('status').filter({hasText:'Free standard shipping confirmed'}).waitFor();
   await page.getByLabel('ZIP code',{exact:true}).fill('10001');
-  await progress.getByRole('status').filter({hasText:'You reached the free-shipping minimum'}).waitFor();
+  await progress.getByRole('status').filter({hasText:'no minimum purchase'}).waitFor();
   assert.equal(await page.getByRole('button',{name:'Continue to Stripe checkout',exact:true}).isDisabled(),true);
   promotionScenario='blocked';
   await page.getByRole('button',{name:'Get shipping options',exact:true}).click();
@@ -324,7 +324,7 @@ try {
   await page.getByRole('button',{name:'Clear cart',exact:true}).click();
   await page.evaluate(()=>localStorage.setItem('pixel-page-cart',JSON.stringify({accessory:1})));
   await page.reload();
-  await page.getByRole('region',{name:'Free shipping progress'}).getByText(/Individually promoted items may qualify without/).waitFor();
+  await page.getByRole('region',{name:'Free shipping progress'}).getByText(/Individual offers use the same postage limits/).waitFor();
   await page.getByRole('button',{name:'Clear cart',exact:true}).click();
   await page.goto(`${baseUrl}/shop/product/accessory`);
   await page.locator('.shipping-eligibility').filter({hasText:'Free shipping eligible'}).waitFor();

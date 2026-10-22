@@ -41,7 +41,7 @@ export async function pricedShippingLines(items: z.infer<typeof cartSchema>) {
   });
 }
 
-export function quoteSignature(payload: string, purpose = 'storefront-shipping-v1') {
+export function quoteSignature(payload: string, purpose = 'storefront-shipping-v2') {
   const key = process.env.SHIPPO_API_KEY;
   if (!key) throw new CommerceError('Carrier shipping is not configured. Contact support.', 503);
   return createHmac('sha256', key).update(`${purpose}:${payload}`).digest();
