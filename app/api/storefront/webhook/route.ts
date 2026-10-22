@@ -42,6 +42,34 @@ export async function POST(request: NextRequest) {
         intent = typeof session.payment_intent === 'string' ? session.payment_intent : session.payment_intent?.id || null;
       } else if (session.status === 'expired') action = 'cancel';
       else return NextResponse.json({ received: true });
+    } else if (event.type === 'charge.succeeded') {
+      const charge = await stripe.charges.retrieve((event.data.object as Stripe.Charge).id, { expand: ['balance_transaction'] });
+      if (charge.status !== 'succeeded' || charge.currency !== 'usd' || !charge.payment_intent) {
+        throw new Error('Stripe charge is not a supported successful card payment.');
+      }
+      const intentId = typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent.id;
+      const intentRecord = typeof charge.payment_intent === 'string'
+        ? await stripe.paymentIntents.retrieve(intentId)
+        : charge.payment_intent;
+      orderId = intentRecord.metadata.order_id;
+      if (!orderId) {
+        const lookup = await admin.from('storefront_orders').select('id').eq('payment_intent', intentId).maybeSingle();
+        if (lookup.error) throw lookup.error;
+        orderId = lookup.data?.id;
+      }
+      if (!orderId) throw new Error('Stripe charge is not linked to a storefront order yet; retry reconciliation.');
+      const balance = typeof charge.balance_transaction === 'string'
+        ? await stripe.balanceTransactions.retrieve(charge.balance_transaction)
+        : charge.balance_transaction;
+      if (!balance || balance.currency !== 'usd' || !Number.isSafeInteger(balance.fee) || balance.fee < 0) {
+        throw new Error('Stripe actual fee is not available as a valid USD balance transaction; retry reconciliation.');
+      }
+      const result = await admin.rpc('storefront_record_stripe_fee', {
+        p_order: orderId, p_charge: charge.id, p_intent: intentId, p_amount_cents: balance.fee,
+        p_date: new Date(charge.created * 1000).toISOString().slice(0, 10),
+      });
+      if (result.error) throw result.error;
+      return NextResponse.json({ received: true });
     } else if (['invoice.paid','invoice.voided','invoice.marked_uncollectible'].includes(event.type)) {
       const invoice = await stripe.invoices.retrieve((event.data.object as Stripe.Invoice).id!);
       orderId = invoice.metadata?.order_id;

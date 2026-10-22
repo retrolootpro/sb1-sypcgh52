@@ -14,7 +14,9 @@ import {
   TRANSACTION_CATEGORIES, INCOME_CATEGORIES, type Transaction,
 } from '@/lib/finance-services';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { useAuth } from '@/lib/auth-context';
+import { financeCsv } from '@/lib/finance-reporting';
 
 const TYPE_COLORS: Record<string, string> = {
   income: 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10',
@@ -377,7 +379,7 @@ function AddTransactionDialog({ open, onOpenChange, onAdded }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
+      <DialogContent className="finance-workspace sm:max-w-sm max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle>Add Transaction</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="grid grid-cols-2 gap-2.5">
@@ -439,6 +441,7 @@ function AddTransactionDialog({ open, onOpenChange, onAdded }: {
 }
 
 export function TransactionsTab() {
+  const { accountId } = useAuth();
   const [txns, setTxns] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
@@ -451,17 +454,25 @@ export function TransactionsTab() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const statementInputRef = useRef<HTMLInputElement>(null);
+  const [loadError, setLoadError] = useState('');
+  const [page, setPage] = useState(0);
+  const generation = useRef({});
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const current = {}; generation.current = current;
+    setLoading(true); setTxns([]); setLoadError(''); setPage(0);
+    if (!accountId) { setLoading(false); return; }
     try {
       const data = await getTransactions({ type: typeFilter, category: categoryFilter, search });
-      setTxns(data);
-    } catch { toast.error('Failed to load transactions'); }
-    finally { setLoading(false); }
-  }, [typeFilter, categoryFilter, search]);
+      if (generation.current === current) setTxns(data);
+    } catch (cause) {
+      console.error('Finance transactions:', cause);
+      if (generation.current === current) setLoadError('Transactions could not be loaded. Totals and export are hidden; retry before reviewing this ledger.');
+    }
+    finally { if (generation.current === current) setLoading(false); }
+  }, [typeFilter, categoryFilter, search, accountId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); return () => { generation.current = {}; }; }, [load]);
 
   const handleImport = async () => {
     setImporting(true);
@@ -589,11 +600,10 @@ export function TransactionsTab() {
   };
 
   const handleExport = () => {
-    const header = 'Date,Description,Amount,Type,Category,Source,Reconciled\n';
-    const rows = txns.map(t =>
-      `${t.date},"${t.description}",${t.amount},${t.type},"${t.category}",${t.source},${t.is_reconciled}`
-    ).join('\n');
-    const blob = new Blob([header + rows], { type: 'text/csv' });
+    if (loading || loadError) return;
+    const rows = [['Date', 'Description', 'Amount', 'Type', 'Category', 'Source', 'Reconciled'],
+      ...txns.map(t => [t.date, t.description, t.amount, t.type, t.category, t.source, String(t.is_reconciled)])];
+    const blob = new Blob([financeCsv(rows)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -607,6 +617,8 @@ export function TransactionsTab() {
     else if (t.type === 'expense' || t.type === 'refund') acc.expense += Math.abs(t.amount);
     return acc;
   }, { income: 0, expense: 0 });
+  const pageCount = Math.max(1, Math.ceil(txns.length / 50));
+  const currentPage = Math.min(page, pageCount - 1);
 
   return (
     <div className="space-y-4">
@@ -614,11 +626,11 @@ export function TransactionsTab() {
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <Input value={search} onChange={e => setSearch(e.target.value)}
+            <Input aria-label="Search transactions" value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search transactions..." className="h-8 pl-8 text-xs w-52 bg-secondary/40" />
           </div>
           <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="h-8 text-xs w-32 bg-secondary/40">
+            <SelectTrigger aria-label="Transaction type" className="h-8 text-xs w-32 bg-secondary/40">
               <Filter className="w-3 h-3 mr-1.5 text-muted-foreground" />
               <SelectValue placeholder="Type" />
             </SelectTrigger>
@@ -653,7 +665,7 @@ export function TransactionsTab() {
             <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${importing ? 'animate-spin' : ''}`} />
             {importing ? 'Importing...' : 'Import Sales'}
           </Button>
-          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExport} disabled={txns.length === 0}>
+          <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExport} disabled={loading || !!loadError || txns.length === 0}>
             <Download className="w-3.5 h-3.5 mr-1.5" />
             CSV
           </Button>
@@ -664,22 +676,26 @@ export function TransactionsTab() {
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      {loadError && <section className="business-overview-message"><p role="alert">{loadError}</p><Button variant="outline" onClick={load}>Retry transactions</Button></section>}
+      {!loading && !loadError && <>
+      <p className="text-xs leading-6 text-muted-foreground">Totals and CSV cover all matching ledger entries, across all dates, not just this page. Transfers are excluded. Income less expenses/refunds is a ledger-entry difference, not net profit or a bank balance.</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
-          <div className="text-[10px] text-muted-foreground mb-1">Total Income</div>
+          <div className="text-[10px] text-muted-foreground mb-1">Matching income</div>
           <div className="text-sm font-semibold text-emerald-400 tabular-nums">{formatCurrency(totals.income)}</div>
         </div>
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
-          <div className="text-[10px] text-muted-foreground mb-1">Total Expenses</div>
+          <div className="text-[10px] text-muted-foreground mb-1">Matching expenses + refunds</div>
           <div className="text-sm font-semibold text-red-400 tabular-nums">{formatCurrency(totals.expense)}</div>
         </div>
         <div className={`rounded-xl border p-3 ${(totals.income - totals.expense) >= 0 ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5'}`}>
-          <div className="text-[10px] text-muted-foreground mb-1">Net</div>
+          <div className="text-[10px] text-muted-foreground mb-1">Ledger-entry difference</div>
           <div className={`text-sm font-semibold tabular-nums ${(totals.income - totals.expense) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {formatCurrency(totals.income - totals.expense)}
           </div>
         </div>
       </div>
+      </>}
 
       <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
         <div className="overflow-x-auto">
@@ -698,11 +714,11 @@ export function TransactionsTab() {
             <tbody>
               {loading ? (
                 <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">Loading...</td></tr>
-              ) : txns.length === 0 ? (
+              ) : loadError ? <tr><td colSpan={7} className="p-6 text-muted-foreground">Ledger unavailable. Use Retry transactions above.</td></tr> : txns.length === 0 ? (
                 <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">No transactions found. Add one or import your sales.</td></tr>
-              ) : txns.map(tx => (
+              ) : txns.slice(currentPage * 50, (currentPage + 1) * 50).map(tx => (
                 <tr key={tx.id} className="border-b border-border/20 hover:bg-secondary/20 transition-colors">
-                  <td className="py-3 px-4 text-white/50 whitespace-nowrap">{format(new Date(tx.date), 'MMM d, yyyy')}</td>
+                  <td className="py-3 px-4 text-white/50 whitespace-nowrap">{format(parseISO(tx.date), 'MMM d, yyyy')}</td>
                   <td className="py-3 px-4">
                     <div className="text-white/80 truncate max-w-[200px]">{tx.description}</div>
                     {tx.merchant_name && tx.merchant_name !== tx.description && (
@@ -745,10 +761,14 @@ export function TransactionsTab() {
         </div>
       </div>
 
+      {!loading && !loadError && txns.length > 0 && <nav aria-label="Transaction pages" className="flex flex-wrap justify-between items-center gap-3 rounded-xl border p-3">
+        <p className="text-xs text-muted-foreground">Entries {currentPage * 50 + 1}–{Math.min((currentPage + 1) * 50, txns.length)} of {txns.length}</p>
+        <div className="flex gap-2"><Button variant="outline" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</Button><Button variant="outline" disabled={currentPage + 1 >= pageCount} onClick={() => setPage(currentPage + 1)}>Next</Button></div>
+      </nav>}
       <AddTransactionDialog open={addOpen} onOpenChange={setAddOpen} onAdded={load} />
 
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
-        <DialogContent className="max-h-[85vh] overflow-hidden sm:max-w-3xl">
+        <DialogContent className="finance-workspace max-h-[85vh] overflow-hidden sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-amber-400" />
@@ -770,7 +790,7 @@ export function TransactionsTab() {
                     <div className="mt-2 space-y-1">
                       {item.matches.slice(0, 3).map((match) => (
                         <div key={match.id} className="rounded-md bg-background/40 px-2 py-1 text-[11px] text-muted-foreground">
-                          {format(new Date(match.date), 'MMM d, yyyy')} / {match.description} / {formatCurrency(Math.abs(match.amount))}
+                          {format(parseISO(match.date), 'MMM d, yyyy')} / {match.description} / {formatCurrency(Math.abs(match.amount))}
                         </div>
                       ))}
                     </div>

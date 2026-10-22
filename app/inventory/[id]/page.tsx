@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +39,7 @@ import { CONDITIONS, PLATFORM_OPTIONS, REGIONS } from '@/lib/constants';
 import { buildItemBusinessPlan } from '@/lib/business-rules';
 import { ContextHelp } from '@/components/context-help';
 import { defaultConditionForPlatform, isBookLikeItem, isBookLikeValue } from '@/lib/item-taxonomy';
+import { isStorefrontStock } from '@/lib/storefront-publishing';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -215,6 +216,8 @@ export default function ItemDetailPage() {
   const [editingMetadata, setEditingMetadata] = useState(false);
   const [showDiag, setShowDiag]     = useState(false);
   const [autoRefreshAttempted, setAutoRefreshAttempted] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const generation = useRef({});
   const [metadataForm, setMetadataForm] = useState<MetadataForm>({
     product_name: '',
     console: 'Unknown',
@@ -252,7 +255,9 @@ export default function ItemDetailPage() {
   const [canonical, setCanonical] = useState<CanonicalPricingResult | null>(null);
 
   const loadItem = useCallback(async () => {
-    if (!user || !accountId) return;
+    const current = {}; generation.current = current;
+    setLoading(true); setLoadError('');
+    if (!user || !accountId) { setItem(null); setLoading(false); return; }
     try {
       const { data, error } = await supabase
         .from('inventory_items')
@@ -261,16 +266,20 @@ export default function ItemDetailPage() {
         .eq('user_id', accountId)
         .single();
       if (error) throw error;
-      setItem(data as InventoryItem);
-    } catch {
-      router.push('/inventory');
+      if (!data) throw new Error('Item was not found.');
+      if (generation.current === current) setItem(data as InventoryItem);
+    } catch (cause) {
+      console.error('Item detail load:', cause);
+      if (generation.current === current) { setItem(null); setLoadError('This item could not be loaded. It may be unavailable, or the connection may have failed. Retry or return to inventory.'); }
     } finally {
-      setLoading(false);
+      if (generation.current === current) setLoading(false);
     }
-  }, [user, accountId, params.id, router]);
+  }, [user, accountId, params.id]);
 
   useEffect(() => {
-    if (user && accountId && params.id) loadItem();
+    setItem(null); setCanonical(null); setAutoRefreshAttempted(false); setEditingMetadata(false);
+    if (user && accountId && params.id) void loadItem();
+    return () => { generation.current = {}; };
   }, [user, accountId, params.id, loadItem]);
 
   useEffect(() => {
@@ -590,7 +599,7 @@ export default function ItemDetailPage() {
         .eq('user_id', accountId);
       if (error) throw error;
       toast.success('Item deleted');
-      router.push('/inventory');
+      router.push('/business/inventory');
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete item');
     }
@@ -654,7 +663,7 @@ export default function ItemDetailPage() {
     );
   }
 
-  if (!item) return null;
+  if (!item) return <DashboardLayout><section className="business-overview-message m-4 sm:m-7"><h1 className="text-xl font-semibold">Item unavailable</h1><p role="alert">{loadError || 'Choose an item from inventory to continue.'}</p><Button variant="outline" onClick={loadItem}>Retry item</Button><Link className="ml-4 underline" href="/business/inventory">Back to inventory</Link></section></DashboardLayout>;
   const isArchivedItem = ['sold', 'archived', 'deleted'].includes(item.status || 'available');
 
   // Price values — prefer live canonical result, fall back to DB values
@@ -715,18 +724,20 @@ export default function ItemDetailPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 lg:p-8 max-w-5xl">
-        <Link href="/inventory">
+      <div className="item-workspace p-4 sm:p-7 max-w-6xl">
+        <Link href="/business/inventory">
           <Button variant="ghost" size="sm" className="mb-6 -ml-2 text-muted-foreground hover:text-foreground">
             <ArrowLeft className="w-4 h-4 mr-1.5" />
             Back
           </Button>
         </Link>
+        <nav className="catalog-workflow-strip mb-6" aria-label="Item workflow"><Link href="/business/prep"><span><strong>Prepare this find</strong><small>Sort, clean, test and document</small></span></Link><Link href="/business/storefront"><span><strong>Check shop pricing</strong><small>Live price, public photo and shipping offer</small></span></Link><Link href="/business/inventory"><span><strong>Back to the collection</strong><small>Search and organize company stock</small></span></Link></nav>
+        <p className="brand-eyebrow mb-4">THE STORY BEHIND THE FIND</p>
 
-        <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_minmax(0,1fr)]">
           {/* ── Left column: image + UPC ───────────────────────────────── */}
-          <div className="space-y-4">
-            <div className="aspect-square rounded-xl overflow-hidden bg-secondary/30 border border-border/40 flex items-center justify-center">
+          <div className="space-y-4 min-w-0">
+            <div className="aspect-square w-full max-w-[240px] mx-auto rounded-xl overflow-hidden bg-secondary/30 border border-border/40 flex items-center justify-center">
               {imageUrl ? (
                 <img
                   src={imageUrl}
@@ -754,13 +765,13 @@ export default function ItemDetailPage() {
           </div>
 
           {/* ── Right column: details ──────────────────────────────────── */}
-          <div className="space-y-5">
+          <div className="space-y-5 min-w-0">
 
             {/* Header */}
             <div>
-              <div className="flex items-start justify-between gap-3 mb-1.5">
-                <h1 className="text-2xl font-bold tracking-tight">{item.product_name}</h1>
-                <div className="flex shrink-0 items-center gap-2">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-1.5">
+                <h1 className="text-2xl font-bold tracking-tight break-words min-w-0">{item.product_name}</h1>
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="outline"
                     size="sm"
@@ -910,7 +921,7 @@ export default function ItemDetailPage() {
                 <CardHeader className="pb-3 flex flex-row items-center justify-between">
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-sm font-medium">Edit Item Metadata</CardTitle>
-                    <ContextHelp href="/help#inventory-management" label="Open item metadata help">
+                    <ContextHelp href="/business/help#inventory-management" label="Open item metadata help">
                       Correct title, category, image, notes, and item details here. Title or category changes reset stale pricing matches.
                     </ContextHelp>
                   </div>
@@ -1238,11 +1249,13 @@ export default function ItemDetailPage() {
             {/* Prep stage */}
             <PrepStageBar
               itemId={item.id}
+              disabled={!isStorefrontStock(item)}
               fields={item}
               onUpdate={(updates) => setItem(prev => prev ? { ...prev, ...updates } as InventoryItem : null)}
             />
 
             {/* KPI row */}
+            <p className="text-xs leading-6 text-muted-foreground">Market values and gross spreads are estimates, not recorded profit or cash. Fees, shipping and tax are not deducted. Preparation does not control automatic shop publication; review the live price in Storefront publishing.</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-3 rounded-xl border border-border/40 bg-card/40">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">
@@ -1256,13 +1269,13 @@ export default function ItemDetailPage() {
                 )}
               </div>
               <div className="p-3 rounded-xl border border-border/40 bg-card/40">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Market Value</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Est. unit value</div>
                 <div className="text-xl font-bold text-primary">
                   {hasPricing ? `$${marketValue.toFixed(2)}` : '--'}
                 </div>
               </div>
               <div className="p-3 rounded-xl border border-border/40 bg-card/40">
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Profit</div>
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Est. unit spread</div>
                 <div className={`text-xl font-bold flex items-center gap-1 ${profit > 0 ? 'text-green-400' : profit < 0 ? 'text-red-400' : ''}`}>
                   {hasPricing ? (
                     <>
@@ -1273,7 +1286,7 @@ export default function ItemDetailPage() {
                 </div>
                 {hasPricing && (
                   <div className="text-[10px] text-muted-foreground/50 mt-0.5">
-                    {profitMargin.toFixed(0)}% margin{item.quantity > 1 ? ` / total ${profit >= 0 ? '+' : ''}$${(profit * item.quantity).toFixed(2)}` : ''}
+                    {profitMargin.toFixed(0)}% markup on cost{item.quantity > 1 ? ` / total ${profit >= 0 ? '+' : ''}$${(profit * item.quantity).toFixed(2)}` : ''}
                   </div>
                 )}
               </div>
@@ -1294,7 +1307,7 @@ export default function ItemDetailPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-sm font-medium">{bookLike ? 'Book Value' : 'Current Market Value'}</CardTitle>
-                    <ContextHelp href="/help#pricing-engine" label="Open pricing help">
+                    <ContextHelp href="/business/help#pricing-engine" label="Open pricing help">
                       {bookLike
                         ? 'Use manual book value from ISBN research, comps, or your own sales history.'
                         : 'Refresh pricing before listing. Condition values drive market value, profit, margin, and sell plan recommendations.'}
@@ -1481,7 +1494,7 @@ export default function ItemDetailPage() {
                 </CardHeader>
                 <CardContent className="space-y-2">
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Profit Margin</span>
+                    <span className="text-muted-foreground">Estimated markup on cost</span>
                     <span className="font-semibold">+{dealScore.breakdown.profitMargin}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
@@ -1519,7 +1532,7 @@ export default function ItemDetailPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <CardTitle className="text-sm font-medium">Sell Plan</CardTitle>
-                      <ContextHelp href="/help#sell-channel-recommendations" label="Open sell plan help">
+                      <ContextHelp href="/business/help#sell-channel-recommendations" label="Open sell plan help">
                         Sell Plan suggests ask, quick-sale price, floor, emergency floor, and best sales channel.
                       </ContextHelp>
                     </div>

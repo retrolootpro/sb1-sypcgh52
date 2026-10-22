@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { ContextHelp } from '@/components/context-help';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { isStorefrontStock } from '@/lib/storefront-publishing';
 
 type InventoryItem = {
   id: string;
@@ -102,6 +103,10 @@ export default function InventoryPage() {
   const searchParams = useSearchParams();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [collectionsError, setCollectionsError] = useState('');
+  const inventoryGeneration = useRef({});
+  const collectionGeneration = useRef({});
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [inventoryScannerActive, setInventoryScannerActive] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -121,38 +126,58 @@ export default function InventoryPage() {
   const [collectionToDelete, setCollectionToDelete] = useState<Collection | null>(null);
 
   const loadInventory = useCallback(async () => {
-    if (!user || !accountId) return;
+    const current = {};
+    inventoryGeneration.current = current;
+    setLoading(true); setLoadError(''); setItems([]);
+    if (!user || !accountId) { setLoading(false); return; }
     try {
-      const { data, error } = await supabase
-        .from('inventory_items')
-        .select(`*, pricing_data (*)`)
-        .eq('user_id', accountId)
-        .order('product_name', { ascending: true });
-
-      if (error) throw error;
-      setItems(data as InventoryItem[]);
-    } catch {
+      const rows: InventoryItem[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await supabase.from('inventory_items').select('*, pricing_data (*)')
+          .eq('user_id', accountId).order('product_name').order('id').range(offset, offset + 499);
+        if (error) throw error;
+        if (!data) throw new Error('Inventory response was missing.');
+        if (inventoryGeneration.current !== current) return;
+        rows.push(...data);
+        if (data.length < 500) break;
+      }
+      if (inventoryGeneration.current === current) setItems(rows);
+    } catch (cause) {
+      console.error('Inventory load:', cause);
+      if (inventoryGeneration.current === current) setLoadError('Inventory could not be loaded. Retry before relying on counts or making changes.');
     } finally {
-      setLoading(false);
+      if (inventoryGeneration.current === current) setLoading(false);
     }
   }, [user, accountId]);
 
   const loadCollections = useCallback(async () => {
+    const current = {};
+    collectionGeneration.current = current;
+    setCollections([]); setCollectionsError('');
     if (!user || !accountId) return;
-    const { data, error } = await supabase
-      .from('collections')
-      .select('*')
-      .eq('user_id', accountId)
-      .order('created_at', { ascending: true });
-    if (!error && data) setCollections(data as Collection[]);
+    try {
+      const rows: Collection[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await supabase.from('collections').select('*').eq('user_id', accountId)
+          .order('created_at').order('id').range(offset, offset + 499);
+        if (error) throw error;
+        if (!data) throw new Error('Collections response was missing.');
+        if (collectionGeneration.current !== current) return;
+        rows.push(...data);
+        if (data.length < 500) break;
+      }
+      if (collectionGeneration.current === current) setCollections(rows);
+    } catch (cause) {
+      console.error('Inventory collections:', cause);
+      if (collectionGeneration.current === current) setCollectionsError('Collections could not be loaded. Retry to use collection filters.');
+    }
   }, [user, accountId]);
 
   useEffect(() => {
-    if (user && accountId) {
-      loadInventory();
-      loadCollections();
-    }
-  }, [user, accountId, loadInventory, loadCollections]);
+    void loadInventory();
+    void loadCollections();
+    return () => { inventoryGeneration.current = {}; collectionGeneration.current = {}; };
+  }, [loadInventory, loadCollections]);
 
   useEffect(() => {
     if (searchParams.get('age') === 'stale') {
@@ -393,7 +418,7 @@ export default function InventoryPage() {
       const matchesCondition = conditionFilter === 'all' || (!itemBookLike && item.condition === conditionFilter);
       const normalizedRegion = getItemRegionDetails(item)?.value || 'unset';
       const matchesRegion = regionFilter === 'all' || (!itemBookLike && normalizedRegion === regionFilter);
-      const isInStock = (item.status || 'available') !== 'sold';
+      const isInStock = isStorefrontStock(item);
       const ageDays = getInventoryAgeDays(item.created_at);
       const ageStatus = getAgeStatus(ageDays, agingThresholds);
       const matchesAge =
@@ -490,7 +515,7 @@ export default function InventoryPage() {
   const bookMediaCount = filteredItems.filter((item) => getInventoryFamily(item) === 'books_media').length;
 
   const agingSummary = useMemo(() => {
-    const availableItems = activeItems;
+    const availableItems = activeItems.filter(isStorefrontStock);
     const staleItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), agingThresholds) === 'stale');
     const watchItems = availableItems.filter((item) => getAgeStatus(getInventoryAgeDays(item.created_at), agingThresholds) === 'watch');
     const oldest = [...availableItems].sort((a, b) => getInventoryAgeDays(b.created_at) - getInventoryAgeDays(a.created_at))[0];
@@ -642,23 +667,26 @@ export default function InventoryPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-5 sm:p-7 lg:p-8 max-w-7xl space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div className="inventory-workspace p-4 sm:p-7 max-w-7xl space-y-6">
+        <div className="catalog-workspace-header">
           <div>
             <div className="mb-1 flex items-center gap-2">
-              <div className="label-caps">Catalog</div>
-              <ContextHelp href="/help#inventory-management" label="Open inventory management help">
+              <div className="brand-eyebrow">EVERY FIND STARTS HERE</div>
+              <ContextHelp href="/business/help#inventory-management" label="Open inventory management help">
                 Inventory is the source of truth for item status, cost, price, condition, location, and next action.
               </ContextHelp>
             </div>
-            <h1 className="heading-lg text-[22px]">
+            <h1>
               {activeCollection ? activeCollection.name : 'Inventory'}
             </h1>
+            <p>One place for stock, condition, cost and pricing. Get each find ready for its next owner.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button asChild variant="outline" size="sm" className="h-10"><Link href="/business/storefront">Storefront publishing</Link></Button>
+            <Button variant="outline" size="sm" className="h-10" disabled={loading || refreshingPrices || backfilling} onClick={loadInventory}><RefreshCw size={16} className="mr-2"/>Refresh inventory</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || loading}>
+                <Button variant="outline" size="sm" className="h-10 rounded-lg text-sm" disabled={refreshingPrices || backfilling || loading || !!loadError}>
                   <MoreHorizontal className="mr-1.5 h-4 w-4" />
                   Tools
                 </Button>
@@ -675,7 +703,7 @@ export default function InventoryPage() {
               </DropdownMenuContent>
             </DropdownMenu>
             <Button asChild variant="outline" size="sm" className="h-10 rounded-lg text-sm">
-              <Link href="/labels">
+              <Link href="/business/labels">
                 <Tags className="mr-1.5 h-4 w-4" />
                 Labels
               </Link>
@@ -687,14 +715,17 @@ export default function InventoryPage() {
           </div>
         </div>
 
-        {!loading && items.length > 0 && (
+        <nav className="catalog-workflow-strip" aria-label="Inventory workflow"><Link href="/business/scan"><ScanBarcode size={18}/><span><strong>Scan & identify</strong><small>Bring new stock into inventory</small></span></Link><Link href="/business/prep"><Package size={18}/><span><strong>Prepare & check</strong><small>Condition, testing and photos</small></span></Link><Link href="/business/storefront"><Tags size={18}/><span><strong>Price & merchandise</strong><small>Check live prices and shop readiness</small></span></Link></nav>
+        {loadError && <section className="business-overview-message"><p role="alert">{loadError}</p><Button variant="outline" onClick={loadInventory}>Retry inventory</Button></section>}
+        {!loadError && <>
+        {!loading && !loadError && items.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <div className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-card">
               <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
                 <Package className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <div className="label-caps">Items</div>
+                <div className="label-caps">Matching records</div>
                 <div className="text-[22px] font-bold stat-number mt-0.5">{totalItems}</div>
                 {bookMediaCount > 0 && (
                   <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
@@ -706,12 +737,12 @@ export default function InventoryPage() {
             </div>
             <div className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-card">
               <div className="w-10 h-10 rounded-xl bg-amber-400/10 flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-amber-400" />
+                <DollarSign className="w-5 h-5 text-amber-800" />
               </div>
               <div>
                 <div className="flex items-center gap-1">
-                  <div className="label-caps">Total Cost</div>
-                  <ContextHelp href="/help#lot-cost-allocation" label="Open cost basis help">
+                  <div className="label-caps">Recorded cost</div>
+                  <ContextHelp href="/business/help#lot-cost-allocation" label="Open cost basis help">
                     Cost basis is what the item effectively cost the business, including lot allocation when used.
                   </ContextHelp>
                 </div>
@@ -720,16 +751,16 @@ export default function InventoryPage() {
             </div>
             <div className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-card">
               <div className="w-10 h-10 rounded-xl bg-emerald-400/10 flex items-center justify-center">
-                <TrendingUp className="w-5 h-5 text-emerald-400" />
+                <TrendingUp className="w-5 h-5 text-emerald-800" />
               </div>
               <div>
                 <div className="flex items-center gap-1">
-                  <div className="label-caps">Market Value</div>
-                  <ContextHelp href="/help#pricing-engine" label="Open pricing engine help">
+                  <div className="label-caps">Est. market value</div>
+                  <ContextHelp href="/business/help#pricing-engine" label="Open pricing engine help">
                     Market value comes from refreshed pricing data and the selected condition.
                   </ContextHelp>
                 </div>
-                <div className={`text-[22px] font-bold stat-number mt-0.5 ${totalMarketValue > totalCost ? 'text-emerald-400' : totalMarketValue > 0 ? 'text-red-400' : ''}`}>
+                <div className={`text-[22px] font-bold stat-number mt-0.5 ${totalMarketValue > totalCost ? 'text-emerald-800' : totalMarketValue > 0 ? 'text-red-800' : ''}`}>
                   {totalMarketValue > 0 ? `$${totalMarketValue.toFixed(2)}` : '--'}
                 </div>
               </div>
@@ -746,16 +777,16 @@ export default function InventoryPage() {
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${
                 agingSummary.staleCount > 0 ? 'bg-red-400/10' : 'bg-secondary/40'
               }`}>
-                <Bell className={`w-5 h-5 ${agingSummary.staleCount > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
+                <Bell className={`w-5 h-5 ${agingSummary.staleCount > 0 ? 'text-red-800' : 'text-muted-foreground'}`} />
               </div>
               <div>
                 <div className="flex items-center gap-1">
                   <div className="label-caps">Aging Alerts</div>
-                  <ContextHelp href="/help#dashboard-overview" label="Open dead inventory help">
+                  <ContextHelp href="/business/help#dashboard-overview" label="Open dead inventory help">
                     Review aging items for price changes, new photos, channel changes, bundling, or clearance.
                   </ContextHelp>
                 </div>
-                <div className={`text-[22px] font-bold stat-number mt-0.5 ${agingSummary.staleCount > 0 ? 'text-red-300' : ''}`}>
+                <div className={`text-[22px] font-bold stat-number mt-0.5 ${agingSummary.staleCount > 0 ? 'text-red-800' : ''}`}>
                   {agingSummary.staleCount}
                 </div>
                 <div className="text-xs text-muted-foreground mt-0.5">
@@ -766,14 +797,15 @@ export default function InventoryPage() {
           </div>
         )}
 
-        {!loading && agingSummary.staleCount > 0 && (
+        {!loading && !loadError && <p className="text-xs leading-6 text-muted-foreground">Cost and market estimates cover the filtered records and their quantities, not realized profit or cash. Aging alerts cover available stock across active inventory; reserved, sold and zero-quantity items are not aging opportunities.</p>}
+        {!loading && !loadError && agingSummary.staleCount > 0 && (
           <div className="flex flex-col gap-3 rounded-2xl border border-red-500/30 bg-red-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
               <div className="mt-0.5 rounded-lg bg-red-500/10 p-2">
-                <Clock className="h-4 w-4 text-red-300" />
+                <Clock className="h-4 w-4 text-red-800" />
               </div>
               <div>
-                <div className="text-sm font-semibold text-red-100">
+                <div className="text-sm font-semibold text-red-800">
                   {agingSummary.staleCount} item{agingSummary.staleCount === 1 ? '' : 's'} need listing review
                 </div>
                 <p className="mt-0.5 text-sm text-muted-foreground">
@@ -781,7 +813,7 @@ export default function InventoryPage() {
                 </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" className="h-9 border-red-500/30 text-red-100 hover:bg-red-500/10" onClick={() => setAgeFilter('stale')}>
+            <Button variant="outline" size="sm" className="h-9 border-red-500/30 text-red-800 hover:bg-red-500/10" onClick={() => setAgeFilter('stale')}>
               Review aging items
             </Button>
             <div className="flex flex-wrap gap-2">
@@ -794,7 +826,7 @@ export default function InventoryPage() {
                   key={preset.label}
                   variant="outline"
                   size="sm"
-                  className="h-9 border-red-500/20 text-red-100 hover:bg-red-500/10"
+                  className="h-9 border-red-500/20 text-red-800 hover:bg-red-500/10"
                   onClick={() => saveAgingThresholds(preset)}
                 >
                   {preset.label}
@@ -804,10 +836,11 @@ export default function InventoryPage() {
           </div>
         )}
 
+        {collectionsError && <section className="business-overview-message"><p role="alert">{collectionsError}</p><Button variant="outline" onClick={loadCollections}>Retry collections</Button></section>}
         <div className="rounded-2xl border border-border/40 bg-card/60 p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-white/85">Collections</div>
+              <div className="text-sm font-semibold text-foreground">Collections</div>
               <div className="text-xs text-muted-foreground">Use collections to narrow the inventory table.</div>
             </div>
           </div>
@@ -1028,7 +1061,7 @@ export default function InventoryPage() {
           <div className="flex items-center justify-center py-16">
             <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
           </div>
-        ) : (
+        ) : loadError ? null : (
           <InventoryTable
             items={filteredItems}
             onRefresh={loadInventory}
@@ -1039,6 +1072,7 @@ export default function InventoryPage() {
             archiveMode={inventoryView === 'archive'}
           />
         )}
+        </>}
 
         <AddItemDialog
           open={showAddDialog}

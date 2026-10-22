@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { businessAccountId } from '@/lib/server/business-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,7 @@ export async function POST(req: NextRequest) {
     );
 
     const { data: { user }, error: userError } = await supabase.auth.getUser();
-    if (userError || !user?.email) return json({ success: false, message: 'Auth failed' }, 401);
+    if (userError || !user?.email || !user.email_confirmed_at) return json({ success: false, message: 'A verified sign-in is required to accept an invitation.' }, 401);
 
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!serviceRoleKey) {
@@ -33,6 +34,7 @@ export async function POST(req: NextRequest) {
     const { data: invite, error: findError } = await admin
       .from('user_account_memberships')
       .select('id')
+      .eq('account_owner_id', await businessAccountId())
       .eq('email', user.email.toLowerCase())
       .eq('status', 'invited')
       .order('invited_at', { ascending: false })
@@ -50,12 +52,13 @@ export async function POST(req: NextRequest) {
         accepted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
-      .eq('id', invite.id);
+      .eq('id', invite.id).eq('status', 'invited');
 
     if (updateError) throw updateError;
 
     return json({ success: true, message: 'Invite accepted.' });
   } catch (error) {
+    console.error('Team invite acceptance:', error);
     return json({
       success: false,
       message: error instanceof Error ? error.message : 'Failed to accept invite',

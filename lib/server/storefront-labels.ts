@@ -21,11 +21,21 @@ const safeUrl = z.string().url().refine(value => new URL(value).protocol === 'ht
 const optionalUrl = z.preprocess(value => value === '' ? null : value, safeUrl.nullish());
 const transactionSchema = z.object({
   object_id: z.string().regex(/^[a-f0-9]{32}$/), status: z.enum(['WAITING','QUEUED','SUCCESS','ERROR','REFUNDED','REFUNDPENDING','REFUNDREJECTED']),
+  amount: z.union([z.string(), z.number()]), currency: z.string().length(3),
   metadata: z.string(), rate: z.union([z.string(), z.object({ object_id: z.string() }).transform(rate => rate.object_id)]), test: z.boolean(),
   label_url: optionalUrl, tracking_number: z.string().max(200).nullish(),
   tracking_url_provider: optionalUrl,
   messages: z.array(z.object({ text: z.string().optional() })).optional(),
 });
+
+export function shippoAmountCents(amount: string | number): number {
+  const value = String(amount);
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
+  if (!match || /[1-9]/.test((match[2] || '').slice(2))) throw new CommerceError('Shippo returned an invalid label amount. Reconcile this purchase manually.', 503);
+  const cents = Number(match[1]) * 100 + Number((match[2] || '').slice(0, 2).padEnd(2, '0'));
+  if (!Number.isSafeInteger(cents) || cents <= 0) throw new CommerceError('Shippo returned an invalid label amount. Reconcile this purchase manually.', 503);
+  return cents;
+}
 
 export async function labelOrder(orderId: string, accountId: string) {
   const { data, error } = await createSupabaseAdmin().from('storefront_orders').select('*')
@@ -97,19 +107,31 @@ async function saveTransaction(label: ShippingLabel, transaction: z.infer<typeof
   }
   const refunded = ['REFUNDED','REFUNDPENDING'].includes(transaction.status);
   const complete = ['SUCCESS','REFUNDREJECTED'].includes(transaction.status) && transaction.label_url && transaction.tracking_number;
+  const amountCents = complete ? shippoAmountCents(transaction.amount) : label.actual_amount_cents;
+  const currency = complete ? transaction.currency.toUpperCase() : label.currency;
+  if (complete && currency !== 'USD') throw new CommerceError('Shippo label currency is not USD. Reconcile this purchase manually.', 503);
   const patch = {
     transaction_id: transaction.object_id,
     status: transaction.status === 'ERROR' || refunded ? 'error' : complete ? 'success' : 'pending',
+    actual_amount_cents: amountCents ?? null, currency: currency ?? null,
     label_url: transaction.label_url ?? null, tracking_number: transaction.tracking_number ?? null,
     tracking_url: transaction.tracking_url_provider ?? null,
     message: refunded ? 'This label has a refund requested or completed in Shippo. Do not use it. Review the transaction before fulfillment.'
       : transaction.status === 'ERROR' ? (transaction.messages?.map(m => m.text).filter(Boolean).join('; ').slice(0, 1000) || 'Shippo rejected the label. Review this transaction in Shippo; no automatic repurchase is allowed.')
+      : refunded ? 'Shippo refunded or is refunding this label. The original postage expense remains recorded; reconcile the refund in Finance before closing the books.'
       : complete ? null : 'Shippo is still processing this transaction. Refresh its status; do not purchase again.',
     updated_at: new Date().toISOString(),
   };
   const { data, error } = await createSupabaseAdmin().from('storefront_labels').update(patch).eq('id', label.id).eq('status', label.status).select('*').maybeSingle();
   if (error) throw error;
   if (!data) throw new CommerceError('Label changed during reconciliation. Refresh its records; do not purchase again.', 409);
+  if (complete && amountCents) {
+    const { error: financeError } = await createSupabaseAdmin().rpc('storefront_record_postage', {
+      p_label: label.id, p_transaction: transaction.object_id, p_amount_cents: amountCents,
+      p_date: new Date(label.created_at).toISOString().slice(0, 10),
+    });
+    if (financeError) throw financeError;
+  }
   return { ...label, ...patch };
 }
 

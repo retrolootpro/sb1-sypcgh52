@@ -1,8 +1,4 @@
 import type { Metadata } from 'next';
-import './commerce.css';
-import './commerce-fixes.css';
-import './commerce-controls.css';
-import './reference-design.css';
 import ShopFrame from './shop-frame';
 
 export const metadata: Metadata = {

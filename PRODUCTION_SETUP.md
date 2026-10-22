@@ -1,5 +1,288 @@
 # Production Setup
 
+## Live prototype release: October 22, 2026
+
+The owner approved releasing the Pixel & Page overhaul on the existing
+`retrolootpro.com` domain. The sections below describe the development preview
+and its validation; they are retained as implementation and testing notes.
+
+- A local custom-format database backup was created before release. Its archive
+  was fully decoded successfully, but no full restore test was performed.
+  Database dumps do not include Storage object file contents.
+- `20261022150000_pixel_page_business_access.sql` and
+  `20261023100000_storefront_finance_accounting.sql` were applied through the
+  Supabase SQL editor in explicit transactions. Their versions are recorded in
+  `supabase_migrations.schema_migrations`; do not reapply them.
+- Public Auth signup was disabled; email confirmation remains enabled. Team
+  invitations continue through the administrator invitation flow.
+- Live checks confirmed the active owner/admin prerequisite, the company
+  policies, accounting RPC presence and service-only fee-posting permission.
+  Historical order accounting was not backfilled.
+- Netlify publishes this application from `dev`. DNS, domain migration and
+  Stripe/Shippo provider settings are outside this release.
+- Fixture browser tests are not a substitute for live owner/employee login,
+  invitation, payment and fulfillment acceptance checks.
+
+## Pixel & Page overhaul: foundation preview (not released)
+
+The existing production database and current domain are retained. Do **not**
+follow the fresh-project instructions below to migrate this operating business.
+No DNS, production authentication configuration, or production access policies
+have been changed for this preview. Release each phase only after owner review.
+
+### Preview behavior
+
+- `/` is the public storefront for guests and signed-in staff. `/shop` and its
+  existing product, policy, request and checkout URLs remain compatible.
+- The top-right Login link leads to `/login`; verified staff see Business
+  workspace instead. Customers still check out as guests.
+- `/business` is the existing dashboard. Business modules use `/business/...`;
+  `/business/orders` contains shop orders/requests. Middleware redirects legacy
+  business URLs with temporary 307 redirects, preserving search parameters.
+  Internal rewrites reuse the existing pages, not duplicated implementations.
+  Auth callbacks, APIs, product links, Stripe returns, and webhook paths do not
+  move. Login return destinations are restricted to known local business routes.
+- One fixed light theme uses Pixel & Page branding. Old theme preferences remain
+  in browser storage for rollback but are no longer applied. Existing storage
+  keys, table names, credentials and third-party identifiers are not renamed.
+- `/api/business/session` validates the token and an **active membership in the
+  configured Pixel & Page account**. Membership resolution no longer creates
+  owner accounts, mutates invitations, or defaults to admin after a failure.
+  Server account resolution uses the same verified company membership.
+- Invite acceptance stays server-side, requires a verified email, and filters
+  the configured company. New invites include password setup in the callback.
+  Existing members can still sign in normally. No existing memberships are
+  deleted, merged, or reassigned.
+
+### Preparation and item-detail preview (not released)
+
+- Preparation reads every page of company inventory and lots with explicit
+  errors and retry. A failed read never appears as an empty queue.
+- Work queues are mutually exclusive. Reserved, archived, deleted and
+  nonpositive-quantity stock are excluded; sold and by-lot history remain
+  accessible. Unknown lot references appear under No Lot, not silently omitted.
+- Results display 24 items per page; search/counts use the full loaded data.
+  By-lot groups explicitly cover the current page of matches.
+- Stage, marketplace-listing and sold-status writes are serialized per item,
+  company-scoped and require a returned row before any success message.
+  Errors remain visible; no optimistic stage change occurs on a rejected write.
+  Unavailable by-lot stock is read-only for preparation and listing changes;
+  sold history retains the existing undo-sold control.
+- Mark Sold remains an inventory-status operation, not a payment or accounting
+  sale. It allows zero but rejects negative, blank and malformed prices.
+- Physical preparation does not gate automatic shop publication. Item details
+  link to publishing and distinguish estimated spread/markup from realized profit.
+- Detail read failures stay on the item URL with retry instead of redirecting
+  silently. Unavailable stock cannot change stages in the detail stage bar.
+
+```sh
+node --test scripts/test-prep-workflow.mjs
+npm exec --package=playwright -- node scripts/test-prep-browser.mjs http://127.0.0.1:3218
+```
+
+### Scanning and intake preview (not released)
+
+- The branded intake page keeps camera scanning, manual UPC/ISBN and title
+  entry, batch quantities, employee attribution, receiving lots, labels and COGS.
+  Saved rows link directly to their inventory details.
+- Lots, employee choices, lot inventory and purchase transactions read all pages
+  in deterministic order. A reference-data or duplicate-check failure is visible
+  and blocks saving instead of looking like no lots/employees/duplicates exist.
+- Active intake drafts keep the existing browser storage key, but now validate
+  company and staff ownership and the saved shape before restore. Unverified
+  legacy, malformed or other-staff drafts are not restored or overwritten.
+  Explicitly discarding a browser draft never deletes saved inventory.
+  Interrupted work remains flagged for review; check inventory before rescanning
+  because an interrupted save can have an unknown result.
+- Browser storage failures are visible and Save & Close cannot claim success.
+  During active processing, intake settings/clear/close are locked. Batch work
+  advances only after the current item is saved, saved for review or fails;
+  there is no timeout that silently advances past an unconfirmed item.
+- The former Skip button actually saved inventory for review. It now explicitly
+  says **Save for review**, preserves validated edits and flags the row for
+  review. Closing the dialog or Escape leaves the scan pending without a write.
+  Both save actions validate money without partial/exponent parsing.
+- Undo requires confirmation, an exact inventory ID and a returned deleted row.
+  It only removes available, unsold, non-lot stock; no barcode-based deletion.
+  Review lot-linked or unavailable records in Inventory instead. Clear queue
+  only clears browser queue entries, never saved inventory.
+- Lot summaries and allocation reads include every item, even beyond 1,000 rows.
+  Allocation requires confirmation of every updated row and the lot summary;
+  partial failures explicitly require reloading/review. The existing allocation
+  workflow is not transactional; an atomic redesign remains part of finance
+  review, not a guarantee provided by this preview. A derived ratio or a
+  needs-market-values timestamp no longer marks the intake COGS step complete.
+- Camera decoding is unchanged. The compact scanner has a readable branded
+  header and named stop/sound controls. Local checks cover permission denial and
+  manual-entry recovery, not physical-camera decoding on the owner's devices.
+
+```sh
+node --test scripts/test-intake-workflow.mjs
+npm exec --package=playwright -- node scripts/test-intake-browser.mjs http://127.0.0.1:3218
+```
+
+### Finance reporting preview (not released)
+
+- Overview, P&L and transaction reading use the Pixel & Page business theme.
+  All existing finance tabs remain available; changing tabs updates the
+  canonical URL and respects browser back/reload.
+- Reports explicitly filter the verified company and read all ledger/sold
+  inventory pages. A sold-inventory failure cannot silently become zero COGS.
+  UTC sold-date bounds include the entire last day, including fractional seconds.
+- Monthly and full-calendar-year totals are recorded results, not bank balances
+  or verified net profit. Annual figures explicitly include future-dated entries.
+  Recent ledger failures are independent from report failures, with visible retry.
+- Existing P&L arithmetic remains for ledger income/refunds and fallback revenue
+  from sold inventory without a matching generated income reference. New orders
+  snapshot unit purchase cost in integer cents at stock reservation; order COGS
+  is quantity times that snapshot, and missing/nonpositive costs remain an
+  explicit warning rather than an estimate. Historical paid orders are not
+  backfilled or changed.
+- A verified `charge.succeeded` retrieves the actual USD Stripe balance
+  transaction fee and posts it once as a processing-fee expense. Missing fee or
+  balance-transaction data fails the webhook for retry; no percentage estimate
+  is used. Confirmed Shippo label success posts its actual provider amount once
+  as a shipping expense, not the quoted rate. Label posting failures remain
+  visible for reconciliation; refunded Shippo labels require manual Finance
+  review of the original postage expense.
+- Paid storefront ledger income includes shipping and excludes sales tax.
+  Positive-cost sold-record coverage and snapshot coverage are reported
+  separately. Cost-snapshot, Stripe-fee and label-posting failures show period
+  warnings; they are not bank balances, verified tax figures, or certification
+  that every source cost/reconciliation is complete.
+- P&L period changes clear stale totals/export. Missing-cost read failures are
+  explicit and disable export. CSV includes scope caveats, raw decimal amounts
+  without currency separators, safe quoted cells and the entire missing-cost
+  queue, not just the first eight visible records.
+- Transactions read all matching records and display 50 per page. Totals and
+  export cover all matches, not the current page. Failed/filter-changed reads
+  clear stale rows/totals and disable CSV until successful retry. Ledger-entry
+  difference is explicitly not net profit. Date-only ledger values retain their
+  calendar date in local-time display.
+- This checkpoint covers reporting/read presentation, transaction export and
+  forward-only online-order cost, Stripe fee and Shippo postage postings.
+  Remaining finance mutation/import flows, ledger automation, legacy tax
+  assumptions, bank/loan/expense screens and atomic lot allocation need separate
+  verification. It does not certify tax accuracy or bank balances.
+
+```sh
+node --test scripts/test-finance-reporting.mjs scripts/test-intake-workflow.mjs
+npm exec --package=playwright -- node scripts/test-finance-browser.mjs http://127.0.0.1:3218
+```
+
+### Approval gate before production
+
+1. Review the preview and backup the current database, deployment and auth
+   settings. Inspect existing memberships and confirm the configured owner is
+   an active administrator. Do not bulk-migrate or delete unrelated accounts.
+2. Disable public new-user signups in **Supabase Auth** while retaining admin
+   invitations. Removing the UI alone does not disable Supabase's signup API.
+   Verify a direct public signup is rejected and an approved team invite works.
+3. With explicit approval, apply
+   `20261022150000_pixel_page_business_access.sql`. It asserts an active owner,
+   removes fallback owner/admin context and self-bootstrap/invitee role writes,
+   and adds a restrictive active-team requirement to currently RLS-enabled public
+   tables, even if older permissive policies remain. Service-role commerce jobs
+   continue to bypass RLS. It changes no business or membership records.
+   Inventory **all** non-RLS tables, security-definer RPCs, storage policies and
+   deployed Edge Functions before releasing the single-company boundary; a
+   restrictive table policy is not a substitute for reviewing service-role APIs.
+   Future RLS tables must include the same business access requirement.
+4. Apply code and auth settings as a coordinated release, test owner and invited
+   employee access, denial/revocation/outage behavior, deep links, sign-out,
+   MFA routing, commerce and fulfillment. Do not represent this local preview as
+   a verified production access conversion.
+5. Keep the current production domain throughout this phase. The eventual
+   domain cutover additionally covers Netlify/TLS, Supabase URL allowlists,
+   invite links, Stripe URLs/webhooks, marketplace callbacks, Geoapify allowed
+   origins, canonical/SEO URLs, redirects, browser sessions/carts and rollback.
+
+### Foundation regression commands
+
+```sh
+node --test scripts/test-business-foundation.mjs scripts/test-storefront-payments.mjs scripts/test-storefront-browse.mjs
+npm exec --package=@electric-sql/pglite -- node --test scripts/test-business-access-db.mjs scripts/test-storefront-commerce-db.mjs
+npm exec --package=playwright -- node scripts/test-business-browser.mjs http://127.0.0.1:3218
+```
+
+Browser validation uses fixture-only Supabase credentials, mocked identity and
+business APIs, and disabled payments. Screenshots contain sample data, not live
+customer or financial records. Browser checks include invitation password setup,
+failed acceptance, private embedded-scanner access, admin/employee navigation,
+and recovery after access denial/provider outages. Existing commerce browser
+checks use the one supported light theme; legacy stored theme preferences are
+tested separately to ensure they cannot override it.
+### Order-first workflow preview (not released)
+
+- Business overview starts with exact company-wide order/request counts and the
+  five oldest paid orders, including each saved shipping service. Missing service
+  information is explicitly flagged for review; no service is guessed.
+- `/api/business/overview` is read-only, no-store and administrator-only, matching
+  the existing fulfillment permissions. It does not call Stripe or Shippo.
+  Employee permissions are unchanged.
+- Status links filter orders on the server before pagination. Exact order links
+  can retrieve older orders outside the newest 50; all reads remain company-bound.
+  Fulfillment page counts and text search still cover that page only.
+- Order and inventory activity load independently with explicit errors/retry.
+  Unavailable counts are never replaced by zero. Inventory reads page through all
+  records instead of relying on the database's default response limit.
+- Inventory review counts deduplicate items with both age and price issues.
+  Sold, reserved, archived, deleted and zero-quantity stock are excluded from
+  opportunities and available-stock estimates. Recorded marketplace listings are
+  labeled separately from the automatic public shop. Gross spread compares priced stock against its
+  cost; it is not realized profit, cash or net margin.
+- A missing browser aging preference now correctly uses the intended 60-day
+  review threshold (previously a missing value became a one-day threshold).
+- Shipping information uses a neutral teal panel and readable status text.
+  Payment, reservation, label-purchase and dispatch safeguards are unchanged.
+
+Additional regression:
+
+```sh
+node --test scripts/test-business-overview.mjs scripts/test-storefront-payments.mjs
+npm exec --package=playwright -- node scripts/test-business-browser.mjs http://127.0.0.1:3218
+npm exec --package=playwright -- node scripts/test-storefront-fulfillment.mjs http://127.0.0.1:3218
+```
+
+### Inventory & publishing workflow preview (not released)
+
+- Inventory keeps the existing search, collections, archive, scanning, metadata,
+  pricing, labels and bulk tools, with a branded workflow header and direct links
+  to intake, prep and storefront merchandising. Inventory/collection reads page
+  in 500-row batches; failures are explicit and retryable rather than empty lists.
+  Aging excludes unavailable and zero-quantity stock. Estimated values are labeled
+  as such, and existing archive behavior is preserved.
+- Storefront publishing uses the actual public catalog to distinguish live items
+  from items needing a usable online price. It does **not** use
+  `storefront_enabled` as a publish/unpublish switch: the existing catalog
+  automatically lists all available, priced company stock. No publication,
+  reservation, shipping-offer or checkout rules are changed.
+- Staff can filter available, live, unpriced, missing-public-photo and
+  shipping-excluded queues. A thumbnail alone does not satisfy the public-photo
+  check because the public catalog currently uses `image_url`. Counts cover all
+  eligible stock; search narrows the selected queue; presentation is 24 per page.
+- Online overrides require an explicit **Save price** and a positive amount with
+  at most two decimals, capped at $100,000. Blur does not save. **Use automatic
+  price** removes the override explicitly; if no automatic price exists, the item
+  will no longer appear publicly. Featured/shipping changes remain immediate and
+  are serialized, company-scoped and checked for an actual updated row.
+- Staff see explicit save failures and a fresh public catalog after successful
+  changes. Catalog failures hide stale live prices/counts. No bulk repricing,
+  automatic publication gate or production data changes are introduced here.
+- Quick Deal Scanner remains available in the workspace header instead of floating
+  over the bottom-right corner, where it could block mobile pagination and forms.
+  Its dialog restores keyboard focus when closed. Duplicate Supabase `SIGNED_IN`
+  events for the already-verified user/token no longer tear down the workspace
+  when focusing the iframe. Changed tokens, user updates, sign-out and explicit
+  access refresh still revalidate/reset access.
+
+```sh
+node --test scripts/test-storefront-publishing.mjs scripts/test-storefront-catalog.mjs
+npm exec --package=playwright -- node scripts/test-publishing-browser.mjs http://127.0.0.1:3218
+```
+
+The comprehensive remaining-page control/contrast work is still upcoming.
+
 This project should use separate environments:
 
 - **Development:** this local workspace and the current Supabase project.

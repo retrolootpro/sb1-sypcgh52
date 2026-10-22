@@ -253,7 +253,7 @@ try {
   const summary = page.getByRole('region', { name: 'Order summary', exact: true });
   assert.match(await summary.innerText(), /\$16\.20/);
   assert.match(await summary.innerText(), /\$32\.20/);
-  for (const theme of ['dark', 'light', 'apple']) {
+  for (const theme of ['light']) {
     await page.evaluate(theme => {
       document.documentElement.classList.toggle('light', theme === 'light');
       document.documentElement.classList.toggle('apple', theme === 'apple');

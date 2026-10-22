@@ -45,7 +45,7 @@ export function readBrowse(params: URLSearchParams): BrowseState {
   };
 }
 
-export function browseUrl(state: BrowseState) {
+export function browseUrl(state: BrowseState, base = '/shop') {
   const params = new URLSearchParams();
   for (const key of ['category', 'platform', 'condition'] as const) {
     if (state[key] !== 'All') params.set(key, state[key]);
@@ -57,7 +57,7 @@ export function browseUrl(state: BrowseState) {
   if (state.sort !== defaultBrowse.sort) params.set('sort', state.sort);
   if (state.page > 1) params.set('page', String(state.page));
   if (state.pageSize !== 24) params.set('size', String(state.pageSize));
-  return `/shop${params.size ? `?${params}` : ''}#catalog`;
+  return `${base}${params.size ? `?${params}` : ''}#catalog`;
 }
 
 export function matchesCategory(item: BrowseProduct, category: string) {

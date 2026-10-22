@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ExternalLink, RefreshCw, Search, Store } from 'lucide-react';
 import Image from 'next/image';
+import { z } from 'zod';
+import { ArrowRight, ExternalLink, RefreshCw, Search, Store } from 'lucide-react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,150 +13,157 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { toast } from 'sonner';
 import type { ShippingPromotionMode } from '@/lib/storefront-shipping-promotion';
+import { isStorefrontStock, matchesPublishingFilter, parseStorefrontPrice, type PublishingFilter } from '@/lib/storefront-publishing';
 
 type StoreItem = {
-  id: string;
-  product_name: string;
-  console: string;
-  condition: string;
-  quantity: number;
-  status?: string | null;
-  image_url?: string | null;
-  thumbnail_url?: string | null;
-  category?: string | null;
-  item_type?: string | null;
-  selected_market_value?: number | null;
-  price_loose?: number | null;
-  price_cib?: number | null;
-  price_new?: number | null;
-  storefront_enabled: boolean;
-  storefront_price?: number | null;
-  storefront_compare_at_price?: number | null;
-  storefront_featured: boolean;
-  storefront_category?: string | null;
-  storefront_description?: string | null;
-  storefront_updated_at?: string | null;
-  storefront_shipping_promotion: ShippingPromotionMode;
+  id: string; product_name: string; console: string; condition: string; quantity: number; status?: string | null;
+  image_url?: string | null; thumbnail_url?: string | null; storefront_price?: number | null;
+  storefront_featured: boolean; storefront_shipping_promotion: ShippingPromotionMode;
 };
+type StorePatch = Partial<Pick<StoreItem, 'storefront_price' | 'storefront_featured' | 'storefront_shipping_promotion'>>;
+const catalogSchema = z.object({ success: z.literal(true), products: z.array(z.object({
+  id: z.string(), price: z.number().positive().finite(), slug: z.string(),
+})) });
+const filters: { value: PublishingFilter; label: string }[] = [
+  { value: 'all', label: 'All available' }, { value: 'live', label: 'Live in shop' },
+  { value: 'needs-price', label: 'Needs online price' }, { value: 'needs-photo', label: 'Needs public photo' },
+  { value: 'shipping-excluded', label: 'Shipping excluded' },
+];
+const pageSize = 24;
+
+function PriceEditor({ item, livePrice, disabled, onSave }: {
+  item: StoreItem; livePrice?: number; disabled: boolean; onSave: (patch: StorePatch) => Promise<boolean>;
+}) {
+  const [draft, setDraft] = useState(item.storefront_price ? item.storefront_price.toFixed(2) : '');
+  const [error, setError] = useState('');
+  useEffect(() => { setDraft(item.storefront_price ? item.storefront_price.toFixed(2) : ''); setError(''); }, [item.id, item.storefront_price]);
+  return <form className="publishing-price-editor" aria-label={`Pricing for ${item.product_name}`} onSubmit={async event => {
+    event.preventDefault();
+    setError('');
+    try { await onSave({ storefront_price: parseStorefrontPrice(draft) }); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Enter a valid online price.'); }
+  }}>
+    <div className="publishing-live-price"><span>Current shop price</span><strong>{livePrice ? `$${livePrice.toFixed(2)}` : 'Not live'}</strong>
+      <small>{item.storefront_price ? 'Online override' : livePrice ? 'Automatic condition price' : 'Add an override or refresh inventory pricing.'}</small></div>
+    <label>Online price override<Input aria-label={`Online price for ${item.product_name}`} inputMode="decimal" value={draft} disabled={disabled} placeholder="e.g. 24.95" onChange={event => { setDraft(event.target.value); setError(''); }} /></label>
+    <div className="flex flex-wrap gap-2"><Button size="sm" type="submit" disabled={disabled || draft === (item.storefront_price ? item.storefront_price.toFixed(2) : '')}>Save price</Button>
+      {item.storefront_price != null && <Button size="sm" variant="outline" type="button" disabled={disabled} onClick={() => onSave({ storefront_price: null })}>Use automatic price</Button>}</div>
+    <small>Prices change only when saved. Automatic pricing may leave an item off the shop if no usable condition price exists.</small>
+    {error && <p role="alert" className="publishing-field-error">{error}</p>}
+  </form>;
+}
 
 export default function StorefrontManagerPage() {
   const { user, accountId } = useAuth();
   const [items, setItems] = useState<StoreItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<PublishingFilter>('all');
+  const [page, setPage] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
-  const [livePrices, setLivePrices] = useState<Record<string,number>>({});
+  const [live, setLive] = useState<Record<string, { price: number; slug: string }>>({});
   const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const generation = useRef({});
+  const savingRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!user || !accountId) return;
-    setLoading(true);
-    setLoadError('');
+    const current = {};
+    generation.current = current;
+    setLoading(true); setLoadError('');
+    if (!user || !accountId) { setItems([]); setLive({}); setLoading(false); return; }
     try {
-      const rows:StoreItem[]=[];
-      for(let offset=0;;offset+=500){
-        const {data,error}=await supabase.from('inventory_items')
-          .select('id,product_name,console,condition,quantity,status,image_url,thumbnail_url,category,item_type,storefront_enabled,storefront_price,storefront_featured,storefront_category,storefront_description,storefront_updated_at,storefront_shipping_promotion')
-          .eq('user_id',accountId).order('product_name').order('id').range(offset,offset+499);
-        if(error)throw error;
-        rows.push(...(data||[]) as StoreItem[]);
-        if(!data||data.length<500)break;
+      const rows: StoreItem[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await supabase.from('inventory_items')
+          .select('id,product_name,console,condition,quantity,status,image_url,thumbnail_url,storefront_price,storefront_featured,storefront_shipping_promotion')
+          .eq('user_id', accountId).order('product_name').order('id').range(offset, offset + 499);
+        if (error) throw error;
+        if (!data) throw new Error('Storefront inventory response was missing.');
+        if (generation.current !== current) return;
+        rows.push(...data);
+        if (data.length < 500) break;
       }
-      const response=await fetch('/api/storefront/catalog',{cache:'no-store'});
-      const catalog=await response.json();
-      if(!response.ok||!catalog.success)throw new Error(catalog.message||'Public catalog could not load.');
+      const response = await fetch('/api/storefront/catalog', { cache: 'no-store' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Public catalog could not load.');
+      const catalog = catalogSchema.parse(result);
+      if (generation.current !== current) return;
       setItems(rows);
-      setLivePrices(Object.fromEntries(catalog.products.map((item:{id:string;price:number})=>[item.id,item.price])));
-    } catch(cause) {
-      const message=cause instanceof Error?cause.message:'Storefront inventory could not load.';
-      console.error('Storefront manager:',cause);setLoadError(message);toast.error(message);
-    } finally {setLoading(false);}
+      setLive(Object.fromEntries(catalog.products.map(item => [item.id, { price: item.price, slug: item.slug }])));
+    } catch (cause) {
+      console.error('Storefront manager:', cause);
+      if (generation.current === current) { setItems([]); setLive({}); setLoadError('Storefront inventory and live prices could not be verified. Retry before making changes.'); }
+    } finally { if (generation.current === current) setLoading(false); }
   }, [user, accountId]);
+  useEffect(() => { void load(); return () => { generation.current = {}; }; }, [load]);
 
-  useEffect(() => { load(); }, [load]);
-
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return items.filter((item) => {
-      const active = !['sold', 'archived', 'deleted','reserved'].includes(item.status || 'available') && item.quantity > 0;
-      const matchesQuery = !q || `${item.product_name} ${item.console} ${item.condition}`.toLowerCase().includes(q);
-      return active && matchesQuery;
-    });
-  }, [items, query]);
-
-  const patchItem = async (id: string, patch: Partial<StoreItem>) => {
-    setSaving(id);
-    const { error } = await supabase
-      .from('inventory_items')
-      .update({ ...patch, storefront_updated_at: new Date().toISOString() })
-      .eq('id', id).eq('user_id',accountId);
-    setSaving(null);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    setItems((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
-    await load();
+  const livePrices = useMemo(() => Object.fromEntries(Object.entries(live).map(([id, product]) => [id, product.price])), [live]);
+  const counts = useMemo(() => Object.fromEntries(filters.map(option => [option.value, items.filter(item => matchesPublishingFilter(item, livePrices, option.value)).length])), [items, livePrices]);
+  const filtered = useMemo(() => items.filter(item => matchesPublishingFilter(item, livePrices, filter)
+    && `${item.product_name} ${item.console} ${item.condition}`.toLowerCase().includes(query.trim().toLowerCase())), [items, livePrices, filter, query]);
+  const lastPage = Math.max(0, Math.ceil(filtered.length / pageSize) - 1);
+  const currentPage = Math.min(page, lastPage);
+  const visible = filtered.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  const disabled = loading || saving !== null || !!loadError;
+  const patchItem = async (id: string, patch: StorePatch) => {
+    if (!accountId || !user || disabled || savingRef.current) return false;
+    savingRef.current = true; setSaving(id); setSaveError('');
+    try {
+      const { data, error } = await supabase.from('inventory_items')
+        .update({ ...patch, storefront_updated_at: new Date().toISOString() })
+        .eq('id', id).eq('user_id', accountId).select('id').single();
+      if (error) throw error;
+      if (!data) throw new Error('The item could not be updated. Check team access and retry.');
+      toast.success('Storefront change saved. Checking the live catalog...');
+      await load();
+      return true;
+    } catch (cause) {
+      console.error('Storefront save:', cause);
+      const message = 'This storefront change could not be confirmed. Refresh to check the saved value before retrying.';
+      setSaveError(message); toast.error(message);
+      return false;
+    } finally { savingRef.current = false; setSaving(null); }
   };
 
-  return (
-    <DashboardLayout>
-      <div className="mx-auto max-w-7xl space-y-6 p-5 sm:p-7 lg:p-8">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <div className="label-caps mb-1">Online Store</div>
-            <h1 className="heading-lg text-[22px]">Pixel & Page Storefront</h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-              All active, priced inventory from the configured Pixel & Page account appears online. Live quantities and condition pricing sync directly from RetroLoot; an online price override takes priority. Only the public storefront description is shared, never internal notes.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button asChild variant="outline"><Link href="/storefront/shipping">Shipping & packages</Link></Button>
-            <Button asChild variant="outline"><Link href="/storefront/requests">Requests & invoices</Link></Button>
-            <Button asChild variant="outline">
-              <Link href="/shop" target="_blank"><ExternalLink className="mr-2 h-4 w-4" />View Store</Link>
-            </Button>
-            <Button variant="outline" onClick={load} disabled={loading}><RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />Refresh</Button>
-          </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-border/50 bg-card p-5"><div className="label-caps">Live priced products</div><div className="mt-1 text-2xl font-bold">{Object.keys(livePrices).length}</div></div>
-          <div className="rounded-2xl border border-border/50 bg-card p-5"><div className="label-caps">Eligible Inventory</div><div className="mt-1 text-2xl font-bold">{items.filter((item) => item.quantity > 0 && !['sold','archived','deleted'].includes(item.status || 'available')).length}</div></div>
-          <div className="rounded-2xl border border-border/50 bg-card p-5"><div className="label-caps">Public URL</div><Link className="mt-1 block text-sm font-semibold text-primary" href="/shop">retrolootpro.com/shop</Link></div>
-        </div>
-
-        <div className="flex flex-col gap-3 rounded-2xl border border-border/50 bg-card p-4 sm:flex-row sm:items-center">
-          <div className="relative flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input className="pl-9" placeholder="Search inventory" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
-        </div>
-
-        {loadError&&<p role="alert" className="rounded border border-red-500 p-4">{loadError}</p>}
-        <div className="overflow-hidden rounded-2xl border border-border/50 bg-card">
-          <div className="hidden gap-4 border-b border-border/50 px-5 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:grid sm:grid-cols-[minmax(0,1fr)_85px_130px]">
-            <span>Product</span><span>Live Qty</span><span>Online Price</span>
-          </div>
-          {loading ? <div className="p-12 text-center text-sm text-muted-foreground">Loading storefront inventory…</div> : filtered.map((item) => {
-            const price = livePrices[item.id] || 0;
-            return (
-              <div key={item.id} className="grid items-center gap-4 border-b border-border/30 px-5 py-4 last:border-0 sm:grid-cols-[minmax(0,1fr)_85px_130px]">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-secondary/40">
-                    {item.thumbnail_url || item.image_url ? <Image className="h-full w-full object-cover" src={item.thumbnail_url || item.image_url || ''} alt="" width={56} height={56} unoptimized/> : <div className="grid h-full w-full place-items-center"><Store className="h-5 w-5 text-muted-foreground" /></div>}
-                  </div>
-                  <div className="min-w-0"><div className="truncate font-semibold">{item.product_name}</div><div className="truncate text-xs text-muted-foreground">{item.console} • {item.condition}</div><label className="mt-2 flex items-center gap-2 text-xs text-muted-foreground"><Switch checked={item.storefront_featured} onCheckedChange={(checked) => patchItem(item.id, { storefront_featured: checked })} />Featured</label>
-                    <label className="mt-2 block text-xs">Shipping offer<select aria-label={`Shipping offer for ${item.product_name}`} className="mt-1 w-full rounded border bg-background p-2" disabled={saving===item.id} value={item.storefront_shipping_promotion} onChange={event=>{const value=event.target.value;if(value==='eligible'||value==='free'||value==='excluded')patchItem(item.id,{storefront_shipping_promotion:value});}}>
-                      <option value="eligible">Automatically eligible - no minimum</option><option value="free">Individual offer (same postage limits)</option><option value="excluded">Excluded from free shipping</option>
-                    </select></label><p className="mt-1 text-xs text-muted-foreground">No minimum purchase. Combined covered standard postage must be $8 or less and no more than 15% of covered merchandise value. Excluded packages are charged normally.</p>
-                  </div>
-                </div>
-                <div><div className="text-lg font-bold">{item.quantity}</div><div className="text-xs text-muted-foreground">{item.status || 'available'}</div></div>
-                <label className="relative"><span className="sr-only">Online price for {item.product_name}</span><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span><Input key={`${item.id}-${price}`} className="pl-7" type="number" min="0" max="100000" step="0.01" disabled={saving===item.id} defaultValue={price || ''} onBlur={(event) => {const value=Number(event.target.value);if(!Number.isFinite(value)||value<0||value>100000){toast.error('Enter a valid price from 0 to 100000.');return;}if(value!==price)patchItem(item.id,{storefront_price:value||null});}} /></label>
-              </div>
-            );
-          })}
-          {!loading && filtered.length === 0 && <div className="p-12 text-center text-sm text-muted-foreground">No matching active inventory.</div>}
-        </div>
-      </div>
-    </DashboardLayout>
-  );
+  return <DashboardLayout><div className="publishing-workspace space-y-6 p-4 sm:p-7">
+    <header className="catalog-workspace-header"><div><p className="brand-eyebrow">FROM INVENTORY TO THE SHOP</p>
+      <h1>Build a shelf worth exploring.</h1><p>Review live prices, feature your favorites, and spot the items that need a little more care.</p></div>
+      <div className="flex flex-wrap gap-2"><Button asChild variant="outline"><Link href="/business/inventory">Inventory <ArrowRight size={16} className="ml-2"/></Link></Button>
+        <Button asChild variant="outline"><Link href="/" target="_blank" rel="noopener noreferrer"><ExternalLink size={16} className="mr-2"/>View shop</Link></Button>
+        <Button variant="outline" onClick={load} disabled={loading || saving !== null}><RefreshCw size={16} className="mr-2"/>Refresh catalog</Button></div></header>
+    <aside className="publishing-policy"><Store size={22}/><div><strong>Available + priced = live in your shop.</strong>
+      <p>Publication is automatic for available, priced inventory in this company account. There is no new publish/unpublish switch. Saved online overrides take priority over automatic condition prices. Only public descriptions are shared, never internal notes.</p>
+      <Link href="/business/orders">Orders & requests</Link><Link href="/business/storefront/shipping">Shipping & packages</Link></div></aside>
+    {saveError && <p role="alert" className="staff-access-error">{saveError}</p>}
+    {loadError ? <section className="business-overview-message"><p role="alert">{loadError}</p><Button variant="outline" onClick={load}>Retry storefront inventory</Button></section>
+      : loading ? <p role="status" className="business-overview-message">Checking available inventory and live shop prices...</p> : <>
+        <nav className="publishing-filters" aria-label="Publishing queues">{filters.map(option => <button key={option.value} disabled={saving !== null} aria-pressed={filter === option.value} onClick={() => { setFilter(option.value); setPage(0); }}>
+          <span>{option.label}</span><strong>{counts[option.value].toLocaleString()}</strong></button>)}</nav>
+        <div className="publishing-search"><label><Search size={18}/><span className="sr-only">Search publishing inventory</span><Input aria-label="Search publishing inventory" placeholder="Search by title, platform or condition" value={query} disabled={saving !== null} onChange={event => { setQuery(event.target.value); setPage(0); }}/></label>
+          <p>{filtered.length.toLocaleString()} matching records. Photo checks use the public image, not an internal thumbnail.</p></div>
+        <section className="publishing-products" aria-label="Storefront inventory">
+          {visible.map(item => <article key={item.id} aria-label={item.product_name} className="publishing-product">
+            <div className="publishing-product-details"><div className="publishing-product-title">
+              <div className="publishing-photo">{item.image_url ? <Image src={item.image_url} width={64} height={64} alt="" unoptimized/> : <Store size={26}/>}</div>
+              <div className="min-w-0"><Link className="publishing-item-title" href={`/business/inventory/${item.id}`}>{item.product_name}</Link><p>{item.console} · {item.condition}</p>
+                <div className="publishing-badges"><span className={live[item.id] ? 'is-live' : 'needs-attention'}>{live[item.id] ? 'Live in shop' : 'Needs online price'}</span>{!item.image_url && <span className="needs-attention">Needs public photo</span>}</div></div>
+            </div><div className="publishing-item-actions"><span>{item.quantity} available</span>
+              {live[item.id] && <Link href={`/shop/product/${live[item.id].slug}`} target="_blank" rel="noopener noreferrer">View product <ExternalLink size={13}/></Link>}
+              <Link href={`/business/inventory/${item.id}`}>Photos & item details <ArrowRight size={13}/></Link></div>
+              <label className="publishing-feature"><Switch aria-label={`Feature ${item.product_name}`} disabled={disabled} checked={item.storefront_featured} onCheckedChange={checked => patchItem(item.id, { storefront_featured: checked })}/>Feature this find <small>Highlight in staff picks</small></label>
+              <label className="publishing-shipping">Shipping offer<select aria-label={`Shipping offer for ${item.product_name}`} disabled={disabled} value={item.storefront_shipping_promotion} onChange={event => {
+                const value = event.target.value;
+                if (value === 'eligible' || value === 'free' || value === 'excluded') void patchItem(item.id, { storefront_shipping_promotion: value });
+              }}><option value="eligible">Automatically eligible - no minimum</option><option value="free">Individual offer (same postage limits)</option><option value="excluded">Excluded from free shipping</option></select></label>
+              <p className="publishing-shipping-note">{item.storefront_shipping_promotion === 'excluded' ? 'Excluded packages pay normal shipping.' : 'Eligible, not guaranteed: covered standard postage must total $8 or less and no more than 15% of covered merchandise value. No purchase minimum.'}</p>
+            </div>
+            <PriceEditor item={item} livePrice={live[item.id]?.price} disabled={disabled} onSave={patch => patchItem(item.id, patch)}/>
+          </article>)}
+          {!visible.length && <div className="business-overview-message"><h2>No items in this view.</h2><p>{items.some(isStorefrontStock) ? 'Try another queue or search. No inventory has been changed.' : 'Scan or add inventory to start building your shop.'}</p><Link href="/business/scan">Scan & add inventory</Link></div>}
+        </section>
+        <nav className="publishing-pagination" aria-label="Publishing pages"><Button variant="outline" disabled={currentPage === 0 || saving !== null} onClick={() => setPage(currentPage - 1)}>Previous</Button>
+          <span>Page {currentPage + 1} of {lastPage + 1} · up to {pageSize} items</span><Button variant="outline" disabled={currentPage >= lastPage || saving !== null} onClick={() => setPage(currentPage + 1)}>Next</Button></nav>
+      </>}
+  </div></DashboardLayout>;
 }

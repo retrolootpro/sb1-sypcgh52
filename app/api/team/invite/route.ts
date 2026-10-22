@@ -123,9 +123,9 @@ export async function POST(req: NextRequest) {
     if (membershipError) throw membershipError;
 
     const { error: inviteError } = await admin.auth.admin.inviteUserByEmail(inviteEmail, {
-      redirectTo: `${siteUrl(req)}/auth/callback?next=/dashboard`,
+      redirectTo: `${siteUrl(req)}/auth/callback?next=/business&invite=1`,
       data: {
-        app_name: 'RetroLootPro',
+        app_name: 'Pixel & Page Business',
         account_owner_id: account.accountId,
         account_role: inviteRole,
       },

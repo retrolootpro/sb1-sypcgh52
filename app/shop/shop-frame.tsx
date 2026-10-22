@@ -5,21 +5,22 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState } from 'react';
 import { Menu, Search, ShoppingBag, Truck, X } from 'lucide-react';
+import { StaffLoginLink } from '@/components/staff-login-link';
 
 const categories = ['Games','Books','Collectibles','Consoles','Accessories','Apparel'];
 
 export default function ShopFrame({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  if (pathname === '/shop') return children;
+  if (pathname === '/shop' || pathname === '/') return children;
   return <div className="commerce-site commerce-reference reference-inner">
     <div className="commerce-topbar"><span><Truck/>Online only · Shipping to your door</span><div><Link href="/shop/request">Request an item</Link><Link href="/shop/pages/help">Help</Link><Link href="/shop/pages/contact">Contact</Link></div></div>
     <header className="commerce-header">
       <div className="commerce-header-main">
         <button type="button" className="commerce-menu-button" aria-label={open ? 'Close menu' : 'Open menu'} aria-expanded={open} aria-controls="inner-shop-nav" onClick={() => setOpen(!open)}>{open ? <X/> : <Menu/>}</button>
-        <Link href="/shop" className="commerce-logo" onClick={() => setOpen(false)}><Image src="/storefront/pixel-page-wordmark.png" width={265} height={53} alt="Pixel & Page - Every Story Has a Save Point" priority unoptimized/></Link>
+        <Link href="/" className="commerce-logo" onClick={() => setOpen(false)}><Image src="/storefront/pixel-page-wordmark.png" width={265} height={53} alt="Pixel & Page - Every Story Has a Save Point" priority unoptimized/></Link>
         <form action="/shop" className="commerce-search" role="search"><Search/><input name="q" aria-label="Search products" placeholder="Search games, books, collectibles and more..."/><button aria-label="Search" type="submit"><Search/></button></form>
-        <div className="commerce-header-actions"><Link href="/shop/request">Request an item</Link><Link href="/shop/checkout" aria-label="Cart and checkout"><ShoppingBag/><span>Cart</span></Link></div>
+        <div className="commerce-header-actions"><StaffLoginLink/><Link href="/shop/checkout" aria-label="Cart and checkout"><ShoppingBag/><span>Cart</span></Link></div>
       </div>
       <nav id="inner-shop-nav" className={open ? 'commerce-nav open' : 'commerce-nav'} aria-label="Shop categories" onClick={() => setOpen(false)}>
         <Link href="/shop" className="reference-home">Home</Link>

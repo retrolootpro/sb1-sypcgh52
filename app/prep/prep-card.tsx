@@ -1,8 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Check, ChevronDown, Circle, ClipboardCheck, FileText, PackageCheck, ShoppingCart, Sparkles, Tag, Zap } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import Link from 'next/link';
+import { useAuth } from '@/lib/auth-context';
+import { savePrepUpdate } from '@/lib/prep-update';
+import { prepSalePrice } from '@/lib/prep-workflow';
+import { isStorefrontStock } from '@/lib/storefront-publishing';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -14,6 +18,7 @@ export type PrepItem = {
   console: string;
   condition: string;
   purchase_price: number;
+  quantity: number;
   created_at: string;
   sorted_at: string | null;
   cleaned_at: string | null;
@@ -123,7 +128,10 @@ function nextStepDetail(item: PrepItem) {
 }
 
 export function PrepCard({ item, onChange }: Props) {
+  const { accountId } = useAuth();
+  const busy = useRef(false);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [error, setError] = useState('');
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const nextStep = getNextStep(item);
@@ -131,22 +139,27 @@ export function PrepCard({ item, onChange }: Props) {
   const progress = Math.round((completed / WORKFLOW_STEP_COUNT) * 100);
   const listedOn = listStatus(item);
   const sold = isSold(item);
+  const canPrep = !sold && isStorefrontStock(item);
   const readyToList = nextStep?.type === 'listed';
   const listed = Boolean(listedOn) && !sold;
   const readyToMarkSold = nextStep?.type === 'sold';
 
   const updateField = async (field: StepField | 'listed_ebay_at' | 'listed_amazon_at' | 'listed_whatnot_at', value: string | null) => {
+    if (busy.current || !canPrep) return false;
+    busy.current = true; setError('');
     setUpdating(field);
     try {
-      const { error } = await supabase
-        .from('inventory_items')
-        .update({ [field]: value, updated_at: new Date().toISOString() })
-        .eq('id', item.id);
-      if (error) throw error;
+      if (!accountId) throw new Error('Team access must be verified before updating preparation.');
+      await savePrepUpdate(accountId, item.id, { [field]: value });
       onChange({ [field]: value } as Partial<PrepItem>);
-    } catch {
+      return true;
+    } catch (cause) {
+      console.error('Preparation update:', cause);
+      setError('This preparation change could not be confirmed. Refresh to check the saved stage before retrying.');
       toast.error('Could not update this item');
+      return false;
     } finally {
+      busy.current = false;
       setUpdating(null);
     }
   };
@@ -158,65 +171,65 @@ export function PrepCard({ item, onChange }: Props) {
 
   const completeNextStep = async () => {
     if (!nextStep || nextStep.type !== 'prep') return;
-    await updateField(nextStep.step.field, new Date().toISOString());
-    toast.success(`${nextStep.step.label} marked done`);
+    if (await updateField(nextStep.step.field, new Date().toISOString())) toast.success(`${nextStep.step.label} marked done`);
   };
 
   const toggleListing = async (field: 'listed_ebay_at' | 'listed_amazon_at' | 'listed_whatnot_at', label: string) => {
     const current = item[field];
-    await updateField(field, current ? null : new Date().toISOString());
-    toast.success(current ? `${label} listing removed` : `Marked listed on ${label}`);
+    if (await updateField(field, current ? null : new Date().toISOString())) toast.success(current ? `${label} listing removed` : `Marked listed on ${label}`);
   };
 
   const markSold = async () => {
-    const raw = window.prompt('Sale price? Enter the amount this item sold for.');
+    if (!canPrep || busy.current) return;
+    const raw = window.prompt('Inventory status only: this does not collect payment or create an accounting sale. What price did this item sell for?');
     if (raw === null) return;
-    const salePrice = Number(raw.replace(/[^0-9.]/g, ''));
-    if (!Number.isFinite(salePrice) || salePrice < 0) {
-      toast.error('Enter a valid sale price');
+    let salePrice: number;
+    try { salePrice = prepSalePrice(raw); }
+    catch (cause) {
+      toast.error(cause instanceof Error ? cause.message : 'Enter a valid sale price');
       return;
     }
 
+    if (busy.current) return;
+    busy.current = true; setError('');
     setUpdating('sold_at');
     try {
       const soldAt = new Date().toISOString();
-      const { error } = await supabase
-        .from('inventory_items')
-        .update({
+      if (!accountId) throw new Error('Team access must be verified before recording a sale.');
+      await savePrepUpdate(accountId, item.id, {
           status: 'sold',
           sold_at: soldAt,
           sell_price: salePrice,
-          updated_at: soldAt,
-        })
-        .eq('id', item.id);
-      if (error) throw error;
+        });
       onChange({ status: 'sold', sold_at: soldAt, sell_price: salePrice });
       toast.success('Marked sold');
-    } catch {
+    } catch (cause) {
+      console.error('Preparation sale status:', cause); setError('Sold status could not be confirmed. Refresh before retrying.');
       toast.error('Could not mark this item sold');
     } finally {
+      busy.current = false;
       setUpdating(null);
     }
   };
 
   const undoSold = async () => {
+    if (busy.current) return;
+    busy.current = true; setError('');
     setUpdating('sold_at');
     try {
-      const { error } = await supabase
-        .from('inventory_items')
-        .update({
+      if (!accountId) throw new Error('Team access must be verified before changing sold status.');
+      await savePrepUpdate(accountId, item.id, {
           status: 'available',
           sold_at: null,
           sell_price: 0,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', item.id);
-      if (error) throw error;
+        });
       onChange({ status: 'available', sold_at: null, sell_price: 0 });
       toast.success('Sold status removed');
-    } catch {
+    } catch (cause) {
+      console.error('Preparation undo sold:', cause); setError('Sold status could not be confirmed. Refresh before retrying.');
       toast.error('Could not update sold status');
     } finally {
+      busy.current = false;
       setUpdating(null);
     }
   };
@@ -232,7 +245,7 @@ export function PrepCard({ item, onChange }: Props) {
     : PackageCheck;
 
   return (
-    <div
+    <article aria-label={item.product_name}
       className={cn(
         'rounded-2xl border bg-card transition-colors',
         sold
@@ -245,6 +258,8 @@ export function PrepCard({ item, onChange }: Props) {
       )}
     >
       <div className="p-4">
+        {error && <p role="alert" className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-800">{error}</p>}
+        {!canPrep && <p className="mb-3 text-xs text-muted-foreground">Preparation is read-only for {sold ? 'sold' : 'unavailable'} stock.{sold && ' You can undo sold status from the checklist.'}</p>}
         <div className="flex items-start gap-3">
           <div
             className={cn(
@@ -262,7 +277,7 @@ export function PrepCard({ item, onChange }: Props) {
           </div>
 
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-semibold leading-tight text-white/85">{item.product_name}</div>
+            <Link className="block text-sm font-semibold leading-tight text-foreground underline underline-offset-4 break-words" href={`/business/inventory/${item.id}`}>{item.product_name}</Link>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
               <span>{item.console || 'Unknown'}</span>
               <span className="rounded border border-white/10 bg-white/[0.03] px-1.5 py-0.5 text-[10px] text-white/45">
@@ -274,7 +289,7 @@ export function PrepCard({ item, onChange }: Props) {
         </div>
 
         <div className="mt-4 rounded-xl border border-border/30 bg-secondary/20 p-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {sold ? 'Sold' : listed ? 'Listed' : readyToList ? 'Ready' : 'Next Step'}
@@ -300,7 +315,7 @@ export function PrepCard({ item, onChange }: Props) {
               <Button
                 size="sm"
                 className="h-8 shrink-0 text-xs"
-                disabled={Boolean(updating)}
+                disabled={!canPrep || Boolean(updating)}
                 onClick={completeNextStep}
               >
                 {updating === nextStep.step.field ? 'Saving...' : nextStep.step.action}
@@ -310,7 +325,7 @@ export function PrepCard({ item, onChange }: Props) {
               <Button
                 size="sm"
                 className="h-8 shrink-0 text-xs"
-                disabled={Boolean(updating)}
+                disabled={!canPrep || Boolean(updating)}
                 onClick={markSold}
               >
                 {updating === 'sold_at' ? 'Saving...' : 'Mark Sold'}
@@ -353,7 +368,7 @@ export function PrepCard({ item, onChange }: Props) {
                 <button
                   key={field}
                   onClick={() => toggleListing(typedField, label)}
-                  disabled={updating === field}
+                  disabled={!canPrep || !!updating}
                   className={cn(
                     'rounded-lg border px-2 py-2 text-xs font-semibold transition-colors',
                     active
@@ -371,6 +386,7 @@ export function PrepCard({ item, onChange }: Props) {
         <button
           type="button"
           onClick={() => setDetailsOpen((open) => !open)}
+          aria-expanded={detailsOpen}
           className="mt-3 flex w-full items-center justify-between rounded-lg px-1 py-1 text-[11px] text-muted-foreground transition-colors hover:text-white/70"
         >
           <span>Show full checklist</span>
@@ -387,7 +403,7 @@ export function PrepCard({ item, onChange }: Props) {
                   key={step.field}
                   type="button"
                   onClick={() => toggleStep(step)}
-                  disabled={updating === step.field}
+                  disabled={!canPrep || !!updating}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition-colors hover:bg-white/[0.04]"
                 >
                   <div
@@ -424,7 +440,7 @@ export function PrepCard({ item, onChange }: Props) {
             <button
               type="button"
               onClick={sold ? undoSold : listedOn ? markSold : undefined}
-              disabled={!listedOn || updating === 'sold_at'}
+              disabled={(!canPrep && !sold) || (!listedOn && !sold) || !!updating}
               className={cn(
                 'flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition-colors',
                 listedOn ? 'hover:bg-white/[0.04]' : 'cursor-default opacity-60'
@@ -449,6 +465,6 @@ export function PrepCard({ item, onChange }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </article>
   );
 }

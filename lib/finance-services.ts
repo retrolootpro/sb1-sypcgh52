@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { getActiveAccountId } from './account';
+import { readAllPages } from './read-all-pages';
+import { financePeriodBounds } from './finance-reporting';
 
 export type Transaction = {
   id: string;
@@ -464,23 +466,34 @@ export async function getTransactions(filters?: {
   search?: string;
   limit?: number;
 }): Promise<Transaction[]> {
-  let query = supabase
-    .from('financial_transactions')
-    .select('*')
-    .order('date', { ascending: false })
-    .order('created_at', { ascending: false });
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+  const queryForPage = () => {
+    let query = supabase
+      .from('financial_transactions')
+      .select('*')
+      .eq('user_id', accountId)
+      .order('date', { ascending: false })
+      .order('created_at', { ascending: false }).order('id');
 
-  if (filters?.startDate) query = query.gte('date', filters.startDate);
-  if (filters?.endDate) query = query.lte('date', filters.endDate);
-  if (filters?.type && filters.type !== 'all') query = query.eq('type', filters.type);
-  if (filters?.category && filters.category !== 'all') query = query.eq('category', filters.category);
-  if (filters?.source && filters.source !== 'all') query = query.eq('source', filters.source);
-  if (filters?.search) query = query.ilike('description', `%${filters.search}%`);
-  if (filters?.limit) query = query.limit(filters.limit);
+    if (filters?.startDate) query = query.gte('date', filters.startDate);
+    if (filters?.endDate) query = query.lte('date', filters.endDate);
+    if (filters?.type && filters.type !== 'all') query = query.eq('type', filters.type);
+    if (filters?.category && filters.category !== 'all') query = query.eq('category', filters.category);
+    if (filters?.source && filters.source !== 'all') query = query.eq('source', filters.source);
+    if (filters?.search) query = query.ilike('description', `%${filters.search}%`);
+    return query;
+  };
 
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return data || [];
+  if (filters?.limit !== undefined) {
+    if (!Number.isInteger(filters.limit) || filters.limit < 1) throw new Error('Transaction limit must be a positive integer.');
+    const { data, error } = await queryForPage().limit(filters.limit);
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error('Transaction response was missing.');
+    return data;
+  }
+  return readAllPages((from, to) => queryForPage().range(from, to));
 }
 
 export async function getLedgerAutomationSummary(): Promise<LedgerAutomationSummary> {
@@ -1181,28 +1194,25 @@ export async function getLotCostSummaries(): Promise<LotCostSummary[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  const [{ data: lots, error: lotsError }, { data: items, error: itemsError }, { data: txns, error: txError }] = await Promise.all([
-    supabase
+  const accountId = await getActiveAccountId(user);
+  const [lots, items, txns] = await Promise.all([
+    readAllPages((from, to) => supabase
       .from('lots')
       .select('id, name, source, received_at, shipment_id, total_paid, total_market_value, allocation_ratio, allocation_status, cost_allocated_at')
-      .eq('user_id', await getActiveAccountId(user))
-      .order('received_at', { ascending: false }),
-    supabase
+      .eq('user_id', accountId)
+      .order('received_at', { ascending: false }).order('id').range(from, to)),
+    readAllPages((from, to) => supabase
       .from('inventory_items')
       .select('id, lot_id, product_name, console, condition, purchase_price, quantity, selected_market_value, price_loose, price_cib, price_new, price_graded, lot_market_value_at_allocation, lot_allocation_ratio, purchase_price_override')
-      .eq('user_id', await getActiveAccountId(user))
-      .not('lot_id', 'is', null),
-    supabase
+      .eq('user_id', accountId)
+      .not('lot_id', 'is', null).order('id').range(from, to)),
+    readAllPages((from, to) => supabase
       .from('financial_transactions')
       .select('id, reference_id, amount')
-      .eq('user_id', await getActiveAccountId(user))
+      .eq('user_id', accountId)
       .eq('category', 'Inventory Purchase')
-      .like('reference_id', 'lot_purchase_%'),
+      .like('reference_id', 'lot_purchase_%').order('id').range(from, to)),
   ]);
-
-  if (lotsError) throw new Error(lotsError.message);
-  if (itemsError) throw new Error(itemsError.message);
-  if (txError) throw new Error(txError.message);
 
   const itemsByLot = new Map<string, LotCostItem[]>();
   for (const item of (items || [])) {
@@ -1325,12 +1335,12 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not authenticated');
 
-  const { data: items, error } = await supabase
+  const accountId = await getActiveAccountId(user);
+  const items = await readAllPages((from, to) => supabase
     .from('inventory_items')
     .select('id, quantity, purchase_price, purchase_price_override, selected_market_value, price_loose, price_cib, price_new, price_graded')
-    .eq('user_id', await getActiveAccountId(user))
-    .eq('lot_id', lotId);
-  if (error) throw new Error(error.message);
+    .eq('user_id', accountId)
+    .eq('lot_id', lotId).order('id').range(from, to));
   if (!items || items.length === 0) throw new Error('This lot has no items to allocate');
 
   const useMarketWeight = method === 'weighted' || method === 'market_weighted';
@@ -1350,7 +1360,6 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
   const allocationRatio = marketTotal > 0 ? totalCost / marketTotal : 0;
   const now = new Date().toISOString();
 
-  const accountId = await getActiveAccountId(user);
   const updates = items.map((item, index) => {
     const itemMarket = marketWeight(item as LotCostItem);
     const weight = fallbackEqual ? 1 : weights[index];
@@ -1374,14 +1383,15 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
         updated_at: now,
       })
       .eq('id', item.id)
-      .eq('user_id', accountId);
+      .eq('user_id', accountId).select('id').single();
   });
 
   const results = await Promise.all(updates);
   const failed = results.find((result) => result.error);
-  if (failed?.error) throw new Error(failed.error.message);
+  if (failed?.error) throw new Error(`Lot allocation was not completed; some item costs may already have changed. Reload and review the lot before retrying. ${failed.error.message}`);
+  if (results.some(result => !result.data)) throw new Error('Lot allocation could not confirm every item update. Reload and review costs before retrying.');
 
-  const { error: lotError } = await supabase
+  const { data: updatedLot, error: lotError } = await supabase
     .from('lots')
     .update({
       total_paid: Number(totalCost.toFixed(2)),
@@ -1393,8 +1403,9 @@ export async function allocateLotCost(lotId: string, totalCost: number, method: 
       updated_at: now,
     })
     .eq('id', lotId)
-    .eq('user_id', accountId);
-  if (lotError) throw new Error(lotError.message);
+    .eq('user_id', accountId).select('id').single();
+  if (lotError) throw new Error(`Item costs were updated, but the lot summary could not be confirmed. Reload and review the lot. ${lotError.message}`);
+  if (!updatedLot) throw new Error('Item costs were updated, but no lot summary update was confirmed. Reload and review the lot.');
 }
 
 export async function importPlatformSales(): Promise<{ imported: number }> {
@@ -1496,6 +1507,12 @@ export type PLStatement = {
   missingCogsRevenue: number;
   cogsCoverage: number;
   cogsStatus: 'complete' | 'needs_review';
+  onlineOrderCount: number;
+  onlineOrderCogs: number;
+  onlineOrderUnitsMissingCost: number;
+  onlineOrderMissingCostRevenue: number;
+  onlineOrdersMissingStripeFeeCount: number;
+  onlineLabelsMissingPostageCount: number;
   grossProfit: number;
   operatingExpenses: number;
   netProfit: number;
@@ -1514,34 +1531,39 @@ export type MissingCogsItem = {
   sold_via: string | null;
 };
 
-function getPeriodBounds(year: number, month?: number) {
-  return {
-    startDate: month
-      ? `${year}-${String(month).padStart(2, '0')}-01`
-      : `${year}-01-01`,
-    endDate: month
-      ? new Date(year, month, 0).toISOString().slice(0, 10)
-      : `${year}-12-31`,
-  };
-}
-
 export async function getPLStatement(year: number, month?: number): Promise<PLStatement> {
-  const { startDate, endDate } = getPeriodBounds(year, month);
-
-  const { data: txns, error } = await supabase
+  const { startDate, endDate, endExclusive } = financePeriodBounds(year, month);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+  const [txns, soldItems, onlineOrders, pendingPostageResponse] = await Promise.all([
+    readAllPages((from, to) => supabase
     .from('financial_transactions')
-    .select('type, amount, category, platform, source, reference_id')
+    .select('type, amount, category, subcategory, description, platform, source, reference_id')
+    .eq('user_id', accountId)
     .gte('date', startDate)
-    .lte('date', endDate);
-
-  if (error) throw new Error(error.message);
-
-  const { data: soldItems } = await supabase
+    .lte('date', endDate).order('id').range(from, to)),
+    readAllPages((from, to) => supabase
     .from('inventory_items')
     .select('id, product_name, console, sell_price, purchase_price, sold_at, sold_via')
+    .eq('user_id', accountId)
     .eq('status', 'sold')
     .gte('sold_at', startDate + 'T00:00:00Z')
-    .lte('sold_at', endDate + 'T23:59:59Z');
+    .lt('sold_at', endExclusive + 'T00:00:00Z').order('id').range(from, to)),
+    readAllPages((from, to) => supabase
+      .from('storefront_orders')
+      .select('id, items, paid_at, cost_snapshot_version, stripe_fee_status')
+      .eq('account_id', accountId)
+      .gte('accounting_started_at', startDate + 'T00:00:00Z')
+      .lt('accounting_started_at', endExclusive + 'T00:00:00Z')
+      .order('accounting_started_at').order('id').range(from, to)),
+    supabase.rpc('storefront_pending_label_accounting', {
+      p_start: startDate + 'T00:00:00Z', p_end: endExclusive + 'T00:00:00Z',
+    }),
+  ]);
+  if (pendingPostageResponse.error) throw new Error(pendingPostageResponse.error.message);
+  if (!Number.isSafeInteger(pendingPostageResponse.data) || pendingPostageResponse.data < 0)
+    throw new Error('A valid Shippo postage reconciliation count was not returned.');
 
   let revenue = 0;
   let cogs = 0;
@@ -1549,14 +1571,22 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
   let knownCogsItemCount = 0;
   let missingCogsItemCount = 0;
   let missingCogsRevenue = 0;
+  let onlineOrderCogs = 0;
+  let onlineOrderUnitsMissingCost = 0;
+  let onlineOrderMissingCostRevenue = 0;
   let operatingExpenses = 0;
   const revenueByPlatform: Record<string, number> = {};
   const expensesByCategory: Record<string, number> = {};
-  const generatedSaleRefs = new Set((txns || []).map((tx) => tx.reference_id).filter(Boolean));
+  const generatedSaleRefs = new Set(txns.filter(tx => tx.type === 'income').map(tx => tx.reference_id).filter(Boolean));
+  const onlineOrderCount = new Set(txns.filter(tx => tx.type === 'income' && tx.platform === 'Stripe' &&
+    tx.subcategory === 'Online' && tx.reference_id).map(tx => tx.reference_id)).size;
+  const onlineOrdersMissingStripeFeeCount = onlineOrders.filter(order => order.stripe_fee_status !== 'recorded').length;
+  const onlineLabelsMissingPostageCount = pendingPostageResponse.data;
 
   for (const item of (soldItems || [])) {
-    const sp = parseFloat(item.sell_price) || 0;
-    const pp = parseFloat(item.purchase_price) || 0;
+    const sp = Number(item.sell_price ?? 0);
+    const pp = Number(item.purchase_price ?? 0);
+    if (!Number.isFinite(sp) || !Number.isFinite(pp)) throw new Error('Sold inventory contains an invalid sale price or cost. Review the source records.');
     soldItemCount++;
     if (pp > 0) {
       cogs += pp;
@@ -1573,8 +1603,27 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
     }
   }
 
+  for (const order of onlineOrders) {
+    if (!Array.isArray(order.items)) throw new Error('A storefront order is missing its saved item-cost snapshot. Review the order before relying on profit.');
+    for (const item of order.items) {
+      const quantity = Number(item.quantity);
+      const unitAmount = Number(item.unit_amount);
+      const unitCostCents = item.unit_cost_cents == null ? null : Number(item.unit_cost_cents);
+      if (!Number.isSafeInteger(quantity) || quantity < 1 || !Number.isSafeInteger(unitAmount) || unitAmount < 1 ||
+        (unitCostCents !== null && (!Number.isSafeInteger(unitCostCents) || unitCostCents < 0))) {
+        throw new Error('A storefront order contains an invalid saved quantity, price or cost. Review its source record.');
+      }
+      if (unitCostCents !== null && unitCostCents > 0) onlineOrderCogs += unitCostCents * quantity / 100;
+      else {
+        onlineOrderUnitsMissingCost += quantity;
+        onlineOrderMissingCostRevenue += unitAmount * quantity / 100;
+      }
+    }
+  }
+
   for (const tx of (txns || [])) {
-    const amt = parseFloat(String(tx.amount));
+    const amt = Number(tx.amount);
+    if (tx.amount === null || !Number.isFinite(amt)) throw new Error('A financial transaction contains an invalid amount. Review the source record.');
     if (tx.type === 'income') {
       revenue += Math.abs(amt);
       const platform = tx.platform || 'Other';
@@ -1599,6 +1648,7 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
     }
   }
 
+  cogs += onlineOrderCogs;
   const grossProfit = revenue - cogs;
   const netProfit = grossProfit - operatingExpenses;
   const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
@@ -1613,6 +1663,12 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
     missingCogsRevenue,
     cogsCoverage,
     cogsStatus: missingCogsItemCount > 0 ? 'needs_review' : 'complete',
+    onlineOrderCount,
+    onlineOrderCogs,
+    onlineOrderUnitsMissingCost,
+    onlineOrderMissingCostRevenue,
+    onlineOrdersMissingStripeFeeCount,
+    onlineLabelsMissingPostageCount,
     grossProfit,
     operatingExpenses,
     netProfit,
@@ -1624,16 +1680,18 @@ export async function getPLStatement(year: number, month?: number): Promise<PLSt
 }
 
 export async function getMissingCogsItems(year: number, month?: number): Promise<MissingCogsItem[]> {
-  const { startDate, endDate } = getPeriodBounds(year, month);
-  const { data, error } = await supabase
+  const { startDate, endExclusive } = financePeriodBounds(year, month);
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  const accountId = await getActiveAccountId(user);
+  const data = await readAllPages((from, to) => supabase
     .from('inventory_items')
     .select('id, product_name, console, sell_price, sold_at, sold_via, purchase_price')
+    .eq('user_id', accountId)
     .eq('status', 'sold')
     .gte('sold_at', startDate + 'T00:00:00Z')
-    .lte('sold_at', endDate + 'T23:59:59Z')
-    .order('sold_at', { ascending: false });
-
-  if (error) throw new Error(error.message);
+    .lt('sold_at', endExclusive + 'T00:00:00Z')
+    .order('sold_at', { ascending: false }).order('id').range(from, to));
 
   return (data || [])
     .filter((item) => (Number(item.purchase_price) || 0) <= 0)

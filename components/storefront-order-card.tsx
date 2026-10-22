@@ -18,10 +18,10 @@ type StaffApi = (path: string, body?: unknown) => Promise<{
 }>;
 const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const statusStyle: Record<string, string> = {
-  paid: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500',
-  shipped: 'border-blue-500/40 bg-blue-500/10 text-blue-500',
-  pending: 'border-amber-500/40 bg-amber-500/10 text-amber-500',
-  creating: 'border-amber-500/40 bg-amber-500/10 text-amber-500',
+  paid: 'border-emerald-700/30 bg-emerald-50 text-emerald-800',
+  shipped: 'border-blue-700/30 bg-blue-50 text-blue-800',
+  pending: 'border-amber-700/30 bg-amber-50 text-amber-800',
+  creating: 'border-amber-700/30 bg-amber-50 text-amber-800',
 };
 const statusName: Record<string, string> = { paid: 'Ready to ship', pending: 'Awaiting payment', creating: 'Payment setup', shipped: 'Shipped', cancelled: 'Cancelled' };
 function addressLines(address: ShippingCustomer['address']) {
@@ -142,7 +142,7 @@ export function StorefrontOrderCard({ order, api, action, busy, setup }: {
     <div className="space-y-5 p-5">
       <ul className="divide-y">{order.items.map((item, i) => <li className="flex justify-between gap-4 py-2 text-sm" key={i}><span><strong>{item.quantity} ×</strong> {item.title}</span><span className="shrink-0 font-semibold">{money(item.quantity * item.unit_amount)}</span></li>)}</ul>
       <dl className="grid grid-cols-2 gap-3 rounded-lg bg-muted/30 p-4 text-sm sm:grid-cols-4">{([['Items', order.subtotal_cents], ['Shipping collected', order.shipping_cents], ['Sales tax', order.tax_cents], ['Paid total', order.total_cents]] as const).map(([label, cents]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 font-semibold">{typeof cents === 'number' ? money(cents) : 'Not paid'}</dd></div>)}</dl>
-      <div className="rounded-lg border border-primary/30 bg-primary/5 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer-selected shipping</p><p className="mt-1 font-bold">{order.shipping_quote?.rate.name || 'Service not saved - review in Stripe'}</p><p className="mt-1 text-sm text-muted-foreground">{order.shipping_quote ? `${order.shipping_quote.parcels} package${order.shipping_quote.parcels === 1 ? '' : 's'} quoted at checkout. Confirm the actual packed measurements before buying postage.` : 'Do not guess the shipping service or delivery address.'}</p>
+      <div className="rounded-lg border border-teal-700/30 bg-teal-50/60 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Customer-selected shipping</p><p className="mt-1 font-bold">{order.shipping_quote?.rate.name || 'Service not saved - review in Stripe'}</p><p className="mt-1 text-sm text-muted-foreground">{order.shipping_quote ? `${order.shipping_quote.parcels} package${order.shipping_quote.parcels === 1 ? '' : 's'} quoted at checkout. Confirm the actual packed measurements before buying postage.` : 'Do not guess the shipping service or delivery address.'}</p>
         {!!order.shipping_quote?.rate.discount&&<p className="mt-2 text-sm">Shipping promotion: {money(order.shipping_quote.rate.discount)} covered by the shop. Quoted postage: {money(order.shipping_quote.rate.carrierAmount!)}. The customer paid {money(order.shipping_quote.rate.amount)} shipping; a label still must be purchased.</p>}
       </div>
       <section className="grid gap-4 sm:grid-cols-2" aria-label="Delivery details"><div><h4 className="text-sm font-semibold">Ship to</h4>{address ? <address className="mt-2 text-sm not-italic leading-6"><strong>{name}</strong>{addressLines(address).map((line, i) => <div key={i}>{line}</div>)}</address> : <p className="mt-2 text-sm text-amber-500">No saved delivery address. Review the order in Stripe before fulfillment.</p>}</div><div><h4 className="text-sm font-semibold">Customer contact</h4><p className="mt-2 break-words text-sm">{email ? <a className="underline" href={`mailto:${email}`}>{email}</a> : 'Email not saved'}</p>{order.kind === 'invoice' && <p className="mt-2 text-xs text-muted-foreground">{order.email_sent ? 'Invoice email sent by Stripe.' : 'Invoice email not yet sent.'}</p>}</div></section>

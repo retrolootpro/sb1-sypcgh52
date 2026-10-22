@@ -1,6 +1,7 @@
 'use client';
 
 import { Package, TrendingUp, ScanBarcode, Zap, ArrowUpRight, ArrowDownRight, ChartBar as BarChart2, Box, DollarSign, ShoppingCart } from 'lucide-react';
+import { DashboardLayout } from '@/components/dashboard-layout';
 
 const stats = [
   { label: 'Total Items', value: '1,284', change: '+12%', up: true },
@@ -17,6 +18,7 @@ const items = [
 
 export default function DesignPreview() {
   return (
+    <DashboardLayout>
     <div className="min-h-screen bg-gray-100 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-800 mb-2 text-center">Stockr — Design Direction Previews</h1>
@@ -265,5 +267,6 @@ export default function DesignPreview() {
         <p className="text-center text-gray-400 text-xs mt-8">These are representative previews — the full app will be fully themed to match your chosen direction.</p>
       </div>
     </div>
+    </DashboardLayout>
   );
 }

@@ -12,8 +12,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { useAuth } from '@/lib/auth-context';
+import { DashboardLayout } from '@/components/dashboard-layout';
 import type { ScanResult } from '@/lib/barcode-scanner';
 import {
   backfillCompletedPosBuysIntoInventory,
@@ -150,7 +150,7 @@ function baselinePriceChartingValue(details: PriceChartingDetails, condition: st
 }
 
 export default function PosPage() {
-  const { user, loading } = useAuth();
+  const { user, loading, accountId } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<PosMode>('sale');
   const [inventory, setInventory] = useState<PosInventoryItem[]>([]);
@@ -191,7 +191,7 @@ export default function PosPage() {
   });
 
   useEffect(() => {
-    if (!loading && !user) router.push('/');
+    if (!loading && !user) router.push('/login?next=/business/pos');
   }, [loading, router, user]);
 
   useEffect(() => {
@@ -199,14 +199,14 @@ export default function PosPage() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !accountId) return;
     loadInventory();
     loadCustomers();
     loadTaxSettings();
     loadRecentSales();
     backfillPosBuys();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [user, accountId]);
 
   const loadInventory = async (search = inventorySearch) => {
     try {
@@ -799,6 +799,7 @@ export default function PosPage() {
     }
   };
 
+  if (!loading && user && !accountId) return <DashboardLayout><></></DashboardLayout>;
   if (loading || !user) {
     return <div className="flex min-h-screen items-center justify-center bg-black text-white">Loading POS...</div>;
   }
@@ -820,7 +821,6 @@ export default function PosPage() {
           </div>
           <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
             <div className="[&_button]:h-12 [&_button]:w-12">
-              <ThemeToggle compact />
             </div>
             <div className="grid min-w-0 flex-1 grid-cols-4 gap-1 rounded-[20px] border border-white/[0.08] bg-white/[0.045] p-1 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.06)] sm:w-auto sm:flex-none">
               <ModeButton active={mode === 'sale'} icon={ShoppingCart} label="Sell" onClick={() => setMode('sale')} />

@@ -16,6 +16,7 @@ export function getInventoryAgeDays(createdAt?: string | null) {
 }
 
 export function normalizeStaleThreshold(value: unknown) {
+  if (value == null || value === '') return DEFAULT_STALE_INVENTORY_DAYS;
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return DEFAULT_STALE_INVENTORY_DAYS;
   return Math.max(1, Math.min(365, Math.round(parsed)));

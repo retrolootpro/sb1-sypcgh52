@@ -11,5 +11,6 @@ export type LabelRate = { id: string; name: string; amount: number; estimatedDay
 export type ShippingLabel = {
   id: string; order_id: string; parcel_index: number; status: 'purchasing' | 'pending' | 'success' | 'error' | 'unknown';
   rate: LabelRate; parcel: LabelParcel; transaction_id: string | null;
+  created_at: string; actual_amount_cents: number | null; currency: string | null;
   label_url: string | null; tracking_number: string | null; tracking_url: string | null; message: string | null;
 };

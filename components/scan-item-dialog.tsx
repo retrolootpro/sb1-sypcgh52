@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AlertTriangle, DollarSign, Monitor, ChevronDown } from 'lucide-react';
 import { REGIONS } from '@/lib/constants';
 import { isBookLikeValue } from '@/lib/item-taxonomy';
+import { parseIntakeMoney } from '@/lib/intake-input';
 
 export const CONSOLE_OPTIONS = [
   { group: 'Books & Media', options: ['Book', 'Manga', 'Comic', 'Graphic Novel', 'Strategy Guide'] },
@@ -31,9 +32,9 @@ interface ScanItemDialogProps {
     region: string,
     titleOverride?: string,
     bookMetadataOverride?: Record<string, unknown>,
-    askingPrice?: number
+    askingPrice?: number,
+    forReview?: boolean
   ) => void;
-  onSkip: () => void;
   productName: string;
   detectedConsole: string | null;
   suggestedPrice?: number;
@@ -79,10 +80,12 @@ function Field({
   placeholder?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
 }) {
+  const id = useId();
   return (
     <div className="space-y-1.5">
-      <Label className="text-[12px] text-muted-foreground">{label}</Label>
+      <Label htmlFor={id} className="text-[12px] text-muted-foreground">{label}</Label>
       <Input
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
@@ -97,7 +100,6 @@ export function ScanItemDialog({
   open,
   onOpenChange,
   onConfirm,
-  onSkip,
   productName,
   detectedConsole,
   suggestedPrice,
@@ -127,6 +129,7 @@ export function ScanItemDialog({
   const [priceError, setPriceError] = useState('');
   const [askingPriceError, setAskingPriceError] = useState('');
   const [consoleError, setConsoleError] = useState('');
+  const [metadataError, setMetadataError] = useState('');
   const titleInputRef = useRef<HTMLInputElement>(null);
   const askingPriceInputRef = useRef<HTMLInputElement>(null);
   const selectedBookLike = isBookLikeValue(consoleValue);
@@ -150,6 +153,7 @@ export function ScanItemDialog({
       setConsoleValue(detectedConsole || '');
       setRegion('US');
       setTitleError('');
+      setMetadataError('');
       setPrice(suggestedPrice?.toString() || '');
       setAskingPrice(suggestedAskingPrice && suggestedAskingPrice > 0 ? suggestedAskingPrice.toFixed(2) : '');
       setPriceError('');
@@ -170,7 +174,7 @@ export function ScanItemDialog({
     }
   }, [open, detectedConsole, productName, suggestedPrice, suggestedAskingPrice, allowTitleEdit, bookMetadata]);
 
-  const handleConfirm = () => {
+  const handleConfirm = (forReview = false) => {
     let valid = true;
     const cleanTitle = editableTitle.trim();
 
@@ -179,23 +183,15 @@ export function ScanItemDialog({
       valid = false;
     }
 
-    const numPrice = price.trim() === '' ? 0 : parseFloat(price);
-    const numAskingPrice = askingPrice.trim() === '' ? undefined : parseFloat(askingPrice);
-    if (isNaN(numPrice) || numPrice < 0) {
-      setPriceError('Enter a valid price (0 or more)');
+    let numPrice = 0, numAskingPrice: number | undefined;
+    try { numPrice = parseIntakeMoney(price) ?? 0; setPriceError(''); }
+    catch (cause) { setPriceError(cause instanceof Error ? cause.message : 'Enter a valid cost.'); valid = false; }
+    try { numAskingPrice = parseIntakeMoney(askingPrice); setAskingPriceError(''); }
+    catch (cause) { setAskingPriceError(cause instanceof Error ? cause.message : 'Enter a valid asking price.'); valid = false; }
+    if (allowTitleEdit && pageCount.trim() && (!/^\d+$/.test(pageCount.trim()) || Number(pageCount) <= 0 || Number(pageCount) > 100000)) {
+      setMetadataError('Page count must be a whole number from 1 to 100,000, or blank.');
       valid = false;
-    } else if (numPrice > 100000) {
-      setPriceError('Price seems too high');
-      valid = false;
-    }
-
-    if (numAskingPrice !== undefined && (isNaN(numAskingPrice) || numAskingPrice < 0)) {
-      setAskingPriceError('Enter a valid asking price');
-      valid = false;
-    } else if (numAskingPrice !== undefined && numAskingPrice > 100000) {
-      setAskingPriceError('Asking price seems too high');
-      valid = false;
-    }
+    } else { setMetadataError(''); }
 
     if (!consoleValue.trim()) {
       setConsoleError('Select or enter a console');
@@ -223,20 +219,7 @@ export function ScanItemDialog({
       sourcesTried: bookMetadata?.sourcesTried || [],
     } : undefined;
 
-    onConfirm(numPrice, consoleValue.trim(), region, allowTitleEdit ? cleanTitle : undefined, metadataOverride, numAskingPrice);
-    setEditableTitle('');
-    setPrice('');
-    setAskingPrice('');
-    setConsoleValue('');
-    setRegion('US');
-    setTitleError('');
-    setPriceError('');
-    setAskingPriceError('');
-    setConsoleError('');
-  };
-
-  const handleSkip = () => {
-    onSkip();
+    onConfirm(numPrice, consoleValue.trim(), region, allowTitleEdit ? cleanTitle : undefined, metadataOverride, numAskingPrice, forReview);
     setEditableTitle('');
     setPrice('');
     setAskingPrice('');
@@ -252,9 +235,6 @@ export function ScanItemDialog({
     if (e.key === 'Enter') {
       e.preventDefault();
       handleConfirm();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      handleSkip();
     }
   };
 
@@ -262,7 +242,7 @@ export function ScanItemDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[min(34rem,calc(100vw-1rem))] flex-col gap-0 overflow-hidden border-border/60 bg-card p-0 sm:max-w-md">
+      <DialogContent className="intake-dialog flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[min(34rem,calc(100vw-1rem))] flex-col gap-0 overflow-hidden border-border/60 bg-card p-0 sm:max-w-md">
         <DialogHeader className="shrink-0 border-b border-border/50 px-4 py-3 pr-12 text-left sm:px-6">
           <DialogTitle className="text-[16px] font-semibold tracking-tight leading-snug">
             Confirm Item Details
@@ -277,6 +257,7 @@ export function ScanItemDialog({
                 Book Title
               </Label>
               <Input
+                aria-label="Book title"
                 ref={titleInputRef}
                 value={editableTitle}
                 onChange={(e) => { setEditableTitle(e.target.value); setTitleError(''); }}
@@ -289,6 +270,7 @@ export function ScanItemDialog({
                 Review and edit the book metadata before saving. The barcode will be saved with this item.
               </p>
               </div>
+              {metadataError && <p role="alert" className="text-xs text-red-800">{metadataError}</p>}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <Field label="Subtitle" value={subtitle} onChange={setSubtitle} placeholder="Optional subtitle" />
@@ -332,7 +314,7 @@ export function ScanItemDialog({
                   </div>
                   <p className="mt-1 text-[11px] leading-relaxed text-amber-100/75">
                     {duplicateMatches.length} matching item{duplicateMatches.length === 1 ? '' : 's'} already in stock.
-                    Save Item will add another copy. Skip will ignore this scan.
+                    Save Item adds another copy. Save for review also creates inventory, with missing details flagged. Close or press Escape to leave this scan pending without saving.
                   </p>
                   <div className="mt-2 space-y-1">
                     {duplicateMatches.slice(0, 3).map((match) => (
@@ -358,6 +340,7 @@ export function ScanItemDialog({
             {consoleAutoDetected ? (
               <div className="flex gap-2">
                 <Input
+                  aria-label="Console or platform"
                   value={consoleValue}
                   onChange={(e) => { setConsoleValue(e.target.value); setConsoleError(''); }}
                   onKeyDown={handleKeyDown}
@@ -365,7 +348,7 @@ export function ScanItemDialog({
                   placeholder="Console name..."
                 />
                 <Select value={consoleValue} onValueChange={(v) => { setConsoleValue(v); setConsoleError(''); }}>
-                  <SelectTrigger className="w-10 h-10 px-2 bg-secondary/40 border-border/60 flex-shrink-0">
+                  <SelectTrigger aria-label="Choose another console or platform" className="w-10 h-10 px-2 bg-secondary/40 border-border/60 flex-shrink-0">
                     <ChevronDown className="w-3.5 h-3.5" />
                   </SelectTrigger>
                   <SelectContent className="max-h-72">
@@ -382,7 +365,7 @@ export function ScanItemDialog({
               </div>
             ) : (
               <Select value={consoleValue} onValueChange={(v) => { setConsoleValue(v); setConsoleError(''); }}>
-                <SelectTrigger className="h-10 bg-secondary/40 border-border/60 text-[13px]">
+                <SelectTrigger aria-label="Console or platform" className="h-10 bg-secondary/40 border-border/60 text-[13px]">
                   <SelectValue placeholder="Select console..." />
                 </SelectTrigger>
                 <SelectContent className="max-h-72">
@@ -408,6 +391,7 @@ export function ScanItemDialog({
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span>
               <Input
+                aria-label="Cost override"
                 type="number"
                 step="0.01"
                 min="0"
@@ -422,7 +406,7 @@ export function ScanItemDialog({
             <p className="text-[11px] text-muted-foreground/60">
               Optional for single-item buys. Lot scans will allocate cost after market values are totaled.
               {' '}Press <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Enter</kbd> to save
-              {' '}or <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Esc</kbd> to skip
+              {' '}or <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">Esc</kbd> to leave pending without saving.
             </p>
           </div>
 
@@ -434,6 +418,7 @@ export function ScanItemDialog({
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-[13px]">$</span>
               <Input
+                aria-label="Asking price"
                 ref={askingPriceInputRef}
                 type="number"
                 step="0.01"
@@ -445,9 +430,10 @@ export function ScanItemDialog({
                 className="pl-7 h-10 bg-secondary/40 border-border/60 text-[13px]"
               />
             </div>
-            {askingPriceError && <p className="text-[12px] text-red-400">{askingPriceError}</p>}
+            {askingPriceError && <p role="alert" className="text-[12px] text-red-400">{askingPriceError}</p>}
             <p className="text-[11px] text-muted-foreground/60">
               For books/media, retail price is used here when available. You can adjust it before saving.
+              {' '}Available items with a valid shop price can publish automatically; preparation is not a publication gate.
             </p>
           </div>
 
@@ -457,7 +443,7 @@ export function ScanItemDialog({
                 Region / TV Standard
               </Label>
               <Select value={region} onValueChange={setRegion}>
-                <SelectTrigger className="h-10 bg-secondary/40 border-border/60 text-[13px]">
+                <SelectTrigger aria-label="Region or TV standard" className="h-10 bg-secondary/40 border-border/60 text-[13px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -473,10 +459,10 @@ export function ScanItemDialog({
         </div>
 
         <DialogFooter className="shrink-0 flex-row gap-2 border-t border-border/50 bg-card px-4 py-3 sm:gap-2 sm:px-6">
-          <Button variant="outline" size="sm" onClick={handleSkip} className="flex-1 text-[13px] sm:flex-none">
-            Skip
+          <Button variant="outline" size="sm" onClick={() => handleConfirm(true)} className="flex-1 text-[13px] sm:flex-none">
+            Save for review
           </Button>
-          <Button size="sm" onClick={handleConfirm} className="text-[13px] flex-1">
+          <Button size="sm" onClick={() => handleConfirm()} className="text-[13px] flex-1">
             Save Item
           </Button>
         </DialogFooter>

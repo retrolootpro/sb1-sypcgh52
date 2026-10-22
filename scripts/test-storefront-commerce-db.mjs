@@ -31,12 +31,13 @@ before(async()=>{
     CREATE FUNCTION is_account_member(owner uuid) RETURNS boolean LANGUAGE sql AS $$ SELECT owner=current_account_owner_id() $$;
     CREATE TABLE inventory_items(id uuid PRIMARY KEY,user_id uuid,product_name text,quantity integer,status text DEFAULT 'available',
       console text,condition text,storefront_enabled boolean DEFAULT true,storefront_slug text,storefront_price numeric,
-      storefront_updated_at timestamptz,selected_market_value numeric,price_cib numeric,price_loose numeric,price_new numeric);
-    CREATE TABLE financial_transactions(id uuid DEFAULT gen_random_uuid(),user_id uuid,date date,description text,amount numeric,type text,
-      category text,subcategory text,source text,platform text,reference_id text,merchant_name text,notes text);
+      storefront_updated_at timestamptz,selected_market_value numeric,price_cib numeric,price_loose numeric,price_new numeric,
+      purchase_price numeric DEFAULT 0);
+    CREATE TABLE financial_transactions(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid,date date,description text,amount numeric,type text,
+      category text,subcategory text,source text,platform text,reference_id text,merchant_name text,notes text,created_at timestamptz DEFAULT now());
     INSERT INTO auth.users VALUES('${account}'),('${other}');
-    INSERT INTO inventory_items(id,user_id,product_name,quantity,console,condition) VALUES
-      ('${item}','${account}','Test game',2,'SNES','Loose'),('${second}','${account}','Other game',1,'SNES','CIB');
+    INSERT INTO inventory_items(id,user_id,product_name,quantity,console,condition,purchase_price) VALUES
+      ('${item}','${account}','Test game',2,'SNES','Loose',3.25),('${second}','${account}','Other game',1,'SNES','CIB',0);
     CREATE FUNCTION storefront_slugify(value text) RETURNS text LANGUAGE sql AS $$ SELECT value $$;
   `);
   const old=readFileSync('supabase/migrations/20260726180000_storefront_inventory_sync.sql','utf8');
@@ -48,6 +49,7 @@ before(async()=>{
   await db.exec(readFileSync('supabase/migrations/20261021200000_storefront_shipping.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/20261021230000_storefront_labels.sql','utf8'));
   await db.exec(readFileSync('supabase/migrations/20261022000000_storefront_shipping_promotion.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/20261023100000_storefront_finance_accounting.sql','utf8'));
 });
 after(()=>db.close());
 beforeEach(()=>db.exec('BEGIN'));
@@ -56,6 +58,9 @@ afterEach(()=>db.exec('ROLLBACK'));
 test('reserves once under idempotent retries and rejects cart-key reuse',async()=>{
   await reserve();await reserve();
   assert.equal((await one('SELECT quantity FROM inventory_items WHERE id=$1',[item])).quantity,1);
+  const saved=await one('SELECT items,cost_snapshot_version FROM storefront_orders WHERE id=$1',[order]);
+  assert.equal(saved.cost_snapshot_version,1);
+  assert.equal(saved.items[0].unit_cost_cents,325);
   await assert.rejects(reserve(order,lines,'checkout',null,account,'different'),/different cart/);
 });
 test('inventory shipping modes default eligible and reject invalid values',async()=>{
@@ -94,6 +99,43 @@ test('label claim is durable and idempotent without stock or revenue changes',as
   assert.deepEqual((await db.query('SELECT * FROM inventory_items ORDER BY id')).rows,inventory);
   assert.deepEqual((await db.query('SELECT * FROM financial_transactions')).rows,finance);
 });
+test('confirmed Stripe fees post once from the charge and remain linked to the order',async()=>{
+  await paidLabelOrder();
+  assert.equal((await one('SELECT stripe_fee_status FROM storefront_orders WHERE id=$1',[order])).stripe_fee_status,'pending');
+  const record=()=>db.query('SELECT storefront_record_stripe_fee($1,$2,$3,$4,$5)',
+    [order,'ch_Fixture','pi_test',123,'2026-10-22']);
+  await record();await record();
+  const saved=await one('SELECT stripe_fee_cents,stripe_fee_status FROM storefront_orders WHERE id=$1',[order]);
+  assert.deepEqual(saved,{stripe_fee_cents:123,stripe_fee_status:'recorded'});
+  const finance=await one("SELECT count(*)::int AS count,sum(amount) AS amount FROM financial_transactions WHERE category='Payment Processing Fees'");
+  assert.equal(finance.count,1);assert.equal(Number(finance.amount),1.23);
+  await assert.rejects(db.query('SELECT storefront_record_stripe_fee($1,$2,$3,$4,$5)',
+    [order,'ch_Fixture','pi_test',124,'2026-10-22']),/different details/);
+});
+test('confirmed Shippo postage posts once at actual label cost, not quoted rate',async()=>{
+  await paidLabelOrder();
+  const label=(await labelClaim()).result.label;
+  await db.query("UPDATE storefront_labels SET status='success',transaction_id=$1,actual_amount_cents=573,currency='USD' WHERE id=$2",
+    ['a'.repeat(32),label.id]);
+  const record=()=>db.query('SELECT storefront_record_postage($1,$2,$3,$4)',
+    [label.id,'a'.repeat(32),573,'2026-10-22']);
+  await record();await record();
+  assert.equal((await one('SELECT accounting_status FROM storefront_labels WHERE id=$1',[label.id])).accounting_status,'recorded');
+  const finance=await one("SELECT count(*)::int AS count,sum(amount) AS amount FROM financial_transactions WHERE category='Shipping'");
+  assert.equal(finance.count,1);assert.equal(Number(finance.amount),5.73);
+  await assert.rejects(db.query('SELECT storefront_record_postage($1,$2,$3,$4)',
+    [label.id,'b'.repeat(32),573,'2026-10-22']),/does not match/);
+});
+test('pending label count RPC returns only the active company aggregate',async()=>{
+  await paidLabelOrder();
+  const label=(await labelClaim()).result.label;
+  await db.query("UPDATE storefront_labels SET status='success',created_at='2026-10-22T12:00:00Z' WHERE id=$1",[label.id]);
+  await db.query("SELECT set_config('request.user',$1,true),set_config('request.account',$1,true)",[account]);
+  await db.exec('SET LOCAL ROLE authenticated');
+  assert.equal((await one('SELECT storefront_pending_label_accounting($1,$2) AS count',['2026-10-01T00:00:00Z','2026-11-01T00:00:00Z'])).count,1);
+  await db.query("SELECT set_config('request.account',$1,true)",[other]);
+  assert.equal((await one('SELECT storefront_pending_label_accounting($1,$2) AS count',['2026-10-01T00:00:00Z','2026-11-01T00:00:00Z'])).count,0);
+});
 test('label claims reject unpaid, refunded, wrong-account and nonexistent parcels',async()=>{
   await reserve();
   await db.exec('SAVEPOINT label_check');
@@ -125,8 +167,11 @@ test('label records and claims are not accessible to browser database roles',asy
   const result=await one(`SELECT
     has_table_privilege('anon','storefront_labels','SELECT') AS anon_read,
     has_table_privilege('authenticated','storefront_labels','INSERT') AS browser_write,
-    has_function_privilege('authenticated','storefront_claim_label(uuid,uuid,integer,jsonb,jsonb)','EXECUTE') AS browser_claim`);
-  assert.deepEqual(result,{anon_read:false,browser_write:false,browser_claim:false});
+    has_table_privilege('authenticated','storefront_finance_events','SELECT') AS browser_finance_event_read,
+    has_function_privilege('authenticated','storefront_claim_label(uuid,uuid,integer,jsonb,jsonb)','EXECUTE') AS browser_claim,
+    has_function_privilege('authenticated','storefront_record_stripe_fee(uuid,text,text,integer,date)','EXECUTE') AS browser_fee_post,
+    has_function_privilege('authenticated','storefront_pending_label_accounting(timestamptz,timestamptz)','EXECUTE') AS safe_label_count`);
+  assert.deepEqual(result,{anon_read:false,browser_write:false,browser_finance_event_read:false,browser_claim:false,browser_fee_post:false,safe_label_count:true});
 });
 test('shipping reservation saves the accepted rate and address in the stock transaction',async()=>{
   const quote={customer:{name:'Test customer',address:{postal_code:'32114'}},rate:{name:'USPS Ground Advantage',amount:525},parcels:1};

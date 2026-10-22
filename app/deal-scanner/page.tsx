@@ -688,6 +688,7 @@ export default function DealScannerPage() {
     </>
   );
 
+  if (embedded && (!user || !accountId)) return <DashboardLayout><></></DashboardLayout>;
   if (embedded) return content;
 
   return (

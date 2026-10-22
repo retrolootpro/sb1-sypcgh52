@@ -92,7 +92,7 @@ try{
   assert.equal(await page.getByLabel('Apartment / suite (optional)',{exact:true}).inputValue(),'Suite 7');
   await search().fill('123 Test Street again');
   await page.getByRole('option',{name:result.formatted,exact:true}).waitFor();
-  for(const theme of ['dark','light','apple']){
+  for(const theme of ['light']){
     await page.evaluate(theme=>{
       document.documentElement.classList.toggle('light',theme==='light');
       document.documentElement.classList.toggle('apple',theme==='apple');

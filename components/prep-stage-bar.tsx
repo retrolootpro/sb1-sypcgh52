@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { PackageCheck, Layers, Sparkles, Zap, FileText, ShoppingCart, Check } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/lib/auth-context';
+import { savePrepUpdate } from '@/lib/prep-update';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -17,7 +18,8 @@ export type PrepFields = {
   listed_whatnot_at?: string | null;
 };
 
-const STAGES = [
+type PrepStageField = 'sorted_at' | 'cleaned_at' | 'tested_at' | 'notes_added_at' | 'on_rack_at';
+const STAGES: ReadonlyArray<{ key: string; label: string; shortLabel: string; icon: typeof PackageCheck; field: PrepStageField | null }> = [
   { key: 'received',  label: 'Received', field: null,             icon: PackageCheck, shortLabel: 'Rcvd'  },
   { key: 'sorted',   label: 'Sorted',   field: 'sorted_at',      icon: Layers,       shortLabel: 'Sort'  },
   { key: 'cleaned',  label: 'Cleaned',  field: 'cleaned_at',     icon: Sparkles,     shortLabel: 'Clean' },
@@ -112,27 +114,32 @@ export function PrepStageMini({ fields, className }: MiniProps) {
 
 type FullProps = {
   itemId: string;
+  disabled?: boolean;
   fields: PrepFields;
   onUpdate: (updates: Partial<PrepFields>) => void;
 };
 
-export function PrepStageBar({ itemId, fields, onUpdate }: FullProps) {
+export function PrepStageBar({ itemId, fields, onUpdate, disabled = false }: FullProps) {
+  const { accountId } = useAuth();
+  const busy = useRef(false);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
-  const toggleStage = async (stageField: string) => {
-    const current = fields[stageField as keyof PrepFields];
+  const toggleStage = async (stageField: PrepStageField) => {
+    if (busy.current || disabled) return;
+    busy.current = true; setError('');
+    const current = fields[stageField];
     const newVal = current ? null : new Date().toISOString();
     setUpdating(stageField);
     try {
-      const { error } = await supabase
-        .from('inventory_items')
-        .update({ [stageField]: newVal })
-        .eq('id', itemId);
-      if (error) throw error;
+      if (!accountId) throw new Error('Team access must be verified before updating preparation.');
+      await savePrepUpdate(accountId, itemId, { [stageField]: newVal });
       onUpdate({ [stageField]: newVal });
-    } catch {
+    } catch (cause) {
+      console.error('Item preparation:', cause); setError('Preparation change could not be confirmed. Refresh the item before retrying.');
       toast.error('Failed to update stage');
     } finally {
+      busy.current = false;
       setUpdating(null);
     }
   };
@@ -141,7 +148,9 @@ export function PrepStageBar({ itemId, fields, onUpdate }: FullProps) {
   const hasListing = fields.listed_ebay_at || fields.listed_amazon_at || fields.listed_whatnot_at;
 
   return (
-    <div className="rounded-xl border border-border/40 bg-card/40 p-4">
+    <div className="item-prep-stages rounded-xl border border-border/40 bg-card/40 p-4">
+      {error && <p role="alert" className="mb-3 text-xs text-red-800">{error}</p>}
+      {disabled && <p className="mb-3 text-xs text-muted-foreground">Preparation changes are disabled for unavailable stock. Review inventory status first.</p>}
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-semibold text-white/50 uppercase tracking-wider">Prep Status</span>
         {allDone && (
@@ -180,8 +189,9 @@ export function PrepStageBar({ itemId, fields, onUpdate }: FullProps) {
 
               <button
                 onClick={() => isClickable && stage.field && toggleStage(stage.field)}
-                disabled={!isClickable || !!updating}
+                disabled={disabled || !isClickable || !!updating}
                 title={isClickable ? (status === 'done' ? `Undo: mark ${stage.label} as incomplete` : `Mark ${stage.label} as done`) : stage.label}
+                aria-label={isClickable ? (status === 'done' ? `Undo ${stage.label}` : `Mark ${stage.label} done`) : stage.label}
                 className={cn(
                   'relative z-10 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-200 border-2',
                   isUpdating ? 'opacity-50' : '',

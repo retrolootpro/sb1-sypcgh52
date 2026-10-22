@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,11 +29,12 @@ import { allocateLotCost, formatCurrency, getLotCostSummaries, type LotCostSumma
 import { getCanonicalPricing, getPricingData, getPricingStatusMessage, toDatabaseStatus, type PricingResult } from '@/lib/pricing-service';
 import { calculateSimpleDealScore, getMarketValueByCondition, shouldSkipReview } from '@/lib/deal-score';
 import { defaultConditionForPlatform, isBookLikeItem, type UPCLookupMode } from '@/lib/item-taxonomy';
+import { INTAKE_SESSION_KEY, readIntakeDraft, type IntakeSessionDraft } from '@/lib/intake-draft';
+import { undoIntakeItem } from '@/lib/intake-actions';
+import { lotCostFinalized } from '@/lib/intake-input';
 
 type ScanMode = 'single' | 'continuous';
 type IntakeItemType = 'game' | 'book' | 'mixed';
-
-const INTAKE_SESSION_KEY = 'retroloot-intake-session';
 
 type QueueItem = {
   id: string;
@@ -78,30 +80,12 @@ type ManualSearchDetails = ManualSearchResult & {
   };
 };
 
-type IntakeSessionDraft = {
-  selectedLotId: string;
-  selectedEmployeeId: string | null;
-  scanMode: ScanMode;
-  intakeItemType: IntakeItemType;
-  batchMode: boolean;
-  pendingBarcodes: PendingBarcode[];
-  queue: QueueItem[];
-  manualBarcode: string;
-  manualTitle: string;
-  manualPlatform: string;
-  savedAt: string;
-};
-
 const DATABASE_SAFE_ITEM_TYPES = new Set(['game', 'console', 'accessory', 'unknown']);
 const INTAKE_TRANSIENT_STATUSES = new Set<QueueItem['status']>(['scanning', 'looking_up', 'pricing', 'calculating']);
 
 function toDatabaseItemType(itemType: string | undefined) {
   if (!itemType) return 'unknown';
   return DATABASE_SAFE_ITEM_TYPES.has(itemType) ? itemType : 'accessory';
-}
-
-function sanitizeIntakeQueue(queue: QueueItem[]) {
-  return queue.filter((item) => !INTAKE_TRANSIENT_STATUSES.has(item.status));
 }
 
 function getDraftBarcodes(draft: Pick<IntakeSessionDraft, 'pendingBarcodes' | 'queue'>) {
@@ -131,6 +115,13 @@ export default function ScanPage() {
   const [lots, setLots] = useState<LotCostSummary[]>([]);
   const [selectedLotId, setSelectedLotId] = useState<string>('none');
   const [allocatingLot, setAllocatingLot] = useState(false);
+  const [referenceLoading, setReferenceLoading] = useState(true);
+  const [referenceError, setReferenceError] = useState('');
+  const [draftError, setDraftError] = useState('');
+  const [draftBlocked, setDraftBlocked] = useState(false);
+  const [draftOwner, setDraftOwner] = useState('');
+  const [undoing, setUndoing] = useState(false);
+  const [undoError, setUndoError] = useState('');
 
   const [showItemDialog, setShowItemDialog] = useState(false);
   const [currentQueueItemForDialog, setCurrentQueueItemForDialog] = useState<QueueItem | null>(null);
@@ -142,14 +133,48 @@ export default function ScanPage() {
 
   const recentScansRef = useRef<Set<string>>(new Set());
   const intakeDraftHydratedRef = useRef(false);
+  const referenceGeneration = useRef({});
+  const undoLock = useRef(false);
+  const saveLock = useRef(false);
+  const [savingItem, setSavingItem] = useState(false);
+  const batchWaiter = useRef<{ id: string; resolve: () => void } | null>(null);
+  const batchLock = useRef(false);
+  useEffect(() => {
+    const waiter = batchWaiter.current;
+    if (waiter && queue.some(item => item.id === waiter.id && ['added', 'needs_review', 'failed'].includes(item.status))) {
+      batchWaiter.current = null; waiter.resolve();
+    }
+  }, [queue]);
+  useEffect(() => () => { batchWaiter.current?.resolve(); batchWaiter.current = null; batchLock.current = false; }, []);
+
+  const loadReferences = useCallback(async () => {
+    const current = {}; referenceGeneration.current = current;
+    setReferenceLoading(true); setReferenceError(''); setEmployees([]); setLots([]);
+    if (!user || !accountId) { setReferenceLoading(false); return; }
+    try {
+      const [staff, summaries] = await Promise.all([getActiveEmployees(), getLotCostSummaries()]);
+      if (referenceGeneration.current === current) { setEmployees(staff); setLots(summaries); }
+    } catch (cause) {
+      console.error('Intake reference data:', cause);
+      if (referenceGeneration.current === current) setReferenceError('Receiving lots and employee choices could not be loaded. Retry before adding inventory.');
+    } finally { if (referenceGeneration.current === current) setReferenceLoading(false); }
+  }, [user, accountId]);
 
   useEffect(() => {
-    getActiveEmployees().then(setEmployees).catch(() => {});
-    getLotCostSummaries().then(setLots).catch(() => {});
+    void loadReferences();
+    return () => { referenceGeneration.current = {}; };
+  }, [loadReferences]);
+
+  useEffect(() => {
+    if (!user || !accountId) return;
+    intakeDraftHydratedRef.current = false;
+    setQueue([]); setPendingBarcodes([]); setManualBarcode(''); setManualTitle(''); setManualPlatform('');
+    setSelectedLotId('none'); setSelectedEmployeeId(null); setIntakeActive(false); setSavedIntakeAvailable(false);
+    setDraftError(''); setDraftBlocked(false); recentScansRef.current.clear();
     try {
       const saved = window.localStorage.getItem(INTAKE_SESSION_KEY);
       if (saved) {
-        const session = JSON.parse(saved) as Partial<IntakeSessionDraft>;
+        const session = readIntakeDraft(saved, accountId, user.id);
         if (session.selectedLotId) setSelectedLotId(session.selectedLotId);
         if (session.selectedEmployeeId !== undefined) setSelectedEmployeeId(session.selectedEmployeeId);
         if (session.scanMode) setScanMode(session.scanMode);
@@ -166,9 +191,17 @@ export default function ScanPage() {
         setSavedIntakeAvailable(true);
         setIntakeActive(true);
       }
-    } catch {}
+    } catch (cause) {
+      console.error('Intake draft restore:', cause);
+      setDraftBlocked(true);
+      setDraftError('The saved intake could not be verified or read. It has not been restored or overwritten. You can discard this browser draft; saved inventory will not be deleted.');
+    }
     intakeDraftHydratedRef.current = true;
-  }, []);
+    setDraftOwner(`${accountId}:${user.id}`);
+  }, [user, accountId]);
+
+  const queueBusy = savingItem || isProcessingBatch || queue.some(item => INTAKE_TRANSIENT_STATUSES.has(item.status));
+  const intakeUnavailable = referenceLoading || !!referenceError || draftBlocked || !accountId;
 
   const selectedLot = lots.find((lot) => lot.id === selectedLotId) || null;
   const completedQueueItems = queue.filter((item) => ['added', 'needs_review'].includes(item.status));
@@ -176,14 +209,7 @@ export default function ScanPage() {
   const intakeHasScans = pendingBarcodes.length > 0 || queue.length > 0;
   const intakeScansComplete = intakeHasScans && pendingBarcodes.length === 0 && !isProcessingBatch;
   const intakeItemsConfirmed = queue.length > 0 && unresolvedQueueItems.length === 0 && completedQueueItems.length > 0;
-  const selectedLotCogsComplete = Boolean(
-    selectedLot &&
-    (
-      selectedLot.cost_allocated_at ||
-      selectedLot.allocation_status === 'allocated' ||
-      Number(selectedLot.allocation_ratio || 0) > 0
-    )
-  );
+  const selectedLotCogsComplete = lotCostFinalized(selectedLot);
   const intakeCanFinish = Boolean(selectedLot && intakeScansComplete && intakeItemsConfirmed && selectedLotCogsComplete);
   const intakeSteps = [
     { label: '1. Select lot', complete: Boolean(selectedLot) },
@@ -214,33 +240,12 @@ export default function ScanPage() {
       return;
     }
 
-    router.push(`/labels?ids=${encodeURIComponent(printableGameLabelIds.join(','))}&autoprint=1`);
+    router.push(`/business/labels?ids=${encodeURIComponent(printableGameLabelIds.join(','))}&autoprint=1`);
   }, [printableGameLabelIds, router]);
 
   const startIntake = useCallback(() => {
-    try {
-      const saved = window.localStorage.getItem(INTAKE_SESSION_KEY);
-      if (saved) {
-        const session = JSON.parse(saved) as Partial<IntakeSessionDraft>;
-        if (session.selectedLotId) setSelectedLotId(session.selectedLotId);
-        if (session.selectedEmployeeId !== undefined) setSelectedEmployeeId(session.selectedEmployeeId);
-        if (session.scanMode) setScanMode(session.scanMode);
-        if (session.intakeItemType) setIntakeItemType(session.intakeItemType);
-        if (typeof session.batchMode === 'boolean') setBatchMode(session.batchMode);
-        const savedPending = Array.isArray(session.pendingBarcodes) ? session.pendingBarcodes : [];
-        const savedQueue = Array.isArray(session.queue) ? session.queue : [];
-        setPendingBarcodes(savedPending);
-        setQueue(savedQueue);
-        if (typeof session.manualBarcode === 'string') setManualBarcode(session.manualBarcode);
-        if (typeof session.manualTitle === 'string') setManualTitle(session.manualTitle);
-        if (typeof session.manualPlatform === 'string') setManualPlatform(session.manualPlatform);
-        recentScansRef.current = new Set(getDraftBarcodes({ pendingBarcodes: savedPending, queue: savedQueue }));
-      } else {
-        setScanMode('continuous');
-        setIntakeItemType('game');
-        setBatchMode(true);
-      }
-    } catch {
+    if (intakeUnavailable || queueBusy) return;
+    if (!savedIntakeAvailable && !intakeHasScans) {
       setScanMode('continuous');
       setIntakeItemType('game');
       setBatchMode(true);
@@ -248,17 +253,19 @@ export default function ScanPage() {
     setIntakeActive(true);
     setSavedIntakeAvailable(false);
     toast.success('Intake started');
-  }, []);
+  }, [intakeUnavailable, queueBusy, savedIntakeAvailable, intakeHasScans]);
 
   const persistIntakeDraft = useCallback(() => {
+    if (!accountId || !user || draftBlocked || draftOwner !== `${accountId}:${user.id}` || !intakeDraftHydratedRef.current) return false;
     const draft: IntakeSessionDraft = {
+      accountId, staffId: user.id,
       selectedLotId,
       selectedEmployeeId,
       scanMode,
       intakeItemType,
       batchMode,
       pendingBarcodes,
-      queue: sanitizeIntakeQueue(queue),
+      queue,
       manualBarcode,
       manualTitle,
       manualPlatform,
@@ -267,8 +274,14 @@ export default function ScanPage() {
     try {
       window.localStorage.setItem(INTAKE_SESSION_KEY, JSON.stringify(draft));
       setSavedIntakeAvailable(true);
-    } catch {}
-  }, [batchMode, intakeItemType, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, queue, scanMode, selectedEmployeeId, selectedLotId]);
+      setDraftError('');
+      return true;
+    } catch (cause) {
+      console.error('Intake draft save:', cause);
+      setDraftError('This intake could not be saved in this browser. Keep this page open; unresolved scans may be lost if you leave.');
+      return false;
+    }
+  }, [accountId, user, draftBlocked, draftOwner, batchMode, intakeItemType, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, queue, scanMode, selectedEmployeeId, selectedLotId]);
 
   useEffect(() => {
     if (!intakeDraftHydratedRef.current || !intakeActive) return;
@@ -276,18 +289,26 @@ export default function ScanPage() {
   }, [batchMode, intakeActive, intakeItemType, manualBarcode, manualPlatform, manualTitle, pendingBarcodes, persistIntakeDraft, queue, scanMode, selectedEmployeeId, selectedLotId]);
 
   const saveAndCloseIntake = useCallback(() => {
-    persistIntakeDraft();
+    if (queueBusy || !persistIntakeDraft()) return;
     setScannerActive(false);
     setIntakeActive(false);
     setSavedIntakeAvailable(true);
     toast.success('Intake saved');
-  }, [persistIntakeDraft]);
+  }, [persistIntakeDraft, queueBusy]);
 
   const finishIntake = useCallback(() => {
     if (!intakeCanFinish) {
       toast.error('Finish the intake checklist first', {
         description: 'Select a lot, process all scans, confirm every item, and finalize COGS.',
       });
+      return;
+    }
+    if (queueBusy) return;
+    try {
+      window.localStorage.removeItem(INTAKE_SESSION_KEY);
+    } catch (cause) {
+      console.error('Intake draft removal:', cause);
+      setDraftError('The completed draft could not be removed from this browser. Keep this page open and retry.');
       return;
     }
 
@@ -305,11 +326,8 @@ export default function ScanPage() {
     setScanMode('single');
     setIntakeItemType('game');
     recentScansRef.current.clear();
-    try {
-      window.localStorage.removeItem(INTAKE_SESSION_KEY);
-    } catch {}
     toast.success('Intake finished. Ready for the next lot.');
-  }, [intakeCanFinish]);
+  }, [intakeCanFinish, queueBusy]);
 
   const updateQueueItem = useCallback((id: string, updates: Partial<QueueItem>) => {
     setQueue((prev) =>
@@ -318,9 +336,9 @@ export default function ScanPage() {
   }, []);
 
   const findDuplicateInventoryItems = useCallback(async (barcode: string, title: string, platform: string | null) => {
-    if (!user) return [];
+    if (!user || !accountId) throw new Error('Team access must be verified before duplicate checks.');
     const normalizedTitleStr = normalizeTitle(title || '');
-    const account = accountId || user.id;
+    const account = accountId;
 
     let query = supabase
       .from('inventory_items')
@@ -331,7 +349,7 @@ export default function ScanPage() {
       .limit(10);
 
     const { data: barcodeMatches, error: barcodeError } = await query;
-    if (barcodeError) return [];
+    if (barcodeError) throw new Error(`Duplicate check failed: ${barcodeError.message}`);
     if (barcodeMatches?.length) return barcodeMatches;
 
     if (!normalizedTitleStr) return [];
@@ -348,7 +366,8 @@ export default function ScanPage() {
       titleQuery = titleQuery.ilike('console', platform);
     }
 
-    const { data: titleMatches } = await titleQuery;
+    const { data: titleMatches, error: titleError } = await titleQuery;
+    if (titleError) throw new Error(`Duplicate check failed: ${titleError.message}`);
     return titleMatches || [];
   }, [user, accountId]);
 
@@ -491,6 +510,7 @@ export default function ScanPage() {
   }, [user, accountId, intakeItemType, updateQueueItem, findDuplicateInventoryItems]);
 
   const handleScan = useCallback((result: ScanResult) => {
+    if (intakeUnavailable || queueBusy || undoLock.current) return;
     const barcode = result.barcode.trim();
     if (!barcode) return;
 
@@ -525,13 +545,15 @@ export default function ScanPage() {
     setQueue((prev) => [queueItem, ...prev]);
     if (scanMode === 'single') setScannerActive(false);
     processBarcode(queueItem);
-  }, [batchMode, scanMode, processBarcode]);
+  }, [batchMode, scanMode, processBarcode, intakeUnavailable, queueBusy]);
 
   const processBatch = useCallback(async () => {
-    if (pendingBarcodes.length === 0 || isProcessingBatch) return;
+    if (pendingBarcodes.length === 0 || batchLock.current || intakeUnavailable || savingItem) return;
+    batchLock.current = true;
     setIsProcessingBatch(true);
 
     for (const pending of pendingBarcodes) {
+      if (!batchLock.current) return;
       const queueItem: QueueItem = {
         id: `scan-${Date.now()}-${pending.barcode}`,
         barcode: pending.barcode,
@@ -540,37 +562,17 @@ export default function ScanPage() {
         scanCount: Math.max(1, Number(pending.scanCount || 1)),
       };
       setQueue((prev) => [queueItem, ...prev]);
-
-      await new Promise<void>((resolve) => {
-        const originalProcessBarcode = async () => {
-          await processBarcode(queueItem);
-          let checks = 0;
-          const waitForDialog = () => {
-            setQueue((prev) => {
-              const item = prev.find((i) => i.id === queueItem.id);
-              if (!item || item.status === 'awaiting_price') {
-                return prev;
-              }
-              if (['added', 'needs_review', 'failed'].includes(item.status)) {
-                resolve();
-              }
-              return prev;
-            });
-            checks++;
-            if (checks < 300) setTimeout(waitForDialog, 500);
-            else resolve();
-          };
-          waitForDialog();
-        };
-        originalProcessBarcode();
-      });
+      setPendingBarcodes(prev => prev.filter(item => item.barcode !== pending.barcode));
+      const confirmed = new Promise<void>(resolve => { batchWaiter.current = { id: queueItem.id, resolve }; });
+      await processBarcode(queueItem);
+      await confirmed;
     }
 
-    setPendingBarcodes([]);
-    recentScansRef.current.clear();
+    if (!batchLock.current) return;
+    batchLock.current = false;
     setIsProcessingBatch(false);
-    toast.success('Batch processing complete');
-  }, [pendingBarcodes, isProcessingBatch, processBarcode]);
+    toast.info('Batch processing finished. Check the queue for failed items or review flags.');
+  }, [pendingBarcodes, processBarcode, intakeUnavailable, savingItem]);
 
   const createInventoryItem = useCallback(async (
     queueItem: QueueItem,
@@ -585,7 +587,10 @@ export default function ScanPage() {
     needsReview: boolean,
     askingPrice?: number
   ) => {
-    if (!user) throw new Error('Not authenticated');
+    if (!user || !accountId) throw new Error('Team access must be verified before saving inventory.');
+    if (referenceLoading || referenceError) throw new Error('Reload receiving lots and employees before saving.');
+    if (selectedLotId !== 'none' && !lots.some(lot => lot.id === selectedLotId)) throw new Error('The selected lot is no longer available. Select a current lot.');
+    if (selectedEmployeeId && !employees.some(employee => employee.id === selectedEmployeeId)) throw new Error('The selected employee is no longer available.');
 
     const pricingStatus = pricingResult ? toDatabaseStatus(pricingResult) : 'pending';
     const manualPricedItem = isBookLikeItem({ ...lookupResult, console: selectedConsole });
@@ -622,7 +627,7 @@ export default function ScanPage() {
     const { data: inventoryItem, error: inventoryError } = await supabase
       .from('inventory_items')
       .insert({
-        user_id: accountId || user.id,
+        user_id: accountId,
         product_name: lookupResult.title?.trim() || 'Unknown Product',
         console: selectedConsole || lookupResult.platform || '',
         condition,
@@ -720,13 +725,17 @@ export default function ScanPage() {
     if (!inventoryItem) throw new Error('Failed to create inventory item - no data returned');
 
     if (!manualPricedItem && pricingResult?.status === 'success' && pricingResult.data) {
-      await supabase.from('pricing_data').insert({
+      const { error: pricingHistoryError } = await supabase.from('pricing_data').insert({
         item_id: inventoryItem.id,
         loose_price: priceLoose,
         cib_price: priceCib,
         new_price: priceNew,
         fetched_at: new Date().toISOString(),
-      }).then(() => {});
+      });
+      if (pricingHistoryError) {
+        console.error('Intake pricing history:', pricingHistoryError);
+        toast.warning('Inventory saved, but pricing history could not be recorded. Do not add this item again; review pricing in Inventory.');
+      }
     }
 
     if (selectedLotId !== 'none') {
@@ -735,15 +744,20 @@ export default function ScanPage() {
         const paid = Number(lot?.totalCost || lot?.total_paid || 0);
         if (paid > 0) {
           await allocateLotCost(selectedLotId, paid, 'market_weighted');
-          getLotCostSummaries().then(setLots).catch(() => {});
+          try { setLots(await getLotCostSummaries()); }
+          catch (cause) {
+            console.error('Intake lot refresh:', cause);
+            setReferenceError('Inventory was saved, but updated lot totals could not be loaded. Retry receiving data before adding more items.');
+          }
         }
-      } catch {
-        // If market data is incomplete, the lot can be finalized from the panel.
+      } catch (cause) {
+        console.error('Intake automatic lot allocation:', cause);
+        toast.warning('Inventory saved; lot cost allocation needs attention. Review the lot and finalize COGS before finishing intake.');
       }
     }
 
     return inventoryItem;
-  }, [user, accountId, selectedEmployeeId, selectedLotId, lots]);
+  }, [user, accountId, selectedEmployeeId, selectedLotId, lots, employees, referenceLoading, referenceError]);
 
   const handleAllocateSelectedLot = useCallback(async () => {
     if (!selectedLot) return;
@@ -770,15 +784,17 @@ export default function ScanPage() {
     selectedRegion: string,
     titleOverride?: string,
     bookMetadataOverride?: Record<string, unknown>,
-    askingPrice?: number
+    askingPrice?: number,
+    forReview = false
   ) => {
-    if (!currentQueueItemForDialog || !user) return;
+    if (!currentQueueItemForDialog || !user || saveLock.current) return;
+    saveLock.current = true; setSavingItem(true);
 
     setShowItemDialog(false);
 
     const queueItem = queue.find((q) => q.id === currentQueueItemForDialog.id)
       ?? currentQueueItemForDialog;
-    if (!queueItem?.result) return;
+    if (!queueItem?.result) { saveLock.current = false; setSavingItem(false); toast.error('Item details are unavailable. Look up the item again.'); return; }
 
     const { result } = queueItem;
     const editedBookMetadata = bookMetadataOverride || {};
@@ -902,7 +918,9 @@ export default function ScanPage() {
 
     const normalizedTitleStr = normalizeTitle(lookupResult.title || '');
     const lotAllocationPending = selectedLotId !== 'none' && purchasePrice <= 0;
-    const reviewCheck = lotAllocationPending
+    const reviewCheck = forReview
+      ? { skip: false, reason: 'Saved for review at staff request' }
+      : lotAllocationPending
       ? { skip: true, reason: 'Lot COGS will be allocated after this lot is complete' }
       : !usesAutomatedPricing
         ? purchasePrice > 0
@@ -944,30 +962,8 @@ export default function ScanPage() {
     }
 
     setCurrentQueueItemForDialog(null);
+    saveLock.current = false; setSavingItem(false);
   }, [currentQueueItemForDialog, user, accountId, queue, updateQueueItem, createInventoryItem, selectedLotId]);
-
-  const handleItemSkip = useCallback(async () => {
-    if (!currentQueueItemForDialog || !user) return;
-    setShowItemDialog(false);
-
-    const queueItem = queue.find((q) => q.id === currentQueueItemForDialog.id)
-      ?? currentQueueItemForDialog;
-    if (!queueItem?.result) return;
-
-    const { result: lookupResult } = queueItem;
-    const detectedConsole = lookupResult.platform || '';
-
-    try {
-      const inventoryItem = await createInventoryItem(queueItem, lookupResult, lookupResult.classification, lookupResult.confidence, lookupResult.pricingResult, 0, detectedConsole, 'US', null, true);
-      updateQueueItem(queueItem.id, { status: 'needs_review', inventoryItemId: inventoryItem.id });
-      toast.warning(`${lookupResult.title} — Needs Review`, { description: 'Missing purchase price', duration: 3000 });
-    } catch (err: any) {
-      updateQueueItem(queueItem.id, { status: 'failed', error: err.message });
-      toast.error('Failed to save item');
-    }
-
-    setCurrentQueueItemForDialog(null);
-  }, [currentQueueItemForDialog, user, queue, updateQueueItem, createInventoryItem]);
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1166,37 +1162,48 @@ export default function ScanPage() {
   }, [intakeItemType]);
 
   const handleUndo = async () => {
-    if (queue.length === 0 || !user) return;
+    if (queue.length === 0 || !accountId || undoLock.current || queueBusy) return;
     const lastItem = queue[0];
-    if (lastItem.status === 'added' || lastItem.status === 'needs_review') {
-      const deleteQuery = supabase
-        .from('inventory_items')
-        .delete()
-        .eq('user_id', accountId || user.id);
-
-      if (lastItem.inventoryItemId) {
-        await deleteQuery.eq('id', lastItem.inventoryItemId);
-      } else if (lastItem.barcode) {
-        await deleteQuery
-          .eq('barcode', lastItem.barcode)
-          .order('created_at', { ascending: false })
-          .limit(1);
-      }
-    }
-    setQueue((prev) => prev.slice(1));
-    recentScansRef.current.delete(lastItem.barcode);
-    toast.success('Undone');
+    const saved = ['added', 'needs_review'].includes(lastItem.status);
+    if (saved && !lastItem.inventoryItemId) { setUndoError('This saved item has no verified inventory ID. Open inventory to review it; no item was removed.'); return; }
+    if (!window.confirm(saved
+      ? `Remove the saved inventory record for "${lastItem.productName || lastItem.barcode}" (${lastItem.scanCount || 1} unit(s))? Lot-linked, sold or unavailable stock must be reviewed in Inventory instead.`
+      : 'Remove the newest unsaved entry from this intake queue?')) return;
+    undoLock.current = true; setUndoing(true); setUndoError('');
+    try {
+      if (saved && lastItem.inventoryItemId) await undoIntakeItem(accountId, lastItem.inventoryItemId);
+      setQueue(prev => prev.filter(item => item.id !== lastItem.id));
+      recentScansRef.current.delete(lastItem.barcode);
+      toast.success(saved ? 'Newly added inventory item removed' : 'Unsaved queue entry removed');
+    } catch (cause) {
+      console.error('Intake undo:', cause);
+      setUndoError('Undo could not be confirmed. The queue has been kept. Check Inventory before retrying; lot-linked, sold and unavailable items cannot be undone here.');
+      toast.error('Could not undo this intake item');
+    } finally { undoLock.current = false; setUndoing(false); }
   };
 
   const clearQueue = () => {
+    if (queueBusy || undoing || !window.confirm('Clear this browser intake queue? Saved inventory stays in Inventory. Unsaved queue entries will be discarded.')) return;
+    try {
+      window.localStorage.removeItem(INTAKE_SESSION_KEY);
+    } catch (cause) {
+      console.error('Intake queue draft removal:', cause);
+      setDraftError('The saved browser queue could not be removed. Nothing was cleared. Retry when browser storage is available.');
+      return;
+    }
     setQueue([]);
     setPendingBarcodes([]);
     recentScansRef.current.clear();
+    setSavedIntakeAvailable(false);
+    toast.success('Queue cleared; saved inventory is unchanged');
+  };
+
+  const discardDraft = () => {
+    if (!window.confirm('Discard only this saved browser draft? Existing inventory will not be removed.')) return;
     try {
       window.localStorage.removeItem(INTAKE_SESSION_KEY);
-      setSavedIntakeAvailable(false);
-    } catch {}
-    toast.success('Queue cleared');
+      setDraftError(''); setDraftBlocked(false); setSavedIntakeAvailable(false);
+    } catch (cause) { console.error('Discard intake draft:', cause); setDraftError('The draft could not be removed from browser storage. Retry when storage is available.'); }
   };
 
   const clearPending = () => {
@@ -1240,27 +1247,37 @@ export default function ScanPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-8 lg:p-10 space-y-8 max-w-5xl">
-        <div>
-          <div className="label-caps mb-1">Catalog</div>
-          <h1 className="heading-lg text-[22px]">Scan Items</h1>
+      <div className="intake-workspace p-4 sm:p-7 space-y-6 max-w-6xl">
+        <div className="catalog-workspace-header">
+          <div><p className="brand-eyebrow">GREAT FINDS START HERE</p>
+          <h1>A new chapter for every find.</h1>
+          <p>Scan a barcode or enter a title. Confirm the details, connect the receiving lot, then hand each item off to preparation.</p></div>
         </div>
+        <nav className="catalog-workflow-strip" aria-label="Intake workflow">
+          <Link href="/business/shipping"><PackageCheck size={18}/><span><strong>Receive a shipment</strong><small>Create a receiving lot and record what you paid</small></span></Link>
+          <Link href="/business/inventory"><Search size={18}/><span><strong>Review inventory</strong><small>Check saved finds, quantities and condition</small></span></Link>
+          <Link href="/business/prep"><Layers size={18}/><span><strong>Prepare the next chapter</strong><small>Clean, test, document and rack</small></span></Link>
+        </nav>
+        {referenceLoading && <p role="status" className="text-sm text-muted-foreground">Loading receiving lots and employee choices…</p>}
+        {referenceError && <section className="business-overview-message"><p role="alert">{referenceError}</p><Button variant="outline" onClick={loadReferences} disabled={referenceLoading || queueBusy}>Retry receiving data</Button></section>}
+        {draftError && <section className="business-overview-message"><p role="alert">{draftError}</p>{draftBlocked ? <Button variant="outline" onClick={discardDraft}>Discard saved browser draft</Button> : <Button variant="outline" onClick={persistIntakeDraft}>Retry draft save</Button>}</section>}
+        {undoError && <section className="business-overview-message"><p role="alert">{undoError}</p><Link className="underline" href="/business/inventory">Review inventory</Link></section>}
 
         <div className="rounded-xl border border-primary/20 bg-primary/[0.04] p-5">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-sm font-semibold">{intakeActive ? 'Lot Intake In Progress' : savedIntakeAvailable ? 'Saved Intake Available' : 'Start Intake'}</div>
               <div className="mt-1 text-xs text-muted-foreground">
-                Select a lot, scan UPCs or enter them manually, save items without per-item cost, then finalize lot COGS when the lot is complete.
+                For a lot purchase, select the receiving lot and leave individual cost blank for allocation. For one-off purchases, enter a unit cost when confirming.
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" className="h-9 text-xs" onClick={startIntake}>
+              <Button size="sm" className="h-9 text-xs" onClick={startIntake} disabled={intakeUnavailable || queueBusy || undoing}>
                 <Play className="mr-1.5 h-3.5 w-3.5" />
-                {savedIntakeAvailable ? 'Continue Intake' : intakeActive ? 'Restart Flow' : 'Start Intake'}
+                {intakeActive ? 'Intake active' : savedIntakeAvailable ? 'Continue Intake' : 'Start Intake'}
               </Button>
               {intakeActive && (
-                <Button size="sm" variant="outline" className="h-9 text-xs" onClick={saveAndCloseIntake}>
+                <Button size="sm" variant="outline" className="h-9 text-xs" onClick={saveAndCloseIntake} disabled={queueBusy || undoing || draftBlocked}>
                   Save & Close
                 </Button>
               )}
@@ -1281,9 +1298,10 @@ export default function ScanPage() {
               </div>
             ))}
           </div>
+          <p className="mt-3 text-xs leading-6 text-muted-foreground">During active intake, drafts save only in this browser for the current staff member. Saved inventory is shared with the company. {queueBusy && 'Complete the current item before changing intake settings or closing this flow.'}</p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <fieldset aria-label="Scan and manual intake" disabled={intakeUnavailable || queueBusy || undoing} className="grid min-w-0 gap-4 md:grid-cols-2">
           <div className="rounded-xl border border-border/40 bg-card p-5 space-y-4">
             <div className="flex items-center gap-2">
               <Camera className="w-4 h-4 text-primary" />
@@ -1296,7 +1314,7 @@ export default function ScanPage() {
                   Intake Type
                 </Label>
                 <Select value={intakeItemType} onValueChange={(value) => setIntakeItemType(value as IntakeItemType)}>
-                  <SelectTrigger className="bg-secondary/40 h-9 rounded-lg text-[13px]">
+                  <SelectTrigger aria-label="Intake type" className="bg-secondary/40 h-9 rounded-lg text-[13px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -1339,22 +1357,12 @@ export default function ScanPage() {
                   </div>
                 </div>
                 <Switch
+                  aria-label="Batch mode"
                   checked={batchMode}
                   onCheckedChange={setBatchMode}
                 />
               </div>
 
-              {scannerActive && (
-                <div className="border border-primary/20 rounded-lg overflow-hidden">
-                  <BarcodeScannerView
-                    onScan={handleScan}
-                    isActive={scannerActive}
-                    onStop={() => setScannerActive(false)}
-                    variant="compact"
-                    title="Scan Intake"
-                  />
-                </div>
-              )}
             </div>
           </div>
 
@@ -1435,6 +1443,7 @@ export default function ScanPage() {
                 />
                 <Input
                   value={manualPlatform}
+                  aria-label="Platform or category"
                   onChange={(event) => setManualPlatform(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') handleManualTitleSubmit();
@@ -1448,7 +1457,8 @@ export default function ScanPage() {
               </div>
             </div>
           </div>
-        </div>
+        </fieldset>
+        {scannerActive && <BarcodeScannerView onScan={handleScan} isActive={scannerActive} onStop={() => setScannerActive(false)} variant="compact" title="Scan Intake" />}
 
         {selectedLot && (
           <div className="rounded-xl border border-primary/20 bg-primary/[0.04] p-5">
@@ -1469,7 +1479,7 @@ export default function ScanPage() {
                   </div>
                 </div>
               </div>
-              <Button size="sm" className="h-9 text-xs" onClick={handleAllocateSelectedLot} disabled={allocatingLot}>
+              <Button size="sm" className="h-9 text-xs" onClick={handleAllocateSelectedLot} disabled={allocatingLot || intakeUnavailable || queueBusy || undoing}>
                 {allocatingLot ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Calculator className="w-3.5 h-3.5 mr-1.5" />}
                 Finalize Lot COGS
               </Button>
@@ -1478,7 +1488,7 @@ export default function ScanPage() {
                 variant={intakeCanFinish ? 'default' : 'outline'}
                 className="h-9 text-xs"
                 onClick={finishIntake}
-                disabled={!intakeCanFinish}
+                disabled={!intakeCanFinish || intakeUnavailable || queueBusy || undoing || allocatingLot}
               >
                 <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
                 Finished Intake
@@ -1489,7 +1499,7 @@ export default function ScanPage() {
 
         {batchMode && pendingBarcodes.length > 0 && (
           <div className="rounded-xl border border-primary/20 bg-primary/[0.04] overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-primary/10 flex items-center justify-between">
+            <div className="px-5 py-3.5 border-b border-primary/10 flex flex-wrap gap-3 items-center justify-between">
               <div className="flex items-center gap-3">
                 <Layers className="w-4 h-4 text-primary" />
                 <span className="font-semibold text-[14px]">Batch Queue</span>
@@ -1502,7 +1512,7 @@ export default function ScanPage() {
                   variant="ghost"
                   size="sm"
                   onClick={clearPending}
-                  disabled={isProcessingBatch}
+                  disabled={queueBusy || undoing}
                   className="h-8 text-[12px] text-muted-foreground"
                 >
                   <Trash2 className="w-3.5 h-3.5 mr-1.5" />
@@ -1511,7 +1521,7 @@ export default function ScanPage() {
                 <Button
                   size="sm"
                   onClick={processBatch}
-                  disabled={isProcessingBatch}
+                  disabled={queueBusy || intakeUnavailable || undoing}
                   className="h-8 text-[12px]"
                 >
                   {isProcessingBatch ? (
@@ -1538,15 +1548,16 @@ export default function ScanPage() {
           </div>
         )}
 
+        {isProcessingBatch && <p role="status" className="text-sm">Batch in progress: confirm the current item to continue. Closing its dialog keeps it pending; use Confirm in the queue to reopen it.</p>}
         {queue.length > 0 && (
           <div className="rounded-xl border border-border/40 bg-card overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-border/40 flex items-center justify-between">
+            <div className="px-5 py-3.5 border-b border-border/40 flex flex-wrap gap-3 items-center justify-between">
               <div className="flex items-center gap-3">
                 <History className="w-4 h-4 text-muted-foreground" />
                 <span className="font-semibold text-[14px]">Processing Queue</span>
                 <Badge variant="secondary" className="text-xs">{queue.reduce((sum, item) => sum + Number(item.scanCount || 1), 0)}</Badge>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -1557,11 +1568,11 @@ export default function ScanPage() {
                   <Printer className="w-3 h-3 mr-1.5" />
                   Print Labels {printableGameLabelIds.length > 0 ? `(${printableGameLabelIds.length})` : ''}
                 </Button>
-                <Button variant="ghost" size="sm" onClick={handleUndo} disabled={queue.length === 0} className="h-7 text-[12px]">
+                <Button variant="ghost" size="sm" onClick={handleUndo} disabled={queue.length === 0 || queueBusy || undoing || intakeUnavailable} className="h-7 text-[12px]">
                   <Undo2 className="w-3 h-3 mr-1.5" />
                   Undo
                 </Button>
-                <Button variant="ghost" size="sm" onClick={clearQueue} className="h-7 text-[12px] text-muted-foreground">
+                <Button variant="ghost" size="sm" onClick={clearQueue} disabled={queueBusy || undoing} className="h-7 text-[12px] text-muted-foreground">
                   <Trash2 className="w-3 h-3 mr-1.5" />
                   Clear
                 </Button>
@@ -1570,16 +1581,16 @@ export default function ScanPage() {
             <div className="p-2">
               <div className="space-y-0.5">
                 {queue.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between px-3 py-2.5 rounded-lg hover:bg-secondary/20 transition-colors">
+                  <article aria-label={item.productName || item.barcode} key={item.id} className="flex flex-wrap gap-3 items-center justify-between px-3 py-2.5 rounded-lg hover:bg-secondary/20 transition-colors">
                     <div className="flex items-center gap-3 min-w-0">
                       {getStatusIcon(item.status)}
                       <div className="min-w-0">
                         {item.productName ? (
-                          <div className="text-[13px] font-medium truncate">{item.productName}</div>
+                          <div className="text-[13px] font-medium break-words">{item.inventoryItemId ? <Link className="underline underline-offset-4" href={`/business/inventory/${item.inventoryItemId}`}>{item.productName}</Link> : item.productName}</div>
                         ) : (
                           <div className="font-mono text-[12px] text-muted-foreground">{item.barcode}</div>
                         )}
-                        <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                        <div className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-1.5">
                           <span>{getStatusLabel(item.status)}</span>
                           {item.selectedConsole && (
                             <span className="text-foreground/40">· {item.selectedConsole}</span>
@@ -1590,12 +1601,13 @@ export default function ScanPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
                       {item.status === 'awaiting_price' && item.result && (
                         <Button
                           size="sm"
                           variant="outline"
                           className="h-7 px-2 text-[11px]"
+                          disabled={savingItem || intakeUnavailable || undoing}
                           onClick={() => {
                             setCurrentQueueItemForDialog(item);
                             setShowItemDialog(true);
@@ -1605,9 +1617,9 @@ export default function ScanPage() {
                         </Button>
                       )}
                       {item.error && (
-                        <Badge variant="destructive" className="text-[10px] max-w-[120px] truncate">
+                        <p role="alert" className="text-xs leading-5 text-red-800 break-words">
                           {item.error}
-                        </Badge>
+                        </p>
                       )}
                       {Number(item.scanCount || 1) > 1 && (
                         <Badge variant="outline" className="text-[11px] border-primary/30 text-primary">
@@ -1625,7 +1637,7 @@ export default function ScanPage() {
                         </Badge>
                       )}
                     </div>
-                  </div>
+                  </article>
                 ))}
               </div>
             </div>
@@ -1633,7 +1645,7 @@ export default function ScanPage() {
         )}
 
         <Dialog open={manualSearchOpen} onOpenChange={setManualSearchOpen}>
-          <DialogContent className="max-w-2xl bg-card border-border">
+          <DialogContent className="intake-dialog max-w-2xl bg-card border-border">
             <DialogHeader>
               <DialogTitle>Manual Search Results</DialogTitle>
             </DialogHeader>
@@ -1684,7 +1696,6 @@ export default function ScanPage() {
           open={showItemDialog}
           onOpenChange={setShowItemDialog}
           onConfirm={handleItemConfirm}
-          onSkip={handleItemSkip}
           productName={currentQueueItemForDialog?.result?.title || currentQueueItemForDialog?.productName || ''}
           detectedConsole={detectedConsoleForDialog}
           duplicateMatches={currentQueueItemForDialog?.duplicateMatches || []}

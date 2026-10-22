@@ -1,17 +1,19 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { calculateDealScore, getMarketValueByCondition } from '@/lib/deal-score';
-import { TrendingUp, Package, DollarSign, ArrowUpRight, ArrowDownRight, ChevronRight, ScanBarcode, ListChecks, Bell, Clock } from 'lucide-react';
+import { TrendingUp, Package, DollarSign, ChevronRight, ScanBarcode, ListChecks, Bell, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getAgeStatus, getInventoryAgeDays, normalizeAgingThresholds, readAgingThresholds, writeAgingThresholds, type AgingThresholds } from '@/lib/inventory-aging';
 import { toast } from 'sonner';
 import { ContextHelp } from '@/components/context-help';
+import { BusinessOrderOverview } from '@/components/business-order-overview';
+import { businessPath } from '@/lib/business-routes';
 
 type InventoryItem = {
   id: string;
@@ -57,30 +59,43 @@ export default function DashboardPage() {
   const { user, accountId } = useAuth();
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [inventoryError, setInventoryError] = useState('');
+  const generation = useRef({});
   const [agingThresholds, setAgingThresholds] = useState<AgingThresholds>({ watchDays: 45, reviewDays: 60 });
 
   const loadDashboardData = useCallback(async () => {
-    if (!user || !accountId) return;
+    const current = {};
+    generation.current = current;
+    setItems([]);
+    setInventoryError('');
+    if (!user || !accountId) { setLoading(false); return; }
+    setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('inventory_items')
-        .select(`*, pricing_data (*)`)
-        .eq('user_id', accountId);
-
-      if (error) throw error;
-      setItems(data as InventoryItem[]);
+      const rows: InventoryItem[] = [];
+      const pageSize = 500;
+      for (let offset = 0; ; offset += pageSize) {
+        const { data, error } = await supabase.from('inventory_items')
+          .select('id,product_name,console,condition,purchase_price,quantity,status,created_at,price_loose,price_cib,price_new,price_graded,selected_market_value,listed_ebay_at,listed_amazon_at,listed_whatnot_at,pricing_data(loose_price,cib_price,new_price)')
+          .eq('user_id', accountId).order('id').range(offset, offset + pageSize - 1);
+        if (error) throw error;
+        if (!data) throw new Error('Inventory response was missing.');
+        if (generation.current !== current) return;
+        rows.push(...data);
+        if (data.length < pageSize) break;
+      }
+      if (generation.current === current) setItems(rows);
     } catch (error) {
       console.error('[Dashboard] Failed to load dashboard data:', error);
+      if (generation.current === current) setInventoryError('Inventory activity could not be loaded. Retry before relying on these estimates.');
     } finally {
-      setLoading(false);
+      if (generation.current === current) setLoading(false);
     }
   }, [user, accountId]);
 
   useEffect(() => {
-    if (user && accountId) {
-      loadDashboardData();
-    }
-  }, [user, accountId, loadDashboardData]);
+    void loadDashboardData();
+    return () => { generation.current = {}; };
+  }, [loadDashboardData]);
 
   useEffect(() => {
     const syncThreshold = () => setAgingThresholds(readAgingThresholds());
@@ -103,16 +118,18 @@ export default function DashboardPage() {
   const stats = useMemo(() => {
     let totalValue = 0;
     let totalSpent = 0;
+    let pricedCost = 0;
     let totalScores = 0;
     let itemsWithScores = 0;
 
-    items.forEach((item) => {
+    items.filter(item => item.quantity > 0 && !['sold', 'archived', 'deleted', 'reserved'].includes(item.status || 'available')).forEach((item) => {
       const spent = item.purchase_price * item.quantity;
       totalSpent += spent;
 
       const marketValue = getDashboardMarketValue(item);
       if (marketValue > 0) {
         totalValue += marketValue * item.quantity;
+        pricedCost += spent;
 
         const inventoryAgeDays = Math.floor(
           (Date.now() - new Date(item.created_at).getTime()) / (1000 * 60 * 60 * 24)
@@ -126,7 +143,8 @@ export default function DashboardPage() {
     return {
       totalValue,
       totalSpent,
-      totalProfit: totalValue - totalSpent,
+      totalProfit: totalValue - pricedCost,
+      pricedCost,
       avgDealScore: itemsWithScores > 0 ? Math.round(totalScores / itemsWithScores) : 0,
       itemCount: items.length,
     };
@@ -134,6 +152,7 @@ export default function DashboardPage() {
 
   const topDeals = useMemo(() => {
     return items
+      .filter(item => item.quantity > 0 && !['sold', 'archived', 'deleted', 'reserved'].includes(item.status || 'available'))
       .map((item) => {
         const marketValue = getDashboardMarketValue(item);
         const inventoryAgeDays = Math.floor(
@@ -149,7 +168,7 @@ export default function DashboardPage() {
 
   const agingAlerts = useMemo(() => {
     const rows = items
-      .filter((item) => (item.status || 'available') !== 'sold')
+      .filter((item) => item.quantity > 0 && !['sold', 'archived', 'deleted', 'reserved'].includes(item.status || 'available'))
       .map((item) => ({
         ...item,
         ageDays: getInventoryAgeDays(item.created_at),
@@ -175,43 +194,47 @@ export default function DashboardPage() {
   }, [agingAlerts.count, agingThresholds.reviewDays, loading]);
 
   const profitPositive = stats.totalProfit >= 0;
-  const roi = stats.totalSpent > 0 ? ((stats.totalProfit / stats.totalSpent) * 100) : 0;
-  const availableItems = items.filter((item) => (item.status || 'available') !== 'sold');
+  const roi = stats.pricedCost > 0 ? ((stats.totalProfit / stats.pricedCost) * 100) : 0;
+  const availableItems = items.filter((item) => item.quantity > 0 && !['sold', 'archived', 'deleted', 'reserved'].includes(item.status || 'available'));
   const unlistedItems = availableItems.filter((item) => !item.listed_ebay_at && !item.listed_amazon_at && !item.listed_whatnot_at);
   const missingPriceItems = availableItems.filter((item) => getDashboardMarketValue(item) <= 0);
   const readyToSellItems = availableItems.filter((item) => getDashboardMarketValue(item) > 0 && Number(item.purchase_price) > 0);
-  const urgentWorkCount = agingAlerts.count + missingPriceItems.length;
-
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center h-full min-h-[300px]">
-          <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary border-t-transparent" />
-        </div>
-      </DashboardLayout>
-    );
-  }
+  const urgentWorkCount = availableItems.filter(item => getInventoryAgeDays(item.created_at) >= agingThresholds.reviewDays || getDashboardMarketValue(item) <= 0).length;
 
   return (
     <DashboardLayout>
-      <div className="space-y-5 p-4 sm:p-6 lg:p-7">
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="business-overview space-y-6 p-4 sm:p-6 lg:p-7">
+        <header className="business-overview-welcome">
+          <div><p className="brand-eyebrow">YOUR BUSINESS, IN FOCUS</p><h1>Let&apos;s make today a good one.</h1><p>Orders first. Then get the next great find ready for the shop.</p></div>
+          <Button asChild><Link href="/business/scan"><ScanBarcode className="mr-2 h-4 w-4"/>Scan & add inventory</Link></Button>
+        </header>
+        <BusinessOrderOverview/>
+        <nav className="business-workflow-links" aria-label="Daily workflows">
+          {[
+            { href: '/business/scan', step: '01', title: 'Bring it in', detail: 'Scan, identify & add stock' },
+            { href: '/business/inventory', step: '02', title: 'Make it shop-ready', detail: 'Condition, photos & pricing' },
+            { href: '/business/storefront', step: '03', title: 'Put it on the shelf', detail: 'Review & publish to the shop' },
+            { href: '/business/finance', step: '04', title: 'Know your numbers', detail: 'Recorded sales & expenses' },
+          ].map(action => <Link key={action.href} href={action.href}><small>{action.step}</small><div><strong>{action.title}</strong><span>{action.detail}</span></div><ChevronRight size={18}/></Link>)}
+        </nav>
+        {loading ? <p role="status" className="business-overview-message">Checking inventory activity...</p> : inventoryError ? <section className="business-overview-message"><p role="alert">{inventoryError}</p><Button variant="outline" onClick={loadDashboardData}>Retry inventory activity</Button></section> : <>
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="rounded-[24px] border border-border/50 bg-card/90 p-5 shadow-sm">
             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <div className="label-caps">Today</div>
-                  <ContextHelp href="/help#daily-workflow" label="Open daily workflow help">
-                    Start with the few items that change your day: price gaps, aging inventory, ready-to-list items, and cash position.
+                  <ContextHelp href="/business/help#daily-workflow" label="Open daily workflow help">
+                    Review price gaps and aging stock after fulfillment. Inventory market values are estimates, not realized profit or cash.
                   </ContextHelp>
                 </div>
-                <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">What needs attention</h1>
+                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">Give your inventory its next chapter.</h2>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  A quieter daily view focused on the work that helps you list, price, sell, and buy with confidence.
+                  Price gaps, aging stock, and listing opportunities. Counts refer to inventory records, not individual units.
                 </p>
               </div>
               <Button asChild className="h-11 shrink-0">
-                <Link href="/scan"><ScanBarcode className="mr-2 h-4 w-4" />Scan item</Link>
+                <Link href="/business/inventory">Open inventory</Link>
               </Button>
             </div>
 
@@ -227,25 +250,25 @@ export default function DashboardPage() {
                 },
                 {
                   href: '/inventory',
-                  label: 'Ready to sell',
+                  label: 'Priced with cost',
                   value: readyToSellItems.length,
-                  detail: `${unlistedItems.length} not listed yet`,
+                  detail: 'Still check condition, photos & listing details',
                   icon: Package,
                 },
                 {
                   href: '/finance',
-                  label: 'Money read',
+                  label: 'Estimated gross spread',
                   value: `${profitPositive ? '+' : ''}$${stats.totalProfit.toLocaleString('en-US', { maximumFractionDigits: 0 })}`,
-                  detail: `${roi.toFixed(1)}% ROI / $${stats.totalSpent.toLocaleString('en-US', { maximumFractionDigits: 0 })} invested`,
+                  detail: `${roi.toFixed(1)}% on priced stock, before fees, shipping & tax`,
                   icon: DollarSign,
-                  tone: profitPositive ? 'text-emerald-400' : 'text-red-400',
+                  tone: profitPositive ? 'text-emerald-800' : 'text-red-800',
                 },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link
                     key={item.label}
-                    href={item.href}
+                    href={businessPath(item.href)}
                     className={`group rounded-2xl border p-4 transition hover:-translate-y-0.5 ${
                       item.urgent
                         ? 'border-red-500/30 bg-red-500/10 hover:bg-red-500/15'
@@ -254,7 +277,7 @@ export default function DashboardPage() {
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${item.urgent ? 'bg-red-500/10' : 'bg-primary/10'}`}>
-                        <Icon className={`h-5 w-5 ${item.urgent ? 'text-red-300' : 'text-primary'}`} />
+                        <Icon className={`h-5 w-5 ${item.urgent ? 'text-red-800' : 'text-primary'}`} />
                       </div>
                       <ChevronRight className="h-4 w-4 text-muted-foreground/45 transition group-hover:translate-x-0.5 group-hover:text-primary" />
                     </div>
@@ -278,7 +301,7 @@ export default function DashboardPage() {
               ].map((action) => {
                 const Icon = action.icon;
                 return (
-                  <Link key={action.href} href={action.href} className="group flex items-center gap-3 rounded-xl border border-border bg-secondary/30 px-3 py-3 transition hover:border-primary/25 hover:bg-primary/[0.055]">
+                  <Link key={action.href} href={businessPath(action.href)} className="group flex items-center gap-3 rounded-xl border border-border bg-secondary/30 px-3 py-3 transition hover:border-primary/25 hover:bg-primary/[0.055]">
                     <Icon className="h-4 w-4 shrink-0 text-primary" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-semibold text-foreground">{action.label}</div>
@@ -292,15 +315,15 @@ export default function DashboardPage() {
           </div>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <div className="overflow-hidden rounded-[24px] border border-border/50 bg-card/90 shadow-sm">
-            <div className="flex items-center justify-between gap-3 border-b border-border/35 px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/35 px-5 py-4">
               <div>
                 <div className="text-base font-semibold tracking-tight">Opportunity queue</div>
                 <div className="mt-0.5 text-xs text-muted-foreground">A short list of items most worth acting on today.</div>
               </div>
               <Button asChild variant="ghost" size="sm">
-                <Link href="/inventory">Inventory <ChevronRight className="ml-1 h-4 w-4" /></Link>
+                <Link href="/business/inventory">Inventory <ChevronRight className="ml-1 h-4 w-4" /></Link>
               </Button>
             </div>
             <div className="divide-y divide-border/30">
@@ -309,14 +332,14 @@ export default function DashboardPage() {
                   <Package className="mb-3 h-9 w-9 text-muted-foreground/25" />
                   <p className="mb-3 text-sm text-muted-foreground">No priced items yet</p>
                   <Button asChild size="sm">
-                    <Link href="/scan"><ScanBarcode className="mr-1.5 h-4 w-4" />Scan your first item</Link>
+                    <Link href="/business/scan"><ScanBarcode className="mr-1.5 h-4 w-4" />Scan your first item</Link>
                   </Button>
                 </div>
               ) : (
                 topDeals.map((item, i) => {
                   const profit = item.marketValue - item.purchase_price;
                   return (
-                    <Link key={item.id} href={`/inventory/${item.id}`} className="grid gap-3 px-5 py-4 transition hover:bg-white/[0.035] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
+                    <Link key={item.id} href={`/business/inventory/${item.id}`} className="grid gap-3 px-5 py-4 transition hover:bg-white/[0.035] sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
                       <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-secondary/70 text-sm font-bold text-muted-foreground">
                         {i + 1}
                       </div>
@@ -327,16 +350,16 @@ export default function DashboardPage() {
                       <div className="flex items-center justify-between gap-4 sm:justify-end">
                         <div className="text-right">
                           <div className="text-base font-semibold">${item.marketValue.toFixed(2)}</div>
-                          <div className={`text-sm ${profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {profit >= 0 ? '+' : ''}${profit.toFixed(2)}
+                          <div className={`text-sm ${profit >= 0 ? 'text-emerald-800' : 'text-red-800'}`}>
+                            Est. spread {profit >= 0 ? '+' : ''}${profit.toFixed(2)}
                           </div>
                         </div>
                         <Badge
                           variant="outline"
                           className={`px-2.5 py-1 text-sm font-bold ${
-                            item.dealScore.score >= 70 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400' :
+                            item.dealScore.score >= 70 ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-800' :
                             item.dealScore.score >= 40 ? 'border-primary/30 bg-primary/10 text-primary' :
-                            'border-red-500/30 bg-red-500/10 text-red-400'
+                            'border-red-500/30 bg-red-500/10 text-red-800'
                           }`}
                         >
                           {item.dealScore.score}
@@ -353,12 +376,12 @@ export default function DashboardPage() {
             <div className={`rounded-[24px] border p-5 shadow-sm ${agingAlerts.count > 0 ? 'border-red-500/30 bg-red-500/10' : 'border-border/50 bg-card/90'}`}>
               <div className="flex items-start gap-3">
                 <div className={`rounded-xl p-2.5 ${agingAlerts.count > 0 ? 'bg-red-500/10' : 'bg-secondary/50'}`}>
-                  <Bell className={`h-5 w-5 ${agingAlerts.count > 0 ? 'text-red-300' : 'text-muted-foreground'}`} />
+                  <Bell className={`h-5 w-5 ${agingAlerts.count > 0 ? 'text-red-800' : 'text-muted-foreground'}`} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <div className="text-base font-semibold">Aging inventory</div>
-                    <ContextHelp href="/help#dashboard-overview" label="Open aging inventory help">
+                    <ContextHelp href="/business/help#dashboard-overview" label="Open aging inventory help">
                       Aging alerts remind you to revise price, photos, sales channel, or bundle strategy.
                     </ContextHelp>
                   </div>
@@ -372,19 +395,19 @@ export default function DashboardPage() {
               {agingAlerts.count > 0 && (
                 <div className="mt-4 space-y-2">
                   {agingAlerts.items.slice(0, 3).map((item) => (
-                    <Link key={item.id} href={`/inventory/${item.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/[0.04] px-3 py-2.5 transition hover:bg-red-500/10">
+                    <Link key={item.id} href={`/business/inventory/${item.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/[0.04] px-3 py-2.5 transition hover:bg-red-500/10">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-medium">{item.product_name}</div>
                         <div className="text-xs text-muted-foreground">{item.console} · {item.condition}</div>
                       </div>
-                      <Badge variant="outline" className="shrink-0 border-red-500/30 text-red-300">
+                      <Badge variant="outline" className="shrink-0 border-red-500/30 text-red-800">
                         <Clock className="mr-1 h-3 w-3" />
                         {item.ageDays}d
                       </Badge>
                     </Link>
                   ))}
                   <Button asChild variant="outline" size="sm" className="mt-1 h-9 w-full border-red-500/30 text-red-700 hover:bg-red-500/10 dark:text-red-100">
-                    <Link href="/inventory?age=stale">Review aging items</Link>
+                    <Link href="/business/inventory?age=stale">Review aging items</Link>
                   </Button>
                 </div>
               )}
@@ -413,8 +436,9 @@ export default function DashboardPage() {
                 {[
                   `${stats.itemCount.toLocaleString()} total inventory rows`,
                   `$${stats.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} estimated market value`,
-                  `${unlistedItems.length} available items not listed`,
-                  profitPositive ? 'Cash outlook ready for review' : 'Profit below cost basis; review finance',
+                  `${unlistedItems.length} available records without an eBay, Amazon or Whatnot listing`,
+                  'Shop publication is automatic for available, priced stock. Check Storefront publishing for live status.',
+                  'Market estimates exclude fees, shipping and tax. Open Finance for recorded results.',
                 ].map((line) => (
                   <div key={line} className="rounded-xl border border-border bg-secondary/45 px-3 py-2 text-sm text-muted-foreground">
                     {line}
@@ -424,6 +448,7 @@ export default function DashboardPage() {
             </div>
           </div>
         </section>
+        </>}
       </div>
     </DashboardLayout>
   );

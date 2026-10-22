@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { getPricingData } from './pricing-service';
 import { getActiveAccountId } from './account';
+import { readAllPages } from './read-all-pages';
 import type { UPCLookupMode } from './item-taxonomy';
 
 export interface UPCLookupResult {
@@ -189,15 +190,10 @@ export async function getActiveEmployees(): Promise<Employee[]> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error('Not authenticated');
 
-  const { data, error } = await supabase
-    .from('employees')
-    .select('*')
-    .eq('user_id', await getActiveAccountId(session.user))
-    .eq('is_active', true)
-    .order('name');
-
-  if (error) throw error;
-  return data || [];
+  const accountId = await getActiveAccountId(session.user);
+  return readAllPages((from, to) => supabase
+    .from('employees').select('*').eq('user_id', accountId)
+    .eq('is_active', true).order('name').order('id').range(from, to));
 }
 
 export async function createEmployee(employee: Omit<Employee, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<Employee> {

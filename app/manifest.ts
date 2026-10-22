@@ -2,31 +2,24 @@ import type { MetadataRoute } from 'next';
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'RetroLootPro',
-    short_name: 'RetroLootPro',
+    name: 'Pixel & Page Business',
+    short_name: 'Pixel & Page',
     description: 'Inventory command center for resale operations',
-    start_url: '/dashboard',
+    start_url: '/business',
     scope: '/',
     display: 'standalone',
-    background_color: '#050505',
-    theme_color: '#39ff6a',
+    background_color: '#fffefa',
+    theme_color: '#073442',
     icons: [
       {
-        src: '/icons/retroloot-icon-192.png',
-        sizes: '192x192',
-        type: 'image/png',
-        purpose: 'maskable',
+        src: '/pixel-page-badge.svg',
+        sizes: 'any',
+        type: 'image/svg+xml',
       },
       {
-        src: '/icons/retroloot-icon-512.png',
-        sizes: '512x512',
-        type: 'image/png',
-        purpose: 'maskable',
-      },
-      {
-        src: '/icons/apple-touch-icon.png',
-        sizes: '180x180',
-        type: 'image/png',
+        src: '/pixel-page-badge.webp',
+        sizes: '300x300',
+        type: 'image/webp',
       },
     ],
   };

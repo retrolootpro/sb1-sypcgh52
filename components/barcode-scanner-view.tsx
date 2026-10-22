@@ -130,17 +130,18 @@ export function BarcodeScannerView({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
         <div className="w-full max-w-md overflow-hidden rounded-xl border border-primary/25 bg-neutral-950 shadow-2xl">
-          <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+          <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3">
             <div className="flex items-center gap-2">
               <Camera className="h-5 w-5 text-primary" />
-              <span className="font-semibold text-white">{title}</span>
+              <span className="font-semibold text-foreground">{title}</span>
             </div>
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => setSound((s) => !s)}
-                className="text-white hover:bg-white/10"
+                aria-label={sound ? 'Mute scan sound' : 'Enable scan sound'}
+                className="text-foreground hover:bg-secondary"
               >
                 {sound ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
               </Button>
@@ -148,7 +149,8 @@ export function BarcodeScannerView({
                 variant="ghost"
                 size="sm"
                 onClick={handleStop}
-                className="text-white hover:bg-white/10"
+                aria-label="Stop barcode scanner"
+                className="text-foreground hover:bg-secondary"
               >
                 <X className="h-5 w-5" />
               </Button>

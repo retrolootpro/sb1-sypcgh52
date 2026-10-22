@@ -1,12 +1,14 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { getMissingCogsItems, getPLStatement, formatCurrency, type MissingCogsItem, type PLStatement } from '@/lib/finance-services';
-import { toast } from 'sonner';
+import { useAuth } from '@/lib/auth-context';
+import { financeCsv } from '@/lib/finance-reporting';
+import { FinanceReportNotice } from './overview-tab';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -49,66 +51,70 @@ function PLDivider({ label }: { label: string }) {
 }
 
 export function PLTab() {
+  const { accountId } = useAuth();
   const now = new Date();
   const [year, setYear] = useState(String(now.getFullYear()));
   const [month, setMonth] = useState<string>('all');
   const [pl, setPL] = useState<PLStatement | null>(null);
   const [missingCogsItems, setMissingCogsItems] = useState<MissingCogsItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [costError, setCostError] = useState('');
+  const generation = useRef({});
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const current = {}; generation.current = current;
+    setLoading(true); setPL(null); setMissingCogsItems([]); setLoadError(''); setCostError('');
+    if (!accountId) { setLoading(false); return; }
     try {
       const selectedMonth = month !== 'all' ? parseInt(month) : undefined;
-      const data = await getPLStatement(parseInt(year), selectedMonth);
-      setPL(data);
-      try {
-        const missingItems = await getMissingCogsItems(parseInt(year), selectedMonth);
-        setMissingCogsItems(missingItems);
-      } catch {
-        setMissingCogsItems([]);
-        toast.warning('P&L loaded, but the Missing COGS queue could not load.');
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to load P&L data');
+      const [report, costs] = await Promise.allSettled([
+        getPLStatement(parseInt(year), selectedMonth), getMissingCogsItems(parseInt(year), selectedMonth),
+      ]);
+      if (generation.current !== current) return;
+      if (report.status === 'fulfilled') setPL(report.value);
+      else { console.error('P&L report:', report.reason); setLoadError('This period could not be loaded. Previous totals and exports are hidden until the report is verified.'); }
+      if (costs.status === 'fulfilled') setMissingCogsItems(costs.value);
+      else { console.error('P&L cost queue:', costs.reason); setCostError('Missing cost-basis records could not be loaded. This does not mean costs are complete. Export is disabled until the queue can be verified.'); }
+    } catch (cause) {
+      console.error('P&L loading:', cause);
+      if (generation.current === current) setLoadError('This period could not be loaded. Retry the report.');
     }
-    finally { setLoading(false); }
-  }, [year, month]);
+    finally { if (generation.current === current) setLoading(false); }
+  }, [year, month, accountId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); return () => { generation.current = {}; }; }, [load]);
 
   const handleExport = () => {
-    if (!pl) return;
-    const lines = [
-      `Profit & Loss Statement`,
-      `Period: ${month !== 'all' ? MONTHS[parseInt(month) - 1] : 'Full Year'} ${year}`,
-      ``,
-      `COGS REVIEW`,
-      `  COGS Coverage,${pl.cogsCoverage.toFixed(1)}%`,
-      `  Sold Items Missing COGS,${pl.missingCogsItemCount}`,
-      `  Revenue With Missing COGS,${formatCurrency(pl.missingCogsRevenue)}`,
-      `  Report Status,${pl.cogsStatus === 'complete' ? 'Complete' : 'Needs COGS review'}`,
-      ``,
-      `REVENUE`,
-      `  Gross Revenue,${formatCurrency(pl.revenue)}`,
-      `  Cost of Goods Sold,(${formatCurrency(pl.cogs)})`,
-      `  Gross Profit,${formatCurrency(pl.grossProfit)}`,
-      `  Gross Margin,${pl.grossMargin.toFixed(1)}%`,
-      ``,
-      `EXPENSES`,
-      ...Object.entries(pl.expensesByCategory).map(([cat, amt]) => `  ${cat},${formatCurrency(amt)}`),
-      `  Total Operating Expenses,(${formatCurrency(pl.operatingExpenses)})`,
-      ``,
-      `NET PROFIT / LOSS,${formatCurrency(pl.netProfit)}`,
-      `Net Margin,${pl.netMargin.toFixed(1)}%`,
-      ``,
-      ...(missingCogsItems.length > 0 ? [
-        `MISSING COGS ITEMS`,
-        `Item,Platform,Sold Date,Sale Price`,
-        ...missingCogsItems.map((item) => `"${item.product_name.replaceAll('"', '""')}",${item.sold_via || 'Other'},${item.sold_at || ''},${formatCurrency(item.sell_price)}`),
-      ] : []),
+    if (!pl || loading || loadError || costError) return;
+    const rows: (string | number)[][] = [
+      ['Pixel & Page — recorded P&L (provisional)'],
+      ['Period', `${month !== 'all' ? MONTHS[parseInt(month) - 1] : 'Full calendar year'} ${year}`],
+      ['Scope', 'Not bank balance or verified net profit. Includes only recorded income/refunds, sold inventory cost and operating expenses. Review missing costs and reconcile entries.'],
+      ['Online payments in ledger', pl.onlineOrderCount],
+      ['Historical online orders', 'Not backfilled; order cost snapshots and fee reconciliation apply only to new storefront orders.'],
+      ['New storefront order COGS', pl.onlineOrderCogs],
+      ['New storefront units missing cost snapshot', pl.onlineOrderUnitsMissingCost],
+      ['Merchandise sales with missing order cost', pl.onlineOrderMissingCostRevenue],
+      ['New storefront orders awaiting Stripe fee', pl.onlineOrdersMissingStripeFeeCount],
+      ['Confirmed Shippo labels awaiting Finance posting', pl.onlineLabelsMissingPostageCount],
+      ['Sold-inventory cost coverage (%)', pl.cogsCoverage],
+      ['Sold inventory records missing cost', pl.missingCogsItemCount],
+      ['Sales with missing cost', pl.missingCogsRevenue],
+      ['Recorded revenue less refunds', pl.revenue],
+      ['Known cost of goods', pl.cogs],
+      ['Gross result', pl.grossProfit],
+      ['Gross margin (%)', pl.grossMargin],
+      ['Operating expenses', pl.operatingExpenses],
+      ...Object.entries(pl.expensesByCategory).map(([category, amount]) => [category, amount]),
+      ['After recorded expenses (provisional)', pl.netProfit],
+      ['Recorded net margin (%)', pl.netMargin],
+      [],
+      ['MISSING COST BASIS'],
+      ['Item', 'Platform', 'Sold date', 'Sale price'],
+      ...missingCogsItems.map(item => [item.product_name, item.sold_via || 'Other', item.sold_at || '', item.sell_price]),
     ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const blob = new Blob([financeCsv(rows)], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -124,32 +130,35 @@ export function PLTab() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
           <Select value={year} onValueChange={setYear}>
-            <SelectTrigger className="h-8 text-xs w-24 bg-secondary/40"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Report year" className="h-8 text-xs w-24 bg-secondary/40"><SelectValue /></SelectTrigger>
             <SelectContent>
               {yearOptions.map(y => <SelectItem key={y} value={y}>{y}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={month} onValueChange={setMonth}>
-            <SelectTrigger className="h-8 text-xs w-36 bg-secondary/40"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Report month" className="h-8 text-xs w-36 bg-secondary/40"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Full Year</SelectItem>
               {MONTHS.map((m, i) => <SelectItem key={i + 1} value={String(i + 1)}>{m}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
-        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExport} disabled={!pl}>
+        <Button variant="outline" size="sm" className="h-8 text-xs" onClick={handleExport} disabled={!pl || loading || !!loadError || !!costError}>
           <Download className="w-3.5 h-3.5 mr-1.5" />
           Export CSV
         </Button>
       </div>
 
-      {loading ? (
+      {costError && <section className="business-overview-message"><p role="alert">{costError}</p><Button variant="outline" onClick={load} disabled={loading}>Retry cost queue</Button></section>}
+      {loadError ? <section className="business-overview-message"><p role="alert">{loadError}</p><Button variant="outline" onClick={load}>Retry period report</Button></section> : loading ? (
         <div className="rounded-2xl border border-border/40 bg-card h-96 animate-pulse" />
-      ) : (
+      ) : pl && (
+        <>
+        <FinanceReportNotice report={pl}/>
         <div className="grid lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2 rounded-2xl border border-border/40 bg-card p-6 space-y-1">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-white/80">Profit & Loss Statement</h3>
+              <h3 className="text-sm font-semibold text-white/80">Recorded P&amp;L · provisional</h3>
               <span className="text-xs text-muted-foreground">
                 {month !== 'all' ? `${MONTHS[parseInt(month) - 1]} ` : ''}{year}
               </span>
@@ -163,7 +172,7 @@ export function PLTab() {
                     <div className="text-sm font-semibold text-amber-200">P&amp;L needs COGS cleanup</div>
                     <p className="mt-1 text-xs leading-5 text-amber-100/80">
                       {pl.missingCogsItemCount} sold item{pl.missingCogsItemCount === 1 ? '' : 's'} have no purchase price,
-                      covering {formatCurrency(pl.missingCogsRevenue)} of sales. Profit is overstated until those costs are filled in.
+                      covering {formatCurrency(pl.missingCogsRevenue)} of sales. Results may be overstated until cost basis is confirmed.
                     </p>
                   </div>
                 </div>
@@ -171,9 +180,9 @@ export function PLTab() {
             )}
 
             <PLDivider label="Revenue" />
-            <PLRow label="Gross Revenue" value={pl?.revenue ?? 0} />
-            <PLRow label="Cost of Goods Sold" value={-(pl?.cogs ?? 0)} indent highlight="neutral" />
-            <PLRow label="Gross Profit" value={pl?.grossProfit ?? 0} bold highlight="green" />
+            <PLRow label="Recorded revenue, less refunds" value={pl.revenue} />
+            <PLRow label="Known cost of goods" value={-(pl?.cogs ?? 0)} indent highlight="neutral" />
+            <PLRow label="Gross result" value={pl.grossProfit} bold highlight="green" />
             <div className="text-xs text-muted-foreground pl-3 pb-2">
               Gross Margin: {pl?.grossMargin?.toFixed(1)}%
             </div>
@@ -190,8 +199,8 @@ export function PLTab() {
               </>
             )}
 
-            <PLDivider label="Net Profit / Loss" />
-            <PLRow label="Net Profit / Loss" value={pl?.netProfit ?? 0} bold highlight="green" />
+            <PLDivider label="After recorded expenses" />
+            <PLRow label="Provisional result" value={pl.netProfit} bold highlight="green" />
             <div className="text-xs text-muted-foreground pl-3">
               Net Margin: {pl?.netMargin?.toFixed(1)}%
             </div>
@@ -204,10 +213,10 @@ export function PLTab() {
                 {[
                   { label: 'Revenue', value: pl?.revenue ?? 0, color: 'text-emerald-400' },
                   { label: 'COGS', value: pl?.cogs ?? 0, color: 'text-amber-400' },
-                  { label: 'COGS Coverage', value: pl?.cogsCoverage ?? 100, color: (pl?.cogsStatus === 'complete') ? 'text-emerald-400' : 'text-amber-400', percent: true },
-                  { label: 'Gross Profit', value: pl?.grossProfit ?? 0, color: (pl?.grossProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                  { label: 'Sold-record cost coverage', value: pl.cogsCoverage, color: pl.cogsStatus === 'complete' ? 'text-emerald-400' : 'text-amber-400', percent: true },
+                  { label: 'Gross result', value: pl.grossProfit, color: pl.grossProfit >= 0 ? 'text-emerald-400' : 'text-red-400' },
                   { label: 'Operating Exp.', value: pl?.operatingExpenses ?? 0, color: 'text-red-400' },
-                  { label: 'Net Profit', value: pl?.netProfit ?? 0, color: (pl?.netProfit ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400' },
+                  { label: 'Provisional result', value: pl.netProfit, color: pl.netProfit >= 0 ? 'text-emerald-400' : 'text-red-400' },
                 ].map(row => (
                   <div key={row.label} className="flex items-center justify-between">
                     <span className="text-xs text-muted-foreground">{row.label}</span>
@@ -226,7 +235,7 @@ export function PLTab() {
                   {missingCogsItems.slice(0, 8).map((item) => (
                     <Link
                       key={item.id}
-                      href={`/inventory/${item.id}`}
+                      href={`/business/inventory/${item.id}`}
                       className="block rounded-xl border border-border/30 bg-secondary/20 p-3 transition hover:border-amber-500/40"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -268,6 +277,7 @@ export function PLTab() {
             )}
           </div>
         </div>
+        </>
       )}
     </div>
   );

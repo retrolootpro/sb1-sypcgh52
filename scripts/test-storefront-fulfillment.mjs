@@ -27,6 +27,7 @@ await page.addInitScript(({owner})=>{
   localStorage.setItem('sb-storefront-test-auth-token',JSON.stringify(session));
 }, {owner});
 await page.route('**/auth/v1/**',route=>route.fulfill({json:{id:owner,email:'staff@example.invalid',aud:'authenticated',app_metadata:{},user_metadata:{}}}));
+await page.route('**/api/business/session',route=>route.fulfill({json:{success:true,accountId:owner,accountRole:'admin',membership:{id:owner,account_owner_id:owner,user_id:owner,role:'admin',status:'active'}}}));
 await page.route('**/rest/v1/**',route=>{
   const url=route.request().url();
   return route.fulfill({json:url.includes('user_account_memberships')?{id:owner,account_owner_id:owner,user_id:owner,role:'admin',status:'active'}:null});
@@ -70,6 +71,7 @@ try {
   assert.match(await card.innerText(),/Shipping promotion: \$5.73 covered by the shop/);
   assert.match(await card.innerText(),/customer paid \$0.00 shipping; a label still must be purchased/);
   await page.getByLabel('Order status',{exact:true}).selectOption('paid');
+  await card.waitFor();
   assert.equal(await page.getByRole('article').count(),1);
   await page.getByLabel('Find order',{exact:true}).fill('not a matching title');
   await page.getByText('No matching orders on this page.',{exact:true}).waitFor();

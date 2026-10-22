@@ -1,188 +1,104 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { TrendingUp, TrendingDown, DollarSign, ReceiptText, ChartBar as BarChart3, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import { getTransactions, getPLStatement, formatCurrency, type Transaction } from '@/lib/finance-services';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import Link from 'next/link';
+import { TrendingUp, DollarSign, ReceiptText, ChartBar as BarChart3 } from 'lucide-react';
+import { getTransactions, getPLStatement, formatCurrency, type Transaction, type PLStatement } from '@/lib/finance-services';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/lib/auth-context';
 import { format } from 'date-fns';
 
-function StatCard({ label, value, sub, trend, icon: Icon, color = 'primary' }: {
-  label: string;
-  value: string;
-  sub?: string;
-  trend?: 'up' | 'down' | 'neutral';
-  icon: React.ElementType;
-  color?: 'primary' | 'emerald' | 'red' | 'amber';
+function StatCard({ label, value, sub, icon: Icon }: {
+  label: string; value: number; sub: string; icon: React.ElementType;
 }) {
-  const colorMap = {
-    primary: 'bg-primary/10 border-primary/20 text-primary',
-    emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
-    red: 'bg-red-500/10 border-red-500/20 text-red-400',
-    amber: 'bg-amber-500/10 border-amber-500/20 text-amber-400',
-  };
+  return <div className="finance-stat rounded-2xl border bg-card p-4 space-y-3">
+    <div className="flex items-start justify-between gap-2"><span className="text-xs text-muted-foreground">{label}</span><Icon className="h-4 w-4 shrink-0 text-teal-800"/></div>
+    <strong className={`block text-2xl tracking-tight tabular-nums ${value < 0 ? 'text-red-800' : 'text-foreground'}`}>{formatCurrency(value)}</strong>
+    <p className="text-xs leading-5 text-muted-foreground">{sub}</p>
+  </div>;
+}
 
-  return (
-    <div className="rounded-2xl border border-border/40 bg-card p-5 space-y-3">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground font-medium">{label}</span>
-        <div className={`w-8 h-8 rounded-lg border flex items-center justify-center ${colorMap[color]}`}>
-          <Icon className="w-4 h-4" />
-        </div>
-      </div>
-      <div>
-        <div className="stat-number text-2xl font-bold text-white/90 tracking-tight">{value}</div>
-        {sub && (
-          <div className={`flex items-center gap-1 mt-1 text-xs ${
-            trend === 'up' ? 'text-emerald-400' : trend === 'down' ? 'text-red-400' : 'text-muted-foreground'
-          }`}>
-            {trend === 'up' && <ArrowUpRight className="w-3 h-3" />}
-            {trend === 'down' && <ArrowDownRight className="w-3 h-3" />}
-            <span>{sub}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+export function FinanceReportNotice({ report }: { report: PLStatement }) {
+  return <section className="finance-report-notice" aria-label="Report scope and completeness">
+    <strong>Recorded results, not spendable cash.</strong>
+    <p>These figures combine ledger income/refunds, sold-inventory costs, saved unit costs for new online orders, and recorded operating expenses. Inventory purchases and owner-loan principal are not operating expenses here. Stripe fees and Shippo postage reduce results after the providers confirm them. Reconcile source entries before making decisions.</p>
+    {report.missingCogsItemCount > 0 && <p role="status" className="font-semibold text-amber-900">{report.missingCogsItemCount} sold inventory record(s), covering {formatCurrency(report.missingCogsRevenue)} in sales, have no positive unit cost. Results may be overstated. <Link className="underline" href="/business/finance?tab=pl">Review missing cost basis</Link>.</p>}
+    {report.onlineOrderCount > 0 && <p>Online payments include collected shipping but exclude sales tax. New storefront orders use saved unit-cost snapshots; confirmed Stripe fees and Shippo label purchases post as expenses.</p>}
+    {report.onlineOrderUnitsMissingCost > 0 && <p role="status" className="font-semibold text-amber-900">{report.onlineOrderUnitsMissingCost} unit(s) in new storefront orders have no positive cost snapshot, covering {formatCurrency(report.onlineOrderMissingCostRevenue)} in merchandise sales. Order costs are missing; results may be overstated.</p>}
+    {report.onlineOrdersMissingStripeFeeCount > 0 && <p role="status" className="font-semibold text-amber-900">{report.onlineOrdersMissingStripeFeeCount} new storefront order(s) are awaiting a confirmed Stripe processing fee. Review Stripe reconciliation before relying on this period.</p>}
+    {report.onlineLabelsMissingPostageCount > 0 && <p role="status" className="font-semibold text-amber-900">{report.onlineLabelsMissingPostageCount} confirmed Shippo label(s) are awaiting a Finance posting. Refresh reconciliation before relying on this period.</p>}
+    <p className="text-xs">Historical storefront orders are not backfilled. Cost coverage measures sold-inventory records and new order snapshots only; it does not certify every expense, label refund or bank reconciliation.</p>
+  </section>;
 }
 
 export function OverviewTab() {
-  const now = new Date();
-  const [pl, setPL] = useState<Awaited<ReturnType<typeof getPLStatement>> | null>(null);
-  const [ytdPL, setYtdPL] = useState<Awaited<ReturnType<typeof getPLStatement>> | null>(null);
-  const [recentTxns, setRecentTxns] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { accountId } = useAuth();
+  const [now] = useState(() => new Date());
+  const [reports, setReports] = useState<{ month: PLStatement; year: PLStatement } | null>(null);
+  const [recent, setRecent] = useState<Transaction[] | null>(null);
+  const [reportError, setReportError] = useState('');
+  const [recentError, setRecentError] = useState('');
+  const [refresh, setRefresh] = useState(0);
+  const generation = useRef({});
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [monthly, yearly, recent] = await Promise.all([
-        getPLStatement(now.getFullYear(), now.getMonth() + 1),
-        getPLStatement(now.getFullYear()),
-        getTransactions({ limit: 8 }),
-      ]);
-      setPL(monthly);
-      setYtdPL(yearly);
-      setRecentTxns(recent);
-    } catch { /* silent */ }
-    finally { setLoading(false); }
-  }, []);
+  useEffect(() => {
+    const current = {}; generation.current = current;
+    setReports(null); setRecent(null); setReportError(''); setRecentError('');
+    if (!accountId) return;
+    void Promise.all([getPLStatement(now.getFullYear(), now.getMonth() + 1), getPLStatement(now.getFullYear())])
+      .then(([month, year]) => { if (generation.current === current) setReports({ month, year }); })
+      .catch(cause => {
+        console.error('Finance overview reports:', cause);
+        if (generation.current === current) setReportError('Recorded results could not be loaded. No totals are shown until both periods can be verified.');
+      });
+    void getTransactions({ limit: 8 }).then(data => { if (generation.current === current) setRecent(data); })
+      .catch(cause => {
+        console.error('Finance recent transactions:', cause);
+        if (generation.current === current) setRecentError('Recent transactions could not be loaded. This is not an empty ledger.');
+      });
+    return () => { generation.current = {}; };
+  }, [accountId, now, refresh]);
+  const retry = useCallback(() => setRefresh(value => value + 1), []);
 
-  useEffect(() => { load(); }, [load]);
+  const cards = (report: PLStatement) => <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+    <StatCard label="Recorded revenue, less refunds" value={report.revenue} icon={DollarSign} sub="Ledger income plus unmatched sold records"/>
+    <StatCard label="Known cost of goods" value={report.cogs} icon={ReceiptText} sub={`Sold-record cost coverage ${report.cogsCoverage.toFixed(1)}%; new storefront costs tracked separately`}/>
+    <StatCard label="Gross result" value={report.grossProfit} icon={TrendingUp} sub="Revenue less known sold-inventory costs"/>
+    <StatCard label="After recorded expenses" value={report.netProfit} icon={BarChart3} sub="Provisional result, before unrecorded costs"/>
+  </div>;
 
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="rounded-2xl border border-border/40 bg-card h-28 animate-pulse" />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  const monthName = format(now, 'MMMM yyyy');
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <div className="text-xs text-muted-foreground mb-3 font-medium uppercase tracking-wider">{monthName}</div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard label="Revenue" value={formatCurrency(pl?.revenue ?? 0)} icon={DollarSign} color="emerald"
-            sub={`${pl?.grossMargin?.toFixed(1)}% gross margin`} trend="neutral" />
-          <StatCard label="COGS" value={formatCurrency(pl?.cogs ?? 0)} icon={ReceiptText} color="amber"
-            sub="Cost of goods sold" />
-          <StatCard label="Gross Profit" value={formatCurrency(pl?.grossProfit ?? 0)} icon={TrendingUp}
-            color={(pl?.grossProfit ?? 0) >= 0 ? 'emerald' : 'red'}
-            sub={`${pl?.grossMargin?.toFixed(1)}% margin`}
-            trend={(pl?.grossProfit ?? 0) >= 0 ? 'up' : 'down'} />
-          <StatCard label="Net Profit" value={formatCurrency(pl?.netProfit ?? 0)} icon={BarChart3}
-            color={(pl?.netProfit ?? 0) >= 0 ? 'emerald' : 'red'}
-            sub={`${pl?.netMargin?.toFixed(1)}% margin`}
-            trend={(pl?.netProfit ?? 0) >= 0 ? 'up' : 'down'} />
-        </div>
-      </div>
-
-      <div>
-        <div className="text-xs text-muted-foreground mb-3 font-medium uppercase tracking-wider">Year to Date {now.getFullYear()}</div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard label="YTD Revenue" value={formatCurrency(ytdPL?.revenue ?? 0)} icon={DollarSign} color="primary" />
-          <StatCard label="YTD COGS" value={formatCurrency(ytdPL?.cogs ?? 0)} icon={ReceiptText} color="amber" />
-          <StatCard label="YTD Gross Profit" value={formatCurrency(ytdPL?.grossProfit ?? 0)} icon={TrendingUp}
-            color={(ytdPL?.grossProfit ?? 0) >= 0 ? 'emerald' : 'red'}
-            trend={(ytdPL?.grossProfit ?? 0) >= 0 ? 'up' : 'down'} />
-          <StatCard label="YTD Net Profit" value={formatCurrency(ytdPL?.netProfit ?? 0)} icon={BarChart3}
-            color={(ytdPL?.netProfit ?? 0) >= 0 ? 'emerald' : 'red'}
-            trend={(ytdPL?.netProfit ?? 0) >= 0 ? 'up' : 'down'} />
-        </div>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className="rounded-2xl border border-border/40 bg-card p-5">
-          <div className="text-sm font-semibold text-white/80 mb-4">Revenue by Platform (This Month)</div>
-          {Object.keys(pl?.revenueByPlatform ?? {}).length === 0 ? (
-            <div className="text-sm text-muted-foreground py-4 text-center">No sales data this month</div>
-          ) : (
-            <div className="space-y-3">
-              {Object.entries(pl?.revenueByPlatform ?? {})
-                .sort(([, a], [, b]) => b - a)
-                .map(([platform, amount]) => {
-                  const total = pl?.revenue || 1;
-                  const pct = (amount / total) * 100;
-                  return (
-                    <div key={platform}>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-white/60 capitalize">{platform}</span>
-                        <span className="text-white/80 font-medium">{formatCurrency(amount)}</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-secondary/60">
-                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-border/40 bg-card p-5">
-          <div className="text-sm font-semibold text-white/80 mb-4">Recent Transactions</div>
-          {recentTxns.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-4 text-center">No transactions yet</div>
-          ) : (
-            <div className="space-y-2">
-              {recentTxns.map(tx => (
-                <div key={tx.id} className="flex items-center justify-between py-1.5 border-b border-border/30 last:border-0">
-                  <div className="min-w-0">
-                    <div className="text-xs text-white/70 truncate max-w-[200px]">{tx.description}</div>
-                    <div className="text-[10px] text-muted-foreground">{format(new Date(tx.date), 'MMM d')} · {tx.category}</div>
-                  </div>
-                  <span className={`text-xs font-medium tabular-nums ml-3 shrink-0 ${
-                    tx.type === 'income' ? 'text-emerald-400' : tx.type === 'transfer' ? 'text-blue-400' : 'text-red-400'
-                  }`}>
-                    {tx.type === 'income' ? '+' : tx.type === 'transfer' && Number(tx.amount) >= 0 ? '' : '-'}{formatCurrency(Math.abs(tx.amount))}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {Object.keys(pl?.expensesByCategory ?? {}).length > 0 && (
-        <div className="rounded-2xl border border-border/40 bg-card p-5">
-          <div className="text-sm font-semibold text-white/80 mb-4">Expenses by Category (This Month)</div>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-            {Object.entries(pl?.expensesByCategory ?? {})
-              .sort(([, a], [, b]) => b - a)
-              .map(([cat, amt]) => (
-                <div key={cat} className="rounded-xl border border-border/30 bg-secondary/20 p-3">
-                  <div className="text-[10px] text-muted-foreground mb-1">{cat}</div>
-                  <div className="text-sm font-semibold text-red-400 tabular-nums">{formatCurrency(amt)}</div>
-                </div>
-              ))}
+  return <div className="space-y-6">
+    <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-lg font-semibold">Know what the books actually say.</h2><Button variant="outline" onClick={retry}>Refresh finance</Button></div>
+    {reportError ? <section className="business-overview-message"><p role="alert">{reportError}</p><Button variant="outline" onClick={retry}>Retry recorded results</Button></section>
+      : !reports ? <div role="status" className="rounded-2xl border bg-card p-8 text-sm text-muted-foreground">Loading recorded results…</div>
+      : <>
+        <FinanceReportNotice report={reports.year}/>
+        <section aria-label="This month recorded results"><h3 className="mb-3 text-xs font-semibold uppercase tracking-wider">{format(now, 'MMMM yyyy')}</h3>{cards(reports.month)}</section>
+        <section aria-label="This year recorded results"><h3 className="mb-3 text-xs font-semibold uppercase tracking-wider">{now.getFullYear()} calendar year · includes any future-dated entries</h3>{cards(reports.year)}</section>
+        <section className="grid lg:grid-cols-2 gap-4">
+          <div className="rounded-2xl border bg-card p-5">
+            <h3 className="text-sm font-semibold mb-4">Recorded revenue by platform · this month</h3>
+            {Object.keys(reports.month.revenueByPlatform).length === 0 ? <p className="text-sm text-muted-foreground">No recorded revenue in this period.</p> : <div className="space-y-3">
+              {Object.entries(reports.month.revenueByPlatform).sort(([, a], [, b]) => b - a).map(([platform, amount]) => <div key={platform} className="flex flex-wrap justify-between gap-2 text-xs"><span>{platform}</span><strong className={amount < 0 ? 'text-red-800' : ''}>{formatCurrency(amount)}</strong></div>)}
+            </div>}
           </div>
-        </div>
-      )}
-    </div>
-  );
+          <div className="rounded-2xl border bg-card p-5">
+            <h3 className="text-sm font-semibold mb-4">Recorded operating expenses · this month</h3>
+            {Object.keys(reports.month.expensesByCategory).length === 0 ? <p className="text-sm text-muted-foreground">No operating expenses recorded. This does not confirm that no costs were incurred.</p> : <div className="space-y-3">
+              {Object.entries(reports.month.expensesByCategory).sort(([, a], [, b]) => b - a).map(([category, amount]) => <div key={category} className="flex flex-wrap justify-between gap-2 text-xs"><span>{category}</span><strong>{formatCurrency(amount)}</strong></div>)}
+            </div>}
+          </div>
+        </section>
+      </>}
+    <section className="rounded-2xl border bg-card p-5" aria-label="Recent finance transactions">
+      <div className="flex flex-wrap justify-between gap-3 mb-4"><h3 className="text-sm font-semibold">Latest eight ledger entries · all dates</h3><Link className="text-xs underline text-teal-800" href="/business/finance?tab=transactions">Open all transactions</Link></div>
+      {recentError ? <div><p role="alert" className="text-sm">{recentError}</p><Button className="mt-3" variant="outline" onClick={retry}>Retry recent transactions</Button></div>
+        : recent === null ? <p role="status" className="text-sm text-muted-foreground">Loading ledger entries…</p>
+        : recent.length === 0 ? <p className="text-sm text-muted-foreground">No ledger entries recorded.</p>
+        : <ul className="divide-y">{recent.map(tx => <li key={tx.id} className="flex items-start justify-between gap-3 py-3">
+          <div className="min-w-0"><p className="text-sm break-words">{tx.description}</p><p className="text-xs text-muted-foreground mt-1">{tx.date.slice(0, 10)} · {tx.category} · {tx.is_reconciled ? 'Reconciled' : 'Needs reconciliation'}</p></div>
+          <span className={`text-sm font-semibold shrink-0 tabular-nums ${tx.type === 'income' ? 'text-emerald-800' : tx.type === 'transfer' ? 'text-blue-800' : 'text-red-800'}`}>{tx.type === 'income' ? '+' : tx.type === 'transfer' && Number(tx.amount) >= 0 ? '' : '-'}{formatCurrency(Math.abs(tx.amount))}</span>
+        </li>)}</ul>}
+    </section>
+  </div>;
 }

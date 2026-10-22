@@ -114,25 +114,25 @@ type InventoryTableProps = {
 
 function getConditionStyle(condition: string) {
   switch (condition) {
-    case 'Graded': return 'bg-amber-500/10 text-amber-400 border-amber-500/30';
+    case 'Graded': return 'bg-amber-500/10 text-amber-800 border-amber-500/30';
     case 'Sealed':
-    case 'New': return 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
-    case 'CIB': return 'bg-sky-500/10 text-sky-400 border-sky-500/30';
-    case 'Used': return 'bg-violet-500/10 text-violet-300 border-violet-500/30';
-    case 'Damaged': return 'bg-red-500/10 text-red-300 border-red-500/30';
-    case 'Untested': return 'bg-zinc-500/10 text-zinc-300 border-zinc-500/30';
-    default: return 'bg-orange-500/10 text-orange-400 border-orange-500/30';
+    case 'New': return 'bg-emerald-500/10 text-emerald-800 border-emerald-500/30';
+    case 'CIB': return 'bg-sky-500/10 text-sky-800 border-sky-500/30';
+    case 'Used': return 'bg-violet-500/10 text-violet-800 border-violet-500/30';
+    case 'Damaged': return 'bg-red-500/10 text-red-800 border-red-500/30';
+    case 'Untested': return 'bg-zinc-500/10 text-zinc-800 border-zinc-500/30';
+    default: return 'bg-orange-500/10 text-orange-800 border-orange-500/30';
   }
 }
 
 function getDealBadge(label: string, _score: number) {
   const styles: Record<string, string> = {
-    'Steal': 'bg-green-500/15 text-green-400 border-green-500/30',
-    'Great': 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
-    'Good': 'bg-sky-500/15 text-sky-400 border-sky-500/30',
-    'Fair': 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
-    'Risky': 'bg-orange-500/15 text-orange-400 border-orange-500/30',
-    'Avoid': 'bg-red-500/15 text-red-400 border-red-500/30',
+    'Steal': 'bg-green-500/15 text-green-800 border-green-500/30',
+    'Great': 'bg-emerald-500/15 text-emerald-800 border-emerald-500/30',
+    'Good': 'bg-sky-500/15 text-sky-800 border-sky-500/30',
+    'Fair': 'bg-yellow-500/15 text-yellow-800 border-yellow-500/30',
+    'Risky': 'bg-orange-500/15 text-orange-800 border-orange-500/30',
+    'Avoid': 'bg-red-500/15 text-red-800 border-red-500/30',
   };
   return styles[label] || 'bg-muted text-muted-foreground border-border';
 }
@@ -392,7 +392,7 @@ export function InventoryTable({
   const handlePrintSelectedLabels = () => {
     const ids = selectedIdList();
     if (ids.length === 0) return;
-    router.push(`/labels?ids=${encodeURIComponent(ids.join(','))}`);
+    router.push(`/business/labels?ids=${encodeURIComponent(ids.join(','))}`);
   };
 
   const handleQueueSelectedLabels = () => {
@@ -622,7 +622,7 @@ export function InventoryTable({
             size="sm"
             variant="ghost"
             className="h-9 text-sm text-muted-foreground"
-            onClick={() => router.push('/labels')}
+            onClick={() => router.push('/business/labels')}
           >
             Open Queue
           </Button>
@@ -758,7 +758,7 @@ export function InventoryTable({
         return (
           <Link
             key={item.id}
-            href={`/inventory/${item.id}`}
+            href={`/business/inventory/${item.id}`}
             onClick={isSelectionMode ? (e) => { e.preventDefault(); toggleSelection(item.id); } : undefined}
             className={`group flex items-center gap-4 p-4 rounded-xl border transition-all duration-200 cursor-pointer ${
               isSelected

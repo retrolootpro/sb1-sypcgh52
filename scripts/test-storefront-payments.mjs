@@ -33,7 +33,7 @@ const packageProfile={id:'50000000-0000-4000-8000-000000000001',name:'Games',cat
   unitWeightOz:4,packagingWeightOz:2,lengthIn:8,widthIn:6,heightIn:2,unitsPerParcel:2};
 const shippingSettings={origin:{name:'Shop',email:'shop@example.invalid',address:{line1:'2 Test St',line2:'',city:'Test',state:'FL',postal_code:'32114',country:'US'}},profiles:[packageProfile]};
 function harness({order=null,role='admin',authenticated=true,stockError=false,paid=false,sessionStatus='open',invoicePaid=false,shippoFails=false,settings=shippingSettings,
-  purchaseFails=false,transactionStatus='SUCCESS',forgedMetadata=false,saveLabelFails=false,productPrice=10,productPromotion='eligible',rateOverrides}={}) {
+  purchaseFails=false,transactionStatus='SUCCESS',forgedMetadata=false,saveLabelFails=false,balanceUnavailable=false,balanceCurrency='usd',productPrice=10,productPromotion='eligible',rateOverrides}={}) {
   const calls=[],rpc=[],writes=[],shippoCalls=[];
   const labels=[],transactions=[];
   const stripeFetch=async(url,init)=>{
@@ -50,7 +50,10 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
     if(path==='/v1/invoices/in_Test')return json({id:'in_Test',status:invoicePaid?'paid':'open',metadata:{order_id:id},currency:'usd',
       total:1600,amount_paid:invoicePaid?1600:0,total_taxes:[{amount:100}],shipping_cost:{amount_subtotal:500}});
     if(path==='/v1/invoice_payments')return json({data:[{status:'paid',amount_paid:1600,payment:{payment_intent:'pi_Test'}}],has_more:false});
-    if(path==='/v1/payment_intents/pi_Test')return json({id:'pi_Test',status:'succeeded',currency:'usd',amount_received:1600});
+    if(path==='/v1/payment_intents/pi_Test')return json({id:'pi_Test',status:'succeeded',currency:'usd',amount_received:1600,metadata:{order_id:id}});
+    if(path==='/v1/charges/ch_Test')return json({id:'ch_Test',status:'succeeded',currency:'usd',payment_intent:'pi_Test',
+      balance_transaction:balanceUnavailable?null:'txn_Test',created:1792684800});
+    if(path==='/v1/balance_transactions/txn_Test')return json({id:'txn_Test',fee:123,currency:balanceCurrency,amount:1600});
     if(path==='/v1/invoiceitems')return json({id:`ii_${calls.length}`});
     if(path==='/v1/invoices/in_Test/finalize'||path==='/v1/invoices/in_Test/send')return json({id:'in_Test',status:'open',hosted_invoice_url:'https://invoice.stripe.com/i/test'});
     throw new Error(`Unexpected Stripe call ${path}`);
@@ -91,12 +94,14 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
       if(name==='storefront_rate_limit')return {data:true,error:null};
       if(name==='storefront_reserve'||name==='storefront_reserve_shipping'){reserved=true;if(params.p_shipping)snapshot.shipping_quote=params.p_shipping;return {data:snapshot,error:stockError?{message:'stock changed'}:null};}
       if(name==='storefront_apply_payment')return {error:null};
+      if(name==='storefront_record_stripe_fee'||name==='storefront_record_postage')return {error:null};
       if(name==='storefront_cancel_unstarted')return {data:!order,error:null};
       if(name==='storefront_claim_label'){
         const existing=labels.find(l=>l.order_id===params.p_order&&l.parcel_index===params.p_index);
         if(existing)return {data:{claimed:false,label:existing},error:null};
         const label={id:'60000000-0000-4000-8000-000000000001',order_id:params.p_order,account_id:params.p_account,
-          parcel_index:params.p_index,status:'purchasing',rate:params.p_rate,parcel:params.p_parcel,transaction_id:null};
+        parcel_index:params.p_index,status:'purchasing',rate:params.p_rate,parcel:params.p_parcel,transaction_id:null,
+        created_at:'2026-10-22T12:00:00.000Z',actual_amount_cents:null,currency:null,accounting_status:'pending'};
         labels.push(label);return {data:{claimed:true,label},error:null};
       }
       throw new Error(`Unexpected RPC ${name}`);
@@ -123,7 +128,7 @@ function harness({order=null,role='admin',authenticated=true,stockError=false,pa
         shippoCalls.push({url,body});
         if(body){
           const value={object_id:'a'.repeat(32),status:transactionStatus,metadata:forgedMetadata?'other-order':body.metadata,
-            rate:body.rate,test:!process.env.SHIPPO_API_KEY.startsWith('shippo_live_'),
+            rate:body.rate,test:!process.env.SHIPPO_API_KEY.startsWith('shippo_live_'),amount:'5.73',currency:'USD',
             label_url:transactionStatus==='SUCCESS'?'https://labels.goshippo.com/test.pdf':null,
             tracking_number:transactionStatus==='SUCCESS'?'9400000000000000000000':null,
             tracking_url_provider:transactionStatus==='SUCCESS'?'https://tools.usps.com/go/TrackConfirmAction?tLabels=9400000000000000000000':null,
@@ -307,6 +312,30 @@ test('signed webhook retrieves authoritative payment and applies it through the 
   assert.equal(apply.params.p_action,'paid');
   const status=await h.load('app/api/storefront/checkout/route.ts').GET(new NextRequest('http://localhost:3218/api/storefront/checkout?session_id=cs_test_order'));
   assert.equal(status.status,200,'Disabling new payments must not block payment status checks');
+});
+test('Stripe charge records only the actual USD balance transaction fee',async()=>{
+  const h=harness();
+  const body=JSON.stringify({id:'evt_charge_fee',type:'charge.succeeded',data:{object:{id:'ch_Test'}}});
+  const signature=Stripe.webhooks.generateTestHeaderString({payload:body,secret});
+  const response=await h.load('app/api/storefront/webhook/route.ts').POST(new NextRequest('http://localhost:3218/api/storefront/webhook',{
+    method:'POST',body,headers:{'stripe-signature':signature},
+  }));
+  assert.equal(response.status,200);
+  const fee=h.rpc.find(call=>call.name==='storefront_record_stripe_fee');
+  assert.deepEqual(fee.params,{p_order:id,p_charge:'ch_Test',p_intent:'pi_Test',p_amount_cents:123,p_date:'2026-10-22'});
+  assert.ok(h.calls.some(call=>call.path==='/v1/balance_transactions/txn_Test'));
+});
+test('Stripe charge with unavailable fee or non-USD balance transaction is retried, not guessed',async()=>{
+  for(const options of [{balanceUnavailable:true},{balanceCurrency:'eur'}]){
+    const h=harness(options);
+    const body=JSON.stringify({id:'evt_charge_wait',type:'charge.succeeded',data:{object:{id:'ch_Test'}}});
+    const signature=Stripe.webhooks.generateTestHeaderString({payload:body,secret});
+    const response=await h.load('app/api/storefront/webhook/route.ts').POST(new NextRequest('http://localhost:3218/api/storefront/webhook',{
+      method:'POST',body,headers:{'stripe-signature':signature},
+    }));
+    assert.equal(response.status,500);
+    assert.equal(h.rpc.some(call=>call.name==='storefront_record_stripe_fee'),false);
+  }
 });
 test('valid unpaid completion does not masquerade as a purchase',async()=>{
   const h=harness();
@@ -554,12 +583,23 @@ test('confirmed label purchase persists a single claim before charging and saves
   const quote=await labels.quoteLabel(id,account,0,parcel);
   const result=await labels.buyLabel(id,account,quote.token,quote.rates[0].id);
   assert.equal(result.status,'success');assert.equal(result.tracking_number,'9400000000000000000000');
+  assert.equal(result.actual_amount_cents,573);assert.equal(result.currency,'USD');
   assert.equal(h.rpc[0].name,'storefront_claim_label');
+  assert.deepEqual(h.rpc.find(call=>call.name==='storefront_record_postage').params,{
+    p_label:result.id,p_transaction:'a'.repeat(32),p_amount_cents:573,p_date:'2026-10-22',
+  });
   assert.equal(h.transactions.length,1);
   assert.equal(h.shippoCalls.at(-1).body.label_file_type,'PDF_4x6');
   await assert.rejects(labels.buyLabel(id,account,quote.token,quote.rates[0].id),/already has a purchase/);
   assert.equal(h.transactions.length,1);
   assert.equal(h.rpc.some(r=>r.name==='storefront_apply_payment'||r.name.startsWith('storefront_reserve')),false);
+});
+test('Shippo amount conversion is exact and rejects malformed charges',()=>{
+  const {shippoAmountCents}=harness().load('lib/server/storefront-labels.ts');
+  assert.equal(shippoAmountCents('5.7'),570);
+  assert.equal(shippoAmountCents('5.7300'),573);
+  assert.equal(shippoAmountCents(5.73),573);
+  for(const amount of ['5.731','1e2','-1','0','NaN'])assert.throws(()=>shippoAmountCents(amount),/invalid label amount/i);
 });
 test('label quote tampering, order mismatch, stale origin and missing cost confirmation never purchase postage',async()=>{
   process.env.SHIPPO_API_KEY='shippo_test_local';

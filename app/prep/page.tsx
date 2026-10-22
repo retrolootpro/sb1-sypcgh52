@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { PrepCard, type PrepItem } from './prep-card';
 import { CreateLotDialog } from './create-lot-dialog';
@@ -12,6 +12,7 @@ import { useAuth } from '@/lib/auth-context';
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { matchesPrepQueue } from '@/lib/prep-workflow';
 
 type Lot = {
   id: string;
@@ -50,6 +51,7 @@ function LotSection({
   return (
     <div className="rounded-2xl border border-border/40 bg-card/50 overflow-hidden">
       <button
+        aria-expanded={expanded}
         onClick={() => setExpanded(!expanded)}
         className="w-full flex items-center justify-between gap-3 px-5 py-4 hover:bg-white/[0.02] transition-colors text-left"
       >
@@ -111,31 +113,51 @@ export default function PrepPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterTab>('in_progress');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(0);
   const [showLotDialog, setShowLotDialog] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const generation = useRef({});
 
   const load = useCallback(async () => {
-    if (!user || !accountId) return;
-    setLoading(true);
+    const current = {}; generation.current = current;
+    setLoading(true); setLoadError(''); setItems([]); setLots([]); setPage(0);
+    if (!user || !accountId) { setLoading(false); return; }
     try {
-      const [itemsRes, lotsRes] = await Promise.all([
-        supabase
-          .from('inventory_items')
-          .select('id, product_name, console, condition, purchase_price, created_at, sorted_at, cleaned_at, tested_at, notes_added_at, on_rack_at, listed_ebay_at, listed_amazon_at, listed_whatnot_at, status, sold_at, sell_price, lot_id')
-          .eq('user_id', accountId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('lots')
-          .select('id, name, source, notes, received_at')
-          .eq('user_id', accountId)
-          .order('received_at', { ascending: false }),
+      const [rows, lotRows] = await Promise.all([
+        (async () => {
+          const rows: PrepItem[] = [];
+          for (let offset = 0; ; offset += 500) {
+            const { data, error } = await supabase.from('inventory_items')
+              .select('id,product_name,console,condition,purchase_price,quantity,created_at,sorted_at,cleaned_at,tested_at,notes_added_at,on_rack_at,listed_ebay_at,listed_amazon_at,listed_whatnot_at,status,sold_at,sell_price,lot_id')
+              .eq('user_id', accountId).order('created_at', { ascending: false }).order('id').range(offset, offset + 499);
+            if (error) throw error;
+            if (!data) throw new Error('Preparation inventory response was missing.');
+            if (generation.current !== current) return [];
+            rows.push(...data);
+            if (data.length < 500) return rows;
+          }
+        })(),
+        (async () => {
+          const rows: Lot[] = [];
+          for (let offset = 0; ; offset += 500) {
+            const { data, error } = await supabase.from('lots').select('id,name,source,notes,received_at')
+              .eq('user_id', accountId).order('received_at', { ascending: false }).order('id').range(offset, offset + 499);
+            if (error) throw error;
+            if (!data) throw new Error('Preparation lots response was missing.');
+            if (generation.current !== current) return [];
+            rows.push(...data);
+            if (data.length < 500) return rows;
+          }
+        })(),
       ]);
-      setItems((itemsRes.data as PrepItem[]) || []);
-      setLots((lotsRes.data as Lot[]) || []);
-    } catch { toast.error('Failed to load items'); }
-    finally { setLoading(false); }
+      if (generation.current === current) { setItems(rows); setLots(lotRows); }
+    } catch (cause) {
+      console.error('Preparation load:', cause);
+      if (generation.current === current) setLoadError('Preparation inventory and lots could not be loaded. Retry before making changes.');
+    } finally { if (generation.current === current) setLoading(false); }
   }, [user, accountId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); return () => { generation.current = {}; }; }, [load]);
 
   const handleItemChange = (id: string, updates: Partial<PrepItem>) => {
     setItems(prev => prev.map(item => item.id === id ? { ...item, ...updates } : item));
@@ -146,19 +168,16 @@ export default function PrepPage() {
       const q = search.toLowerCase();
       if (!item.product_name.toLowerCase().includes(q) && !item.console.toLowerCase().includes(q)) return false;
     }
-    const sold = item.status === 'sold' || !!item.sold_at;
-    const listed = !!(item.listed_ebay_at || item.listed_amazon_at || item.listed_whatnot_at);
-    if (filter === 'in_progress') return !sold && !item.on_rack_at;
-    if (filter === 'ready') return !sold && !!item.on_rack_at && !listed;
-    if (filter === 'listed') return !sold && listed;
-    if (filter === 'sold') return sold;
-    return true;
+    return matchesPrepQueue(item, filter);
   });
 
-  const inProgressCount = items.filter(i => i.status !== 'sold' && !i.sold_at && !i.on_rack_at).length;
-  const readyCount = items.filter(i => i.status !== 'sold' && !i.sold_at && !!i.on_rack_at && !i.listed_ebay_at && !i.listed_amazon_at && !i.listed_whatnot_at).length;
-  const listedCount = items.filter(i => i.status !== 'sold' && !i.sold_at && !!(i.listed_ebay_at || i.listed_amazon_at || i.listed_whatnot_at)).length;
-  const soldCount = items.filter(i => i.status === 'sold' || !!i.sold_at).length;
+  const inProgressCount = items.filter(i => matchesPrepQueue(i, 'in_progress')).length;
+  const readyCount = items.filter(i => matchesPrepQueue(i, 'ready')).length;
+  const listedCount = items.filter(i => matchesPrepQueue(i, 'listed')).length;
+  const soldCount = items.filter(i => matchesPrepQueue(i, 'sold')).length;
+  const pageCount = Math.max(1, Math.ceil(filteredItems.length / 24));
+  const currentPage = Math.min(page, pageCount - 1);
+  const visibleItems = filteredItems.slice(currentPage * 24, (currentPage + 1) * 24);
 
   const TABS: { key: FilterTab; label: string; count?: number }[] = [
     { key: 'in_progress', label: 'Needs Work', count: inProgressCount },
@@ -170,10 +189,10 @@ export default function PrepPage() {
 
   const lotsWithItems = lots.map(lot => ({
     lot,
-    items: filteredItems.filter(i => i.lot_id === lot.id),
+    items: visibleItems.filter(i => i.lot_id === lot.id),
   })).filter(l => l.items.length > 0);
 
-  const noLotItems = filteredItems.filter(i => !i.lot_id);
+  const noLotItems = visibleItems.filter(i => !i.lot_id || !lots.some(lot => lot.id === i.lot_id));
 
   return (
     <DashboardLayout>
@@ -186,15 +205,13 @@ export default function PrepPage() {
         }}
       />
 
-      <div className="max-w-7xl space-y-6 p-4 sm:p-6">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="prep-workspace max-w-7xl space-y-6 p-4 sm:p-7">
+        <div className="catalog-workspace-header">
           <div>
-            <h1 className="text-xl font-bold text-white/90 tracking-tight flex items-center gap-2">
-              <ClipboardList className="w-5 h-5 text-primary" />
-              Prep
-            </h1>
+            <p className="brand-eyebrow">A LITTLE CARE. A GREAT NEXT CHAPTER.</p>
+            <h1>From new arrival to shop-ready.</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Work the list one step at a time. Each card shows the next thing to do.
+              Sort, clean, test and document each find. Every card shows the next step; you stay in control.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -203,13 +220,13 @@ export default function PrepPage() {
               New Lot
             </Button>
             <Button variant="outline" size="sm" className="h-8 text-xs border-border/60" asChild>
-              <Link href="/tasks">
+              <Link href="/business/tasks">
                 <ClipboardList className="w-3.5 h-3.5 mr-1.5" />
                 Tasks
               </Link>
             </Button>
             <Button size="sm" className="h-8 text-xs" asChild>
-              <Link href="/scan">
+              <Link href="/business/scan">
                 <ScanBarcode className="w-3.5 h-3.5 mr-1.5" />
                 Add Items
               </Link>
@@ -217,19 +234,25 @@ export default function PrepPage() {
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-4">
+        <nav className="catalog-workflow-strip" aria-label="Preparation workflow"><Link href="/business/inventory"><ClipboardList size={18}/><span><strong>Check the item</strong><small>Condition, photos and internal notes</small></span></Link><Link href="/business/storefront"><ScanBarcode size={18}/><span><strong>Review the shop</strong><small>Live price, public photo and shipping offer</small></span></Link><Button variant="outline" className="m-3" disabled={loading} onClick={load}>Refresh preparation</Button></nav>
+        <p className="text-xs leading-6 text-muted-foreground">Prep tracks physical work, not shop publication. Listed refers to eBay, Amazon or Whatnot. Work queues show available stock; Sold and By Lot retain history.</p>
+        {loadError ? <section className="business-overview-message"><p role="alert">{loadError}</p><Button variant="outline" onClick={load}>Retry preparation</Button></section> : <>
+        {!loading && <>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <StatPill label="Needs Work" value={inProgressCount} color="border-border/30 text-white/70 bg-white/[0.02]" />
           <StatPill label="Ready" value={readyCount} color="border-primary/25 text-primary bg-primary/[0.04]" />
           <StatPill label="Listed" value={listedCount} color="border-emerald-500/25 text-emerald-400 bg-emerald-500/[0.04]" />
           <StatPill label="Sold" value={soldCount} color="border-emerald-500/30 text-emerald-300 bg-emerald-500/[0.06]" />
         </div>
+        </>}
 
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
           <div className="flex w-full flex-1 items-center gap-1 overflow-x-auto rounded-xl border border-border/30 bg-white/[0.04] p-1 xl:min-w-0">
             {TABS.map(tab => (
               <button
                 key={tab.key}
-                onClick={() => setFilter(tab.key)}
+                aria-pressed={filter === tab.key}
+                onClick={() => { setFilter(tab.key); setPage(0); }}
                 className={`flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium transition-all ${
                   filter === tab.key
                     ? 'bg-primary/15 text-primary border border-primary/25'
@@ -252,12 +275,13 @@ export default function PrepPage() {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
             <Input
               placeholder="Search..."
+              aria-label="Search preparation"
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setPage(0); }}
               className="h-8 pl-8 text-xs bg-secondary/40 border-border/50"
             />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white/60">
+              <button aria-label="Clear preparation search" onClick={() => { setSearch(''); setPage(0); }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-white/60">
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
@@ -285,7 +309,7 @@ export default function PrepPage() {
             </div>
             {!search && filter === 'in_progress' && items.length === 0 && (
               <Button size="sm" className="mt-2 h-8 text-xs" asChild>
-                <Link href="/scan">
+                <Link href="/business/scan">
                   <ScanBarcode className="w-3.5 h-3.5 mr-1.5" />
                   Scan Items
                 </Link>
@@ -317,7 +341,7 @@ export default function PrepPage() {
           </div>
         ) : (
           <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-            {filteredItems.map(item => (
+            {visibleItems.map(item => (
               <PrepCard
                 key={item.id}
                 item={item}
@@ -327,6 +351,15 @@ export default function PrepPage() {
           </div>
         )}
 
+        {!loading && filteredItems.length > 0 && (
+          <nav aria-label="Preparation pages" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3">
+            <p className="text-xs text-muted-foreground">Items {currentPage * 24 + 1}–{Math.min((currentPage + 1) * 24, filteredItems.length)} of {filteredItems.length}. {filter === 'lots' && 'Lot groups show this page of matching items.'}</p>
+            <div className="flex gap-2">
+              <Button variant="outline" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</Button>
+              <Button variant="outline" disabled={currentPage + 1 >= pageCount} onClick={() => setPage(currentPage + 1)}>Next</Button>
+            </div>
+          </nav>
+        )}
         <div className="rounded-2xl border border-border/30 bg-white/[0.01] p-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
             <span className="font-semibold text-white/45">Workflow:</span>
@@ -345,6 +378,7 @@ export default function PrepPage() {
             <span>Sold</span>
           </div>
         </div>
+        </>}
       </div>
     </DashboardLayout>
   );

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
+import { StaffLoginLink } from '@/components/staff-login-link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { parseSavedCart } from '@/lib/storefront-model';
 import { ShippingProgress } from '@/components/storefront-shipping-progress';
@@ -114,7 +115,7 @@ export default function StorefrontClient() {
 
   useEffect(() => {
     if (!browseLoaded) return;
-    window.history.replaceState(window.history.state, '', catalogOpen ? browseUrl(browse) : '/shop');
+    window.history.replaceState(window.history.state, '', catalogOpen ? browseUrl(browse, window.location.pathname === '/' ? '/' : '/shop') : window.location.pathname);
   }, [browse, browseLoaded, catalogOpen]);
 
   const updateBrowse = (patch: Partial<BrowseState>) => {
@@ -248,10 +249,10 @@ export default function StorefrontClient() {
       <header className="commerce-header">
         <div className="commerce-header-main">
           <button type="button" className="commerce-menu-button" onClick={() => setMenuOpen((open) => !open)} aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} aria-controls="shop-navigation"><Menu/></button>
-          <Link href="/shop" className="commerce-logo"><Image src="/storefront/pixel-page-wordmark.png" width={265} height={53} alt={`${profile.store_name} - ${profile.tagline}`} priority unoptimized/></Link>
+          <Link href="/" className="commerce-logo"><Image src="/storefront/pixel-page-wordmark.png" width={265} height={53} alt={`${profile.store_name} - ${profile.tagline}`} priority unoptimized/></Link>
           <form className="commerce-search" role="search" onSubmit={(event) => { event.preventDefault(); setCatalogOpen(true); setMenuOpen(false); window.setTimeout(() => document.getElementById('catalog')?.scrollIntoView({ behavior: 'smooth' }), 0); }}><Search/><input aria-label="Search products" value={query} onChange={(event) => { updateBrowse({ query: event.target.value }); if (event.target.value) setCatalogOpen(true); }} placeholder="Search games, books, collectibles and more..."/><button type="submit" aria-label="Search"><Search/></button></form>
           <div className="commerce-header-actions">
-            <Link href="/shop/account" aria-label="Account"><UserRound/><span>Account</span></Link>
+            <StaffLoginLink/>
             <Link href="/shop/pages/help" aria-label="Customer care"><Heart/><span>Customer care</span></Link>
             <button type="button" aria-label={`Open cart, ${cartCount} items`} onClick={() => setCartOpen(true)}><ShoppingBag/><span>Cart</span><b>{cartCount}</b></button>
           </div>

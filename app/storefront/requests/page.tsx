@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/lib/auth-context';
@@ -27,6 +28,9 @@ async function api(path:string,body?:unknown) {
 
 export default function StorefrontRequestsPage() {
   const {accountId,isAdmin}=useAuth();
+  const params=useSearchParams();
+  const focusedOrder=params.get('order');
+  const generation=useRef({});
   const [requests,setRequests]=useState<ItemRequest[]>([]);
   const [orders,setOrders]=useState<StorefrontOrder[]>([]);
   const [products,setProducts]=useState<Product[]>([]);
@@ -43,27 +47,34 @@ export default function StorefrontRequestsPage() {
   const [notice,setNotice]=useState('');
   const [setup,setSetup]=useState('');
   const [page,setPage]=useState(0);
-  const [view,setView]=useState<'orders'|'requests'>('orders');
-  const [orderFilter,setOrderFilter]=useState('all');
+  const [view,setView]=useState<'orders'|'requests'>(params.get('view')==='requests'?'requests':'orders');
+  const [orderFilter,setOrderFilter]=useState(()=>['paid','pending','shipped','cancelled'].includes(params.get('status')||'')?params.get('status')!:'all');
   const [orderQuery,setOrderQuery]=useState('');
   const customer=requests.find(row=>row.id===selected);
 
   const load=useCallback(async()=>{
+    const current={};generation.current=current;
     if (!accountId||!isAdmin) {setLoading(false);return;}
     setLoading(true);setError('');
     try {
-      const result=await api(`/api/storefront/manage?page=${page}`);
+      const result=await api(`/api/storefront/manage?page=${page}&status=${orderFilter}${focusedOrder?`&order=${encodeURIComponent(focusedOrder)}`:''}`);
       const response=await fetch('/api/storefront/catalog',{cache:'no-store'});
       const catalog=await response.json();
       if (!response.ok||!catalog.success) throw new Error(catalog.message||'Inventory could not load.');
+      if (generation.current!==current) return;
       setRequests(result.requests);setOrders(result.orders);setProducts(catalog.products);setRates(result.shippingRates);
       setShippingRate(current=>result.shippingRates.some((rate:Rate)=>rate.id===current)?current:result.shippingRates[0]?.id||'');
       setSetup(result.setupMessage);
       setCarrierShipping(!!result.carrierShipping);
-    } catch(cause) {console.error('Storefront manager:',cause);setError(cause instanceof Error?cause.message:'Could not load requests.');}
-    finally {setLoading(false);}
-  },[accountId,isAdmin,page]);
-  useEffect(()=>{setSelected('');setLines({});load();},[load]);
+    } catch(cause) {console.error('Storefront manager:',cause);if(generation.current===current){setOrders([]);setRequests([]);setError(cause instanceof Error?cause.message:'Could not load requests.');}}
+    finally {if(generation.current===current)setLoading(false);}
+  },[accountId,isAdmin,page,orderFilter,focusedOrder]);
+  useEffect(()=>{
+    setPage(0);setOrderQuery('');
+    setView(params.get('view')==='requests'?'requests':'orders');
+    setOrderFilter(['paid','pending','shipped','cancelled'].includes(params.get('status')||'')?params.get('status')!:'all');
+  },[params]);
+  useEffect(()=>{setSelected('');setLines({});load();return()=>{generation.current={};};},[load]);
   const action=async(body:unknown)=>{
     setBusy(true);setError('');setNotice('');
     try {const result=await api('/api/storefront/manage',body);await load();setNotice(result.url?'Invoice/payment link is ready. Open or copy it from the order below.':'Action completed.');}
@@ -84,9 +95,9 @@ export default function StorefrontRequestsPage() {
   const matching=products.filter(row=>`${row.title} ${row.platform} ${row.condition}`.toLowerCase().includes(query.toLowerCase())).slice(0,40);
   const visibleOrders=orders.filter(order=>(orderFilter==='all'||order.status===orderFilter||orderFilter==='pending'&&order.status==='creating')
     && `${order.id} ${order.items.map(item=>item.title).join(' ')} ${order.shipping_quote?.customer.name||''}`.toLowerCase().includes(orderQuery.toLowerCase()))
-    .sort((a,b)=>Number(b.status==='paid')-Number(a.status==='paid')||b.created_at.localeCompare(a.created_at));
+    .sort((a,b)=>Number(b.status==='paid')-Number(a.status==='paid')||(a.status==='paid'&&b.status==='paid'?a.created_at.localeCompare(b.created_at):b.created_at.localeCompare(a.created_at)));
   return <DashboardLayout><div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-7">
-    <header className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">Pixel & Page · Fulfillment</p><h1 className="text-2xl font-bold sm:text-3xl">Shop requests & orders</h1><p className="mt-2 max-w-2xl text-sm text-muted-foreground">Review paid orders, prepare the customer-selected shipping service, and purchase postage when the package is ready. Online only; no local pickup.</p></div><div className="flex flex-wrap gap-3"><Button asChild variant="outline"><Link href="/storefront/shipping">Shipping & packages</Link></Button><Button asChild variant="outline"><Link href="/storefront">Inventory & pricing</Link></Button><Button disabled={busy||loading} onClick={load}>Refresh</Button></div></header>
+    <header className="flex flex-wrap items-start justify-between gap-4"><div><p className="mb-2 text-xs font-semibold uppercase tracking-widest text-primary">Pixel & Page · Fulfillment</p><h1 className="text-2xl font-bold sm:text-3xl">Shop requests & orders</h1><p className="mt-2 max-w-2xl text-sm text-muted-foreground">Review paid orders, prepare the customer-selected shipping service, and purchase postage when the package is ready. Online only; no local pickup.</p></div><div className="flex flex-wrap gap-3"><Button asChild variant="outline"><Link href="/business/storefront/shipping">Shipping & packages</Link></Button><Button asChild variant="outline"><Link href="/business/storefront">Inventory & pricing</Link></Button><Button disabled={busy||loading} onClick={load}>Refresh</Button></div></header>
     {!isAdmin?<p role="alert">Store administrator access is required.</p>:<>
       {error&&<p role="alert" className="rounded-lg border border-red-500 p-4 text-red-500">{error}</p>}
       {notice&&<p role="status" className="rounded-lg border p-4">{notice}</p>}
@@ -113,8 +124,9 @@ export default function StorefrontRequestsPage() {
           </article>)}
         </section>}
         {view==='orders'&&<section className="space-y-5" aria-label="Orders and invoices">
-          <div className="flex flex-wrap items-end gap-3"><label className="min-w-0 flex-1 text-sm">Find order<input className="mt-1 w-full rounded-md border bg-background p-3" value={orderQuery} onChange={e=>setOrderQuery(e.target.value)} placeholder="Item, customer, or order reference"/></label><label className="text-sm">Order status<select aria-label="Order status" className="mt-1 w-full rounded-md border bg-background p-3" value={orderFilter} onChange={e=>setOrderFilter(e.target.value)}><option value="all">All orders</option><option value="paid">Ready to ship</option><option value="pending">Awaiting payment</option><option value="shipped">Shipped</option><option value="cancelled">Cancelled</option></select></label></div>
-          <p className="text-xs text-muted-foreground">Counts, search and filters apply to this page. Paid orders are shown first.</p>
+          {focusedOrder&&<p className="rounded-lg border p-3 text-sm">Showing the linked order. <Link className="underline" href="/business/orders">Return to all orders</Link></p>}
+          <div className="flex flex-wrap items-end gap-3"><label className="min-w-0 flex-1 text-sm">Find order<input className="mt-1 w-full rounded-md border bg-background p-3" value={orderQuery} onChange={e=>setOrderQuery(e.target.value)} placeholder="Item, customer, or order reference"/></label><label className="text-sm">Order status<select aria-label="Order status" className="mt-1 w-full rounded-md border bg-background p-3" value={orderFilter} onChange={e=>{setPage(0);setOrderFilter(e.target.value);}}><option value="all">All orders</option><option value="paid">Ready to ship</option><option value="pending">Awaiting payment</option><option value="shipped">Shipped</option><option value="cancelled">Cancelled</option></select></label></div>
+          <p className="text-xs text-muted-foreground">Status filters apply before pagination. Counts and text search cover this page only. Ready-to-ship orders are oldest first.</p>
           {!visibleOrders.length&&<p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">No matching orders on this page.</p>}
           <div className={`grid items-start gap-5 ${visibleOrders.length>1?'xl:grid-cols-2':''}`}>{visibleOrders.map(order=><StorefrontOrderCard key={order.id} order={order} api={api} action={action} busy={busy} setup={setup}/>)}</div>
         </section>}

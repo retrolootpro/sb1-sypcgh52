@@ -6,18 +6,25 @@ import { CheckCircle2, Loader2, TriangleAlert } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { clearAccountContextCache } from '@/lib/account';
 import { Button } from '@/components/ui/button';
+import { staffReturnPath } from '@/lib/business-routes';
+import { resolveAccountContext } from '@/lib/account';
+import Link from 'next/link';
 
 export default function AuthCallbackPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [message, setMessage] = useState('Finishing your secure sign in...');
   const [failed, setFailed] = useState(false);
+  const [needsPassword, setNeedsPassword] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let mounted = true;
 
     async function finish() {
-      const next = searchParams.get('next') || '/dashboard';
+      const next = staffReturnPath(searchParams.get('next'));
       try {
         const code = searchParams.get('code');
         if (code) {
@@ -41,14 +48,22 @@ export default function AuthCallbackPage() {
         if (!session?.access_token) throw new Error('No sign-in session was found. Please open the latest invite email and try again.');
 
         setMessage('Connecting your team access...');
-        await fetch('/api/team/accept-invite', {
+        const response = await fetch('/api/team/accept-invite', {
           method: 'POST',
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.message || 'Team invitation could not be accepted.');
 
         clearAccountContextCache();
+        await resolveAccountContext(session.user, session.access_token);
         if (!mounted) return;
-        setMessage('All set. Opening RetroLootPro...');
+        if (searchParams.get('invite') === '1' || hashParams.get('type') === 'invite') {
+          setNeedsPassword(true);
+          setMessage('Your invitation is accepted. Set a password for future staff sign-ins.');
+          return;
+        }
+        setMessage('All set. Opening Pixel & Page Business...');
         router.replace(next);
       } catch (error) {
         if (!mounted) return;
@@ -69,21 +84,32 @@ export default function AuthCallbackPage() {
             {failed ? <TriangleAlert className="w-5 h-5 text-amber-300" /> : <CheckCircle2 className="w-5 h-5" />}
           </div>
           <div>
-            <div className="text-lg font-bold text-white/90">RetroLootPro Invite</div>
+            <div className="text-lg font-bold text-white/90">Pixel &amp; Page team access</div>
             <div className="text-xs text-muted-foreground">Team access setup</div>
           </div>
         </div>
         <div className="rounded-xl border border-border/30 bg-secondary/20 p-4">
           <div className="flex items-center gap-3">
-            {!failed && <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />}
+            {!failed && !needsPassword && <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />}
             <p className="text-sm text-white/75 leading-relaxed">{message}</p>
           </div>
+          {needsPassword && <form className="staff-login-form mt-6" onSubmit={async event => {
+            event.preventDefault(); setSaving(true); setPasswordError('');
+            try {
+              const { error } = await supabase.auth.updateUser({ password });
+              if (error) throw error;
+              router.replace(staffReturnPath(searchParams.get('next')));
+            } catch (error) { setPasswordError(error instanceof Error ? error.message : 'Password could not be saved. Please retry.'); }
+            finally { setSaving(false); }
+          }}><label>New password<input type="password" autoComplete="new-password" minLength={12} required value={password} disabled={saving} onChange={e => setPassword(e.target.value)}/></label>
+            <p className="text-sm">Use at least 12 characters.</p>{passwordError && <p role="alert">{passwordError}</p>}<button className="brand-button" disabled={saving}>{saving ? 'Saving password...' : 'Save password & open workspace'}</button></form>}
         </div>
         {failed && (
           <div className="mt-4 flex justify-end">
-            <Button onClick={() => router.replace('/')}>Back to sign in</Button>
+            <Button onClick={() => router.replace('/login')}>Back to sign in</Button>
           </div>
         )}
+        <Link href="/" className="staff-back-link mt-4">Back to the shop</Link>
       </div>
     </div>
   );

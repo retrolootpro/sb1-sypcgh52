@@ -13,9 +13,14 @@ export async function GET(request: NextRequest) {
   return commerceRoute(async () => {
     const { admin, accountId } = await requireStoreAdmin(request);
     const page = z.coerce.number().int().min(0).max(10000).parse(request.nextUrl.searchParams.get('page') || 0);
+    const orderId = z.string().uuid().nullable().parse(request.nextUrl.searchParams.get('order'));
+    const status = z.enum(['all', 'paid', 'pending', 'shipped', 'cancelled']).parse(request.nextUrl.searchParams.get('status') || 'all');
+    let orderQuery = admin.from('storefront_orders').select('*').eq('account_id', accountId);
+    if (orderId) orderQuery = orderQuery.eq('id', orderId);
+    if (status !== 'all') orderQuery = orderQuery.in('status', status === 'pending' ? ['pending', 'creating'] : [status]);
     const [requests, orders] = await Promise.all([
       admin.from('storefront_requests').select('*').eq('account_id', accountId).order('created_at', { ascending: false }).order('id').range(page*50,page*50+49),
-      admin.from('storefront_orders').select('*').eq('account_id', accountId).order('created_at', { ascending: false }).order('id').range(page*50,page*50+49),
+      orderQuery.order('created_at', { ascending: status === 'paid' }).order('id').range(page*50,page*50+49),
     ]);
     if (requests.error) throw requests.error;
     if (orders.error) throw orders.error;
