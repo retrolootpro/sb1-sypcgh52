@@ -17,6 +17,7 @@ type AuthContextType = {
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   accessError: string;
   signOut: () => Promise<void>;
+  signOutForEntry: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -108,12 +109,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signOut = async () => {
+  const endSession = async (scope: 'global' | 'local') => {
     clearAccountContextCache();
-    const { error } = await supabase.auth.signOut();
-    if (error) { console.error('Sign out:', error); setAccessError('Sign out failed. Please retry.'); return; }
-    await applyUser(null);
-    router.push('/login');
+    try {
+      const { error } = await supabase.auth.signOut({ scope });
+      if (error) throw error;
+      await applyUser(null);
+      router.push('/login');
+    } catch (error) {
+      console.error('Sign out:', error);
+      setAccessError('Sign out failed. Please retry.');
+    }
   };
 
   return (
@@ -128,7 +134,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshAccount,
         signIn,
         accessError,
-        signOut,
+        signOut: () => endSession('global'),
+        signOutForEntry: () => endSession('local'),
       }}
     >
       {children}

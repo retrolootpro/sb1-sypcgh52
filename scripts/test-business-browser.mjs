@@ -19,6 +19,7 @@ const product = { id: 'game-1', slug: 'game-1', title: 'Preview game', category:
 const order = { id, kind: 'checkout', status: 'paid', created_at: '2026-10-22T12:00:00Z', items: [{ title: 'Preview game', quantity: 1, unit_amount: 4407 }], subtotal_cents: 4407, total_cents: 4407, tax_cents: 0, shipping_cents: 0, refunded_cents: 0, customer: null, tracking: null,
   shipping_quote: { customer: { name: 'Preview customer', email: 'customer@example.invalid', address: { line1: '1 Preview Street', city: 'Test City', state: 'FL', postal_code: '32092', country: 'US' } }, rate: { name: 'USPS Ground Advantage', amount: 0, carrierAmount: 573, discount: 573 }, parcels: 1 } };
 let accountRole = 'admin', accessStatus = 200, rejectLogin = false, inviteStatus = 200, passwordUpdates = 0;
+let rejectLogout = false, localLogoutCount = 0;
 let overviewMode = 'ok', overviewCalls = 0, inventoryFailure = false;
 const inventoryOffsets = [];
 const inventory = Array.from({ length: 1002 }, (_, index) => ({
@@ -63,7 +64,12 @@ await page.route('**/auth/v1/**', route => {
   if (url.pathname.endsWith('/token')) return route.fulfill(rejectLogin
     ? { status: 400, json: { error: 'invalid_grant', error_description: 'Invalid login credentials' } }
     : { json: session });
-  if (url.pathname.endsWith('/logout')) return route.fulfill({ status: 204 });
+  if (url.pathname.endsWith('/logout')) {
+    if (url.searchParams.get('scope') === 'local') localLogoutCount++;
+    return route.fulfill(rejectLogout
+      ? { status: 400, json: { message: 'Fixture sign out rejected' } }
+      : { status: 204 });
+  }
   if (url.pathname.endsWith('/user') && route.request().method() === 'PUT') passwordUpdates++;
   return route.fulfill({ json: user });
 });
@@ -149,6 +155,23 @@ try {
   await page.goto(base);
   await page.getByRole('link', { name: 'Business workspace', exact: true }).waitFor();
   assert.equal(new URL(page.url()).pathname, '/', 'Staff can browse the storefront without being redirected');
+  rejectLogout = true;
+  await page.getByRole('link', { name: 'Business workspace', exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'Sign out failed. Please retry.' }).waitFor();
+  assert.equal(new URL(page.url()).pathname, '/', 'Failed sign out must not open the workspace');
+  rejectLogout = false;
+  await page.getByRole('link', { name: 'Business workspace', exact: true }).click();
+  await page.waitForURL(url => url.pathname === '/login');
+  await page.getByRole('textbox', { name: 'Work email', exact: true }).waitFor();
+  assert.equal(localLogoutCount, 2, 'Storefront re-entry signs out only this browser session');
+  await page.reload();
+  await page.getByRole('textbox', { name: 'Work email', exact: true }).waitFor();
+  await page.goto(`${base}/business/help`);
+  await page.waitForURL('**/login?next=**');
+  await page.getByRole('textbox', { name: 'Work email', exact: true }).fill(user.email);
+  await page.getByLabel('Password', { exact: true }).fill('fixture-only-password');
+  await page.getByRole('button', { name: 'Sign in to workspace', exact: true }).click();
+  await page.waitForURL('**/business/help');
   accountRole = 'user';
   await page.goto(`${base}/business/help`);
   await page.getByRole('heading', { name: 'Help / User Manual', exact: true }).waitFor();
@@ -256,6 +279,6 @@ try {
   assert.deepEqual(errors, []);
   console.log('Business foundation and overview browser checks passed: public root, shop Login links, private/embedded routes, invitation setup, admin/employee navigation, 320-1448px layouts, order-first overview, exact count display, shipping and order deep links, >1000 inventory rows, deduplicated review counts, estimate labels, independent failure/retry and empty states. All identity and business APIs use local fixtures.');
 } catch (error) {
-  console.error({ url: page.url(), errors, body: (await page.locator('body').innerText()).slice(-1600) });
+  console.error({ url: page.url(), errors, localLogoutCount, body: (await page.locator('body').innerText()).slice(-1600) });
   throw error;
 } finally { await browser.close(); }

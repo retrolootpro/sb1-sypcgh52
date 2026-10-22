@@ -20,6 +20,11 @@ and its validation; they are retained as implementation and testing notes.
   Historical order accounting was not backfilled.
 - Netlify publishes this application from `dev`. DNS, domain migration and
   Stripe/Shippo provider settings are outside this release.
+- Entering the business workspace through the storefront staff link ends the
+  current browser's staff session and opens the login page for a fresh sign-in.
+  Other devices are not signed out. Workspace navigation and direct bookmarks
+  retain normal verified-session behavior. Failed sign-out stays on the shop
+  with an explicit error and does not open the workspace.
 - Fixture browser tests are not a substitute for live owner/employee login,
   invitation, payment and fulfillment acceptance checks.
 - The live finance smoke check found an older database missing the nullable
