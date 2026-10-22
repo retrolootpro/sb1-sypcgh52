@@ -55,6 +55,17 @@ after(()=>db.close());
 beforeEach(()=>db.exec('BEGIN'));
 afterEach(()=>db.exec('ROLLBACK'));
 
+test('finance sale-platform compatibility preserves inventory and existing platform values',async()=>{
+  const migration=readFileSync('supabase/migrations/20261023110000_finance_sale_platform_compatibility.sql','utf8');
+  const before=(await db.query('SELECT id,quantity,purchase_price FROM inventory_items ORDER BY id')).rows;
+  await db.exec(migration);
+  assert.deepEqual((await db.query('SELECT id,quantity,purchase_price FROM inventory_items ORDER BY id')).rows,before);
+  assert.equal((await one('SELECT count(*)::integer AS count FROM inventory_items WHERE sold_via IS NOT NULL')).count,0);
+  await db.query("UPDATE inventory_items SET sold_via='show' WHERE id=$1",[item]);
+  await db.exec(migration);
+  assert.equal((await one('SELECT sold_via FROM inventory_items WHERE id=$1',[item])).sold_via,'show');
+});
+
 test('reserves once under idempotent retries and rejects cart-key reuse',async()=>{
   await reserve();await reserve();
   assert.equal((await one('SELECT quantity FROM inventory_items WHERE id=$1',[item])).quantity,1);

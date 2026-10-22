@@ -22,6 +22,11 @@ and its validation; they are retained as implementation and testing notes.
   Stripe/Shippo provider settings are outside this release.
 - Fixture browser tests are not a substitute for live owner/employee login,
   invitation, payment and fulfillment acceptance checks.
+- The live finance smoke check found an older database missing the nullable
+  `inventory_items.sold_via` field from the Shipping Hub schema.
+  `20261023110000_finance_sale_platform_compatibility.sql` supplies only this
+  reporting prerequisite without applying the unrelated Shipping Hub migration
+  or inventing historical sale platforms.
 
 ## Pixel & Page overhaul: foundation preview (not released)
 
